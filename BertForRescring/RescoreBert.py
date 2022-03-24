@@ -16,11 +16,27 @@ class RescoreBert(torch.nn.Module):
         self.use_MWER = use_MWER
         self.use_MWED = use_MWED
         self.device = device
+        self.l2_loss = torch.nn.MSELoss()
 
         self.fc = torch.nn.Linear(768,1)
     
     def adaption(self, input_id, segment, attention_mask):
-        pass
+        # random mask reference : https://github.com/jamescalam/transformers/blob/main/course/training/03_mlm_training.ipynb
+        label = input_id
+        rand = torch.rand(input_id.shape)
+        mask_index = (rand < 0.15) * (input_id != 101) * (input_id != 102) * (input != 0)
+        selection = []
+        for i in range(input_id.shape[0]):
+            selection.append(torch.flatten(mask_index[i].nonzero()).tolist())
+        
+        for i in range(input_id.shape[0]):
+            input_id[i, selection[i]] = self.mask
+        
+        output = self.teacher(input_id, segment, attention_mask, labels = label)
+
+        loss = output.loss
+
+        return loss
 
     def forward(self, input_id, segment_id ,attention_mask, first_scores, cers):
         """
@@ -65,7 +81,7 @@ class RescoreBert(torch.nn.Module):
         s_output = self.student(input_id, segment_id, attention_mask)
         s_score = self.fc(s_output[0][:, 0]).view(pll_score.shape)
 
-        total_score = s_score - pll_score
+        total_score = self.l2_loss(pll_score, s_score)
         total_loss = total_score.sum()
 
         weight_sum = first_scores + s_score

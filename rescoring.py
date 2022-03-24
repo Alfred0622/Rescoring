@@ -11,7 +11,7 @@ os.environ['CUDA_VISIBLE_DEVICES']='0'
 epochs = 1
 train_batch = 2
 test_batch = 1
-device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 load_state_dict = False
 
 FORMAT = '%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s'
@@ -136,32 +136,33 @@ accumgrad = 1
 
 # declear model
 logging.warning(f'device:{device}')
+device = torch.device(device)
 model = RescoreBert(device=device, use_MWED = True)
 optimizer = torch.optim.Adam(model.parameters(), lr = 1e-5)
 train_data = debug_loader
 
-# print("domain adaption")
-# optimizer.zero_grad()
-# for e in range(3):
-#     model.train()
-#     accum_loss = 0.0
-#     for n, data in enumerate(tqdm(train_data)):
-#         token, seg, mask, score, cer = data
-#         token = token.to(device)
-#         seg = seg.to(device)
-#         mask = mask.to(device)
-#         score = score.to(device)
-#         cer = cer.to(device)
+print("domain adaption")
+optimizer.zero_grad()
+for e in range(3):
+    model.train()
+    accum_loss = 0.0
+    for n, data in enumerate(tqdm(debug_loader)):
+        token, seg, mask, score, cer = data
+        token = token.to(device)
+        seg = seg.to(device)
+        mask = mask.to(device)
+        score = score.to(device)
+        cer = cer.to(device)
 
-#         logging.warning(f'token:{token.shape}')
+        logging.warning(f'token:{token.shape}')
         
-#         accum_loss += model.adaption(token, seg, mask, score , cer)
+        accum_loss += model.adaption(token, seg, mask)
 
-#         if ((n + 1) % accum_loss == 0):
-#             accum_loss.backward()
-#             optimizer.step()
-#             accum_loss = 0.0
-#             optimizer.zero_grad()
+        if ((n + 1) % accumgrad == 0):
+            accum_loss.backward()
+            optimizer.step()
+            accum_loss = 0.0
+            optimizer.zero_grad()
 
 # training
 print(f'training...')
