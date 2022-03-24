@@ -8,25 +8,30 @@ from transformers import BertForMaskedLM, BertModel, BertTokenizer
 class RescoreBert(torch.nn.Module):
     def __init__(self, device,weight = 0.2 ,use_MWER = False, use_MWED = False):
         torch.nn.Module.__init__(self)
-        self.teacher = BertForMaskedLM.from_pretrain("bert-base-chinese")
-        self.student = BertModel.from_pretrain("bert-base-chinese")
-        self.tokenizer = BertTokenizer.from_pretrain("bert-base_chinese")
-        self.mask = self.tokenizer.convert_tokens_to_ids["<MASK>"]
+        self.teacher = BertForMaskedLM.from_pretrained("bert-base-chinese")
+        self.student = BertModel.from_pretrained("bert-base-chinese")
+        self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
+        self.mask = self.tokenizer.convert_tokens_to_ids("[MASK]")
         self.weight = weight
         self.use_MWER = use_MWER
         self.use_MWED = use_MWED
         self.device = device
+
+        self.fc = torch.nn.Linear(768,1)
+    
+    def adaption(self, input_id, segment, attention_mask):
+        pass
 
     def forward(self, input_id, segment_id ,attention_mask, first_scores, cers):
         """
         input_id : (B, N_Best, Seq)
         segment_id : (B, Nbest, Seq)
         """
-        batch_size = input_id.shape[0]
-        nbest = input_id.shape[1]
-        input_id = input_id.view(batch_size * nbest, -1)
-        segment_id = segment_id.view(batch_size * nbest, -1)
-        attention_mask = attention_mask.view(batch_size * nbest, -1)
+        # batch_size = input_id.shape[0]
+        # nbest = input_id.shape[1]
+        # input_id = input_id.view(batch_size * nbest, -1)
+        # segment_id = segment_id.view(batch_size * nbest, -1)
+        # attention_mask = attention_mask.view(batch_size * nbest, -1)
 
         # generate PLL loss from teacher
         pll_score = []  # (batch_size, N-Best)
