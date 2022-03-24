@@ -8,8 +8,8 @@ from transformers import BertForMaskedLM, BertModel, BertTokenizer
 class RescoreBert(torch.nn.Module):
     def __init__(self, device,weight = 0.2 ,use_MWER = False, use_MWED = False):
         torch.nn.Module.__init__(self)
-        self.teacher = BertForMaskedLM.from_pretrained("bert-base-chinese")
-        self.student = BertModel.from_pretrained("bert-base-chinese")
+        self.teacher = BertForMaskedLM.from_pretrained("bert-base-chinese").to(device)
+        self.student = BertModel.from_pretrained("bert-base-chinese").to(device)
         self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
         self.mask = self.tokenizer.convert_tokens_to_ids("[MASK]")
         self.weight = weight
@@ -41,52 +41,74 @@ class RescoreBert(torch.nn.Module):
         loss_MWER = None
         loss_MWED = None
 
-        temp_pll = []
         for j in range(input_id.shape[0]): # for every hyp in this batch
             pll = 0.0
-            for k in range(1, input_id.shape[1] - 1): # for each token in this hyp
-                mask_token = input_id[j][k]
-                tmp = input_id[j][:k] + self.mask + input_id[j][k+1:]
-                tmp = torch.tensor(tmp).to(self.device)
-                    
-                outputs = self.teacher(tmp, token_type_id = segment_id)
-                prediction = outputs[0]
-                pll += torch.log_softmax(prediction[0, mask_token], -1)
-            temp_pll.append(pll)
-        pll_score.append(temp_pll)
+            token_len = torch.sum(input_id[j] != 0, dim = -1)
+            seg = segment_id[j].unsqueeze(0)
+            mask = attention_mask[j].unsqueeze(0)
+            tmp = input_id[j].unsqueeze(0)
+            for k in range(1 , token_len - 1): # for each token in this hyp (exclude padding)
+                mask_token = tmp[0][k].item() 
+                tmp[0][k] = self.mask
+                tmp = tmp.to(self.device)
+
+                outputs = self.teacher(tmp, seg, mask)
+                prediction = torch.log_softmax(outputs[0], -1)
+                
+                pll += prediction[0, k , mask_token]
+                tmp[0][k] = mask_token
+
+            pll_score.append(pll)
         
         pll_score = torch.tensor(pll_score)
 
         s_output = self.student(input_id, segment_id, attention_mask)
-        s_score = log_softmax(s_output[0][0], dim = -1)
+        s_score = self.fc(s_output[0][:, 0]).view(pll_score.shape)
 
-        total_loss = torch.sub(s_score , pll_score).sum()
+        total_score = s_score - pll_score
+        total_loss = total_score.sum()
 
         weight_sum = first_scores + s_score
-
+        
         # MWER
         if (self.use_MWER):
+            wer = torch.stack(
+                [
+                    ((s[1] + s[2] + s[3]) / (s[0] + s[1] + s[2])) for s in cers
+                ]
+            )
             p_hyp = torch.softmax(torch.neg(torch.tensor(weight_sum)), dim = -1)
-            error_hyp = [] # need to get the data of CER , shape = (Batch, N-Best)
-            avg_error = torch.full(torch.mean(cers))
+            avg_error = torch.mean(wer)
+            avg_error = torch.full(wer.shape, avg_error)
             
-            loss_MWER = p_hyp * torch.sub(cers , avg_error).sum()
+            loss_MWER = p_hyp * (wer - avg_error)
+            loss_MWER = loss_MWER.sum()
             
             total_loss += loss_MWER
         
         # MWED
         elif (self.use_MWED):
-            d_error = torch.softmax(torch.tensor(cers), dim = -1) # need to get cer tensor
-            d_score = torch.softmax(torch.tensor(s_score), dim = -1)
+            wer = torch.stack(
+                [
+                    ((s[1] + s[2] + s[3]) / (s[0] + s[1] + s[2])) for s in cers
+                ]
+            )
+            d_error = torch.softmax(wer, dim = -1)
+            d_score = torch.softmax(s_score, dim = -1)
 
-            loss_MWED = torch.nn.CrossEntropyLoss(d_error, d_score)
+            loss_MWED = d_error * torch.log(d_score)
+            loss_MWED = -(loss_MWED.sum())
             
             total_loss += loss_MWED
         return total_loss
 
     def recognize(self, input_id, segment_id, attention_mask, first_scores):
         output = self.student(input_id, segment_id, attention_mask)
-        rescore = output[0]
+        rescore = self.fc(output[0][:, 0]).view(first_scores.shape)
+        
 
-        max_sentence = torch.argmax(rescore + first_scores)
+        max_sentence = torch.argmax(first_scores + rescore)
+
         return input_id[max_sentence]
+    
+    

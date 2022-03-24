@@ -7,10 +7,11 @@ from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from BertForRescring.RescoreBert import RescoreBert
 
+os.environ['CUDA_VISIBLE_DEVICES']='0'
 epochs = 1
-train_batch = 3
-test_batch = 2
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+train_batch = 2
+test_batch = 1
+device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
 load_state_dict = False
 
 FORMAT = '%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s'
@@ -24,12 +25,13 @@ class nBestDataset(Dataset):
         self.data = nbest_list
     
     def __getitem__(self, idx):
-        return self.data[idx]['token'], \
-               self.data[idx]['segment'], \
-               self.data[idx]['score'], \
-               self.data[idx]['err']
+        return self.data[idx]['token'][:2], \
+               self.data[idx]['segment'][:2], \
+               self.data[idx]['score'][:2], \
+               self.data[idx]['err'][:2]
     def __len__(self):
         return len(self.data)
+    
 
 def createBatch(sample):
     tokens = []
@@ -90,7 +92,11 @@ for name in  load_name:
         elif (name == 'test'):
             test_json = json.load(f)
 
+debug_data = dev_json[:train_batch]
+debug_recog = dev_json[:test_batch]
 # train_set = nBestDataset(train_json)
+debug_set = nBestDataset(debug_data)
+debug_test = nBestDataset(debug_recog)
 dev_set = nBestDataset(dev_json)
 test_set = nBestDataset(test_json)
 
@@ -101,53 +107,65 @@ test_set = nBestDataset(test_json)
 #     shuffle = True,
 #     collate_fn=createBatch
 # )
+debug_loader =DataLoader(
+    dataset = debug_set,
+    batch_size = train_batch,
+    shuffle = True,
+    collate_fn=createBatch
+)
+
+debug_test =DataLoader(
+    dataset = debug_test,
+    batch_size = test_batch,
+    collate_fn= createBatch
+)
+
+
 dev_loader =DataLoader(
     dataset = dev_set,
     batch_size = test_batch,
-    shuffle = True,
     collate_fn=createBatch
 )
 test_loader = DataLoader(
     dataset = test_set,
     batch_size = test_batch,
-    shuffle = True,
     collate_fn=createBatch
 )
 
-accumgrad = 8
+accumgrad = 1
 
 # declear model
-model = RescoreBert(device=device)
+logging.warning(f'device:{device}')
+model = RescoreBert(device=device, use_MWED = True)
 optimizer = torch.optim.Adam(model.parameters(), lr = 1e-5)
-train_data = dev_set
+train_data = debug_loader
 
-print("domain adaption")
-optimizer.zero_grad()
-for e in range(3):
-    model.train()
-    accum_loss = 0.0
-    for n, data in enumerate(tqdm(train_data)):
-        token, seg, mask, score, cer = data
-        token = token.to(device)
-        seg = seg.to(device)
-        mask = mask.to(device)
-        score = score.to(device)
-        cer = cer.to(device)
+# print("domain adaption")
+# optimizer.zero_grad()
+# for e in range(3):
+#     model.train()
+#     accum_loss = 0.0
+#     for n, data in enumerate(tqdm(train_data)):
+#         token, seg, mask, score, cer = data
+#         token = token.to(device)
+#         seg = seg.to(device)
+#         mask = mask.to(device)
+#         score = score.to(device)
+#         cer = cer.to(device)
 
-        logging.warning(f'token:{token.shape}')
+#         logging.warning(f'token:{token.shape}')
         
-        accum_loss += model.adaption(token, seg, mask, score , cer)
+#         accum_loss += model.adaption(token, seg, mask, score , cer)
 
-        if ((n + 1) % accum_loss == 0):
-            accum_loss.backward()
-            optimizer.step()
-            accum_loss = 0.0
-            optimizer.zero_grad()
+#         if ((n + 1) % accum_loss == 0):
+#             accum_loss.backward()
+#             optimizer.step()
+#             accum_loss = 0.0
+#             optimizer.zero_grad()
 
 # training
 print(f'training...')
 optimizer.zero_grad()
-
 
 for e in range(epochs):
     model.train()
@@ -159,22 +177,21 @@ for e in range(epochs):
         mask = mask.to(device)
         score = score.to(device)
         cer = cer.to(device)
-
-        logging.warning(f'token:{token.shape}')
         
         accum_loss += model(token, seg, mask, score , cer)
 
-        if ((n + 1) % accum_loss == 0):
+        if ((n + 1) % accumgrad == 0):
             accum_loss.backward()
             optimizer.step()
             accum_loss = 0.0
             optimizer.zero_grad()
             
-    model.save_pretrained(f'checkpoint/checkpoint_{n+1}')
+    torch.save(model.state_dict(), "./checkpoint/checkpoint.pt")
     model.eval()
     with torch.no_grad():
         val_loss = 0.0
-        for n, token, seg, mask, score, cer in enumerate(tqdm(dev_loader)):
+        for n, data in enumerate(tqdm(debug_test)):
+            token, seg, mask, score, cer = data
             token = token.to(device)
             seg = seg.to(device)
             mask = mask.to(device)
@@ -192,13 +209,13 @@ if (load_state_dict):
     model = RescoreBert.from_pretrained(f'checkpoint/checkpoint_{last_checkpoint}')
 
 model.eval()
-
-recog_set = ['dev', 'test']
+recog_set = ['debug']
 with torch.no_grad():
-    for data in recog_set:
+    for task in recog_set:
         recog_dict = dict()
         recog_dict['utts'] = dict()
-        for n, token, seg, mask, score, cer in enumerate(tqdm(dev_loader)):
+        for n, data in enumerate(tqdm(debug_test)):
+            token, seg, mask, score, cer = data
             token = token.to(device)
             seg = seg.to(device)
             mask = mask.to(device)
@@ -207,16 +224,17 @@ with torch.no_grad():
 
             best_hyp = model.recognize(token, seg, mask, score)
             token_list = [str(t) for t in best_hyp]
-            recog_dict['utts'][f'{data}_{n}'] = dict()
-            recog_dict['utts'][f'{data}_{n}']['output'].append({
+            recog_dict['utts'][f'{task}_{n}'] = dict()
+            recog_dict['utts'][f'{task}_{n}']['output'] = {
                     'rec_text': "".join(token_list),
                     'rec_token': " ".join(token_list),
                     # 'text': groundtruth 
                 }
-        )
-
-        with open(f'data/aishell_{data}/rescore_data.json') as f:
+        
+        with open(f'data/aishell_{task}/rescore_data.json') as f:
             json.dump(recog_dict, f, ensure_ascii=False)
+
+print('Finish')
     
 
 
