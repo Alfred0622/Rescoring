@@ -6,7 +6,7 @@ from transformers import BertForMaskedLM, BertModel, BertTokenizer
 
 
 class RescoreBert(torch.nn.Module):
-    def __init__(self, device,weight = 0.2 ,use_MWER = False, use_MWED = False):
+    def __init__(self, device,weight = 1.0 ,use_MWER = False, use_MWED = False):
         torch.nn.Module.__init__(self)
         self.teacher = BertForMaskedLM.from_pretrained("bert-base-chinese").to(device)
         self.student = BertModel.from_pretrained("bert-base-chinese").to(device)
@@ -41,8 +41,7 @@ class RescoreBert(torch.nn.Module):
     def pll_scoring(self, input_id, segment_id, attention_mask):
          # generate PLL loss from teacher
         pll_score = []  # (batch_size, N-Best)
-        s_score = [] # (batch_size, N-Best)
-        
+    
         pll_input = []
         pll_seg = []
         pll_mask = []
@@ -155,12 +154,15 @@ class RescoreBert(torch.nn.Module):
     def recognize(self, input_id, segment_id, attention_mask, first_scores):
         output = self.student(input_id, segment_id, attention_mask)
         rescore = self.fc(output[0][:, 0]).view(first_scores.shape)
+
+        weighted_score = first_scores + (self.weight * rescore)
         
-        max_sentence = torch.argmax(first_scores + (self.weight * rescore))
+        max_sentence = torch.argmax(weighted_score)
+        # logging.warning(f'max_sentence:{max_sentence}')
         best_hyp = input_id[max_sentence].tolist()
         sep = best_hyp.index(102)
         best_hyp = self.tokenizer.convert_ids_to_tokens(best_hyp[1:sep])
 
-        return best_hyp
+        return rescore, weighted_score, best_hyp
     
     

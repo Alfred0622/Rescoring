@@ -7,9 +7,6 @@ from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from BertForRescring.RescoreBert import RescoreBert
 
-FORMAT = '%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s'
-logging.basicConfig(level=logging.INFO, filename='./log/train.log', filemode='w', format=FORMAT)
-
 """Basic setting"""
 adapt_epoch = 5
 epochs = 5
@@ -22,20 +19,22 @@ accumgrad = 1
 print_loss = 200
 
 use_MWER = False
-use_MWED = True
+use_MWED = False
 
-stage = 2
+stage = 3
 """"""
 
 training="MD"
 if (use_MWER):
     print('using MWER')
-    logging.warning('using MWER')
     training = "MWER"
 elif (use_MWED):
     print('using MWED')
-    logging.warning('using MWED')
     training = "MWED"
+
+
+FORMAT = '%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s'
+logging.basicConfig(level=logging.INFO, filename=f'./log/{training}_train.log', filemode='w', format=FORMAT)
 
 model_args = {'training' : None, 'state_dict': None}
 model_args['training'] = training
@@ -220,54 +219,10 @@ for name in  load_name:
         elif (name == 'test'):
             test_json = json.load(f)
 
-# debug_data = dev_json[:train_batch]
-# debug_recog = dev_json[:test_batch * 2]
-# debug_adapt_json = dev_json[:train_batch]
-
-# # for debug
-# debug_adapt = adaptionData(debug_adapt_json) # adaption
-# debug_pll = rescoreDataset(debug_data) # training
-# debug_valid = rescoreDataset(debug_data) # validation
-# debug_set = nBestDataset(debug_data) # recognition: dev
-# debug_test = rescoreDataset(debug_recog)# recognition: test
-
-# formal
 adaption_set = adaptionData(train_json)
 train_set = rescoreDataset(train_json)
 dev_set = rescoreDataset(dev_json)
 test_set = rescoreDataset(test_json)
-
-
-# """ Debug Dataloader """
-# debug_adaption_loader =  DataLoader(
-#     dataset = debug_adapt,
-#     batch_size = train_batch,
-#     collate_fn = adaptionBatch
-# )
-
-# debug_scoring_loader = DataLoader(
-#     dataset = debug_pll,
-#     batch_size = 1,
-#     collate_fn = scoringBatch
-# )
-
-# debug_valid_loader = DataLoader(
-#     dataset = debug_pll,
-#     batch_size = 1,
-#     collate_fn = scoringBatch
-# )
-
-# debug_train_loader = DataLoader(
-#     dataset = debug_set,
-#     batch_size = train_batch,
-#     collate_fn = createBatch
-# )
-
-# debug_test = DataLoader(
-#     dataset = debug_test,
-#     batch_size = test_batch,
-#     collate_fn= scoringBatch
-# )
 
 
 """Training Dataloader"""
@@ -308,9 +263,6 @@ device = torch.device(device)
 model = RescoreBert(use_MWER = use_MWER, use_MWED=use_MWED,  device=device)
 adapt_optimizer = torch.optim.AdamW(model.parameters(), lr = 3e-5)
 train_optimizer = torch.optim.AdamW(model.parameters(), lr = 1e-5)
-# train_data = train_loader
-
-pll_dict = dict()
 
 scoring_set = ['train', 'dev']
 
@@ -374,7 +326,7 @@ if (stage <= 1):
         
         with open(f'./data/aishell_{t}/token_pll.json', 'w') as f:
             json.dump(pll_data, f, ensure_ascii=False)
-    """"""
+
 
 train_json = None
 valid_json = None
@@ -400,11 +352,11 @@ valid_loader = DataLoader(
 if (stage <= 2):
     if (stage == 2):
         train_args = torch.load(f"./checkpoint/adaption/checkpoint_adapt_{adapt_epoch}.pt")
-        training = train_args['training']
         model.load_state_dict(train_args['state_dict']) 
     print(f'training...')
     train_optimizer.zero_grad()
-
+    
+    last_val = 1e8
     for e in range(epochs):
         model.train()
         accum_loss = 0.0
@@ -450,14 +402,21 @@ if (stage <= 2):
 
                 val_loss += model(token, seg , mask, score, cer, pll)
             val_loss = val_loss / len(dev_loader)
+
         logging.warning(f'epoch :{e + 1}, validation_loss:{val_loss}')
+        if (last_val - val_loss < 1e-4):
+            print('early stop')
+            logging.warning(f'early stop')
+            break
+        last_val = val_loss
         
 
 # recognizing
 if (stage <= 3):
     print(f'recognizing')
     if (stage == 3):
-        model.load_state_dict(torch.load(f"./checkpoint/checkpoint_train_MD_8.pt"))
+        model_args = torch.load(f'./checkpoint/{training}/checkpoint_train_{epochs}.pt')
+        model.load_state_dict(model_args['state_dict'])
 
     model.eval()
     recog_set = ['dev', 'test']
@@ -479,19 +438,22 @@ if (stage <= 3):
                 mask = mask.to(device)
                 score = score.to(device)
 
-                best_hyp = model.recognize(token, seg, mask, score)
+                rescore, weighted_score, best_hyp = model.recognize(token, seg, mask, score)
                 token_list = [str(t) for t in best_hyp]  # remove [CLS] and [SEP]
                 ref_list = [str(t) for t in ref[0][5:-5]]
                 recog_dict['utts'][f'{task}_{n}'] = dict()
                 recog_dict['utts'][f'{task}_{n}']['output'] = {
                         'rec_text': "".join(token_list),
                         'rec_token': " ".join(token_list),
-                        "text" : "".join(ref_list),
+                        "first_score": score.tolist(),
+                        "second_score": rescore.tolist(),
+                        "rescore": weighted_score.tolist(),
+                        "text": "".join(ref_list),
                         "text_token": " ".join(ref_list)
                     }
             
             with open(f'data/aishell_{task}/rescore/{training}_rescore_data.json', 'w') as f:
-                json.dump(recog_dict, f, ensure_ascii=False)
+                json.dump(recog_dict, f, ensure_ascii=False, indent = 2)
 
     print('Finish')
     
