@@ -8,8 +8,8 @@ from torch.nn.utils.rnn import pad_sequence
 from BertForRescring.RescoreBert import RescoreBert
 
 """Basic setting"""
-adapt_epoch = 5
-epochs = 5
+adapt_epoch = 1
+epochs = 30
 adaption_batch = 256
 train_batch = 64
 test_batch = 1
@@ -21,7 +21,11 @@ print_loss = 200
 use_MWER = False
 use_MWED = False
 
-stage = 3
+stage = 1
+
+adaption_mode = 'sequence'
+if (adaption_mode is 'sequence'):
+    adaption_batch = 32
 """"""
 
 training="MD"
@@ -279,7 +283,7 @@ if (stage <= 1):
                 seg = seg.to(device)
                 mask = mask.to(device)
                 
-                loss = model.adaption(token, seg, mask)
+                loss = model.adaption(token, seg, mask, mode = adaption_mode)
                 loss = loss / accumgrad
                 loss.backward()
                 logging_loss += loss.clone().detach().cpu()
@@ -325,7 +329,7 @@ if (stage <= 1):
             assert('pll' in data.keys()), 'PLL score not exist.'
         
         with open(f'./data/aishell_{t}/token_pll.json', 'w') as f:
-            json.dump(pll_data, f, ensure_ascii=False)
+            json.dump(pll_data, f, ensure_ascii=False, indent = 2)
 
 
 train_json = None
@@ -415,6 +419,7 @@ if (stage <= 2):
 if (stage <= 3):
     print(f'recognizing')
     if (stage == 3):
+        print(f'using checkpoint: ./checkpoint/{training}/checkpoint_train_{epochs}.pt')
         model_args = torch.load(f'./checkpoint/{training}/checkpoint_train_{epochs}.pt')
         model.load_state_dict(model_args['state_dict'])
 
@@ -422,6 +427,44 @@ if (stage <= 3):
     recog_set = ['dev', 'test']
     recog_data = None
     with torch.no_grad():
+        # find best weight
+        print(f'Finding Best weight')
+        best_cer = 100
+        best_weight = 0
+        for w in tqdm(range(100)):
+            correction = 0 # correction
+            substitution = 0 # substitution
+            deletion = 0 # deletion
+            insertion = 0 # insertion
+
+            weight = w * 0.01
+            for data in valid_loader:
+                token, seg, mask, score, cer, pll = data
+                token = token.to(device)
+                seg = seg.to(device)
+                mask = mask.to(device)
+                score = score.to(device)
+                
+
+                cer = cer.view(int(token.shape[0] / 10), -1, 4)
+            
+                _, _ , _ , max_index = model.recognize(token, seg, mask, score, batch_size = int(token.shape[0] / 10), nBest = 10 , weight = weight)
+
+                for i, j in enumerate(max_index.tolist()):
+                    correction += cer[i][j][0]
+                    substitution += cer[i][j][1]
+                    deletion += cer[i][j][2]
+                    insertion += cer[i][j][3]
+            
+            
+            cer = (substitution + deletion + insertion) / (correction + deletion + insertion)
+            logging.warning(f'weight:{weight}, cer:{cer}')
+            if (best_cer > cer):
+                print(f'update weight:{weight}, cer:{cer}\r')
+                best_cer = cer
+                best_weight = weight
+            
+        print(f'Best weight at: {best_weight}')
         for task in recog_set:
             print(f'recogizing: {task}')
             if (task == 'dev'):
@@ -438,7 +481,7 @@ if (stage <= 3):
                 mask = mask.to(device)
                 score = score.to(device)
 
-                rescore, weighted_score, best_hyp = model.recognize(token, seg, mask, score)
+                rescore, weighted_score, best_hyp, _ = model.recognize(token, seg, mask, score, weight = best_weight)
                 token_list = [str(t) for t in best_hyp]  # remove [CLS] and [SEP]
                 ref_list = [str(t) for t in ref[0][5:-5]]
                 recog_dict['utts'][f'{task}_{n}'] = dict()
