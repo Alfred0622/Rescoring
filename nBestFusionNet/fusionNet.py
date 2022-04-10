@@ -18,7 +18,7 @@ class fusionNet(nn.Module):
         )
         self.num_conv = len(self.conv)
         self.relu = nn.ReLU()
-        self.fc = nn.Linear(256, self.num_nBest)
+        self.fc = nn.Linear(256 * len(kernel_size), self.num_nBest)
     def forward(self, input, seg, mask):
         batch_size = input.shape[0]
 
@@ -27,12 +27,14 @@ class fusionNet(nn.Module):
         conv_output = []
         for conv in self.conv:
             conv_output.append(conv(output[0]))
-        conv_output = torch.stack(conv_output) # conv * B * C_out * N
+        conv_output = torch.stack(conv_output) # conv * B * C_out
         
-        conv_output = conv_output.view(1, batch_size, -1, self.num_nBest).squeeze(0)
+        # flatten
+        conv_output = conv_output.view(1, batch_size, -1).squeeze(0)
 
-        
+        score = nn.Softmax(self.fc(conv_output))
 
-        
+        return score
+    
     def recognize(self):
         pass
