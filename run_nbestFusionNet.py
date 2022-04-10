@@ -11,8 +11,8 @@ from nBestFusionNet.fusionNet import fusionNet
 epochs = 30
 train_batch = 64
 test_batch = 1
-# device = 'cpu' 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = 'cpu' 
+# device = 'cuda' if torch.cuda.is_available() else 'cpu'
 accumgrad = 1
 print_loss = 200
 

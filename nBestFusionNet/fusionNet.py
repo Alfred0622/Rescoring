@@ -30,7 +30,7 @@ class fusionNet(nn.Module):
     def forward(self, input_id, seg, mask, label):
         batch_size = int(input_id.shape[0] / self.num_nBest)
 
-        output = self.encoder(input_id, seg, mask) 
+        output = self.encoder(input_ids = input_id,token_type_ids = seg, attention_mask = mask) 
         
         logging.warning(f'output.shape before view:{output[0].shape}')
         
@@ -60,7 +60,7 @@ class fusionNet(nn.Module):
     def recognize(self, input_id, seg, mask):
         batch_size = int(input_id.shape[0] / self.num_nBest)
 
-        output = self.encoder(input_id, seg, mask)
+        output = self.encoder(input_ids = input_id,token_type_ids = seg, attention_mask = mask)
         
         output = output.view(batch_size, self.num_nBest, -1)
         
