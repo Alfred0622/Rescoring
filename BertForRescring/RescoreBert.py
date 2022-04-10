@@ -3,8 +3,6 @@ import logging
 from torch.nn.functional import log_softmax
 from transformers import BertForMaskedLM, BertModel, BertTokenizer
 
-
-
 class RescoreBert(torch.nn.Module):
     def __init__(self, device,weight = 1.0 ,use_MWER = False, use_MWED = False):
         torch.nn.Module.__init__(self)
@@ -20,23 +18,74 @@ class RescoreBert(torch.nn.Module):
 
         self.fc = torch.nn.Linear(768,1).to(device)
     
-    def adaption(self, input_id, segment, attention_mask):
+    def adaption(self, input_id, segment, attention_mask, mode = 'random'):
         # random mask reference : https://github.com/jamescalam/transformers/blob/main/course/training/03_mlm_training.ipynb
-        label = input_id
-        rand = torch.rand(input_id.shape).to(self.device)
-        mask_index = (rand < 0.15) * (input_id != 101) * (input_id != 102) * (input != 0)
-        selection = []
-        for i in range(input_id.shape[0]):
-            selection.append(torch.flatten(mask_index[i].nonzero()).tolist())
         
-        for i in range(input_id.shape[0]):
-            input_id[i, selection[i]] = self.mask
-        
-        output = self.teacher(input_id, segment, attention_mask, labels = label)
+        if (mode == 'random'):
+            label = input_id.clone().detach()
+            rand = torch.rand(input_id.shape).to(self.device)
+            mask_index = (rand < 0.15) * (input_id != 101) * (input_id != 102) * (input != 0)
+            selection = []
+            for i in range(input_id.shape[0]):
+                selection.append(torch.flatten(mask_index[i].nonzero()).tolist())
+            
+            for i in range(input_id.shape[0]):
+                input_id[i, selection[i]] = self.mask
+            label[input_id != self.mask] = -100
+            
+            output = self.teacher(input_ids = input_id, token_type_ids = segment, attention_mask = attention_mask, labels = label)
 
-        loss = output.loss
+            loss = output.loss
 
-        return loss
+            return loss
+        elif (mode == 'sequence'):
+            batch_size = input_id.shape[0]
+            
+            mlm_seq = []
+            mlm_seg = []
+            mlm_mask = []
+            labels = []
+            for i in range(batch_size):
+                id_list = input_id[i].tolist()
+                sep = id_list.index(102)
+                mask_seq = input_id[i].clone()
+                segs = segment[i].clone()
+                att_mask = attention_mask[i].clone()
+                for j in range(1, sep):
+
+                    selection = mask_seq[j].item()
+                    mask_seq[j] = self.mask
+                    mlm_seq.append(mask_seq.clone())
+                    mlm_seg.append(segs.clone())
+                    mlm_mask.append(att_mask)
+
+                    label = mask_seq.clone()
+                    label[label != self.mask] = -100
+                    label[label == self.mask] = selection
+                    labels.append(label)
+
+                    mask_seq[j] = selection
+            
+            mlm_seq = torch.stack(mlm_seq).to(self.device)
+            mlm_seg = torch.stack(mlm_seg).to(self.device)
+            mlm_mask = torch.stack(mlm_mask).to(self.device)
+            labels = torch.stack(labels).to(self.device)
+            
+            # logging.warning(f'mlm_seq.shape:{mlm_seq}')
+            # logging.warning(f'mlm_seg.shape:{mlm_seg}')
+            # logging.warning(f'mlm_mask.shape:{mlm_mask}')
+            # logging.warning(f'labels.shape:{labels}')
+
+            output = self.teacher(
+                input_ids = mlm_seq ,
+                token_type_ids = mlm_seg ,
+                attention_mask = mlm_mask,
+                labels = labels
+            )
+
+            loss = output.loss
+
+            return loss
     
     def pll_scoring(self, input_id, segment_id, attention_mask):
          # generate PLL loss from teacher
@@ -50,13 +99,17 @@ class RescoreBert(torch.nn.Module):
 
         expand_num = 0
 
+        no_token = set()
         for j in range(input_id.shape[0]): # for every hyp in this batch
             token_len = torch.sum(input_id[j] != 0, dim = -1)
+            if (token_len == 2):
+                no_token.add(j)
+                continue
+
             seg = segment_id[j]
             mask = attention_mask[j]
             tmp = input_id[j].clone()
-            
-            for k in range(1 , token_len): # for each token in this hyp (exclude padding)
+            for k in range(1 , token_len - 1): # for each token in this hyp (exclude padding)
                 to_mask = tmp[k].item()
                 tmp[k] = self.mask
 
@@ -73,20 +126,31 @@ class RescoreBert(torch.nn.Module):
         pll_seg = torch.stack(pll_seg).to(self.device)
         pll_mask = torch.stack(pll_mask).to(self.device)
         mask_index = torch.tensor(mask_index)
+        
+        # logging.warning(f'pll_seq.shape:{pll_input}')
+        # logging.warning(f'pll_seg.shape:{pll_seg}')
+        # logging.warning(f'pll_mask.shape:{pll_mask}')
+        # logging.warning(f'mask_index.shape:{mask_index}')
 
-        outputs = self.teacher(pll_input, pll_seg, pll_mask)
-        prediction = torch.softmax(outputs[0], -1)
-
+        outputs = self.teacher(input_ids = pll_input, token_type_ids = pll_seg, attention_mask = pll_mask)[0]
+        outputs = log_softmax(outputs, dim = -1)
         mask_index = torch.transpose(mask_index, 0, 1)
-        pll_score = torch.log(prediction[mask_index[0], mask_index[1], mask_index[2]]).tolist()
+        pll_score = outputs[mask_index[0], mask_index[1], mask_index[2]].tolist()
+    
         
         pll = []
+        count = 0
         accum_score = 0.0
         for i, score in enumerate(pll_score):
             accum_score += score
             if (i in seq_for_hyp):
                 pll.append( -1 * accum_score)
                 accum_score = 0.0
+                count += 1
+            if (count in no_token):
+                pll.append(1e8)
+                count += 1
+
         pll_score = torch.tensor(pll)
 
         return pll_score
@@ -107,7 +171,7 @@ class RescoreBert(torch.nn.Module):
         loss_MWER = None
         loss_MWED = None
         
-        s_output = self.student(input_id, segment_id, attention_mask)
+        s_output = self.student(input_ids = input_id, token_type_ids = segment_id,attention_mask = attention_mask)
         s_score = self.fc(s_output[0][:, 0])
         # if (s_score.shape[0] != pll_score.shape[0]):
         #     logging.warning(f'problem_token:{input_id}')
@@ -151,18 +215,32 @@ class RescoreBert(torch.nn.Module):
         
         return total_loss
 
-    def recognize(self, input_id, segment_id, attention_mask, first_scores):
-        output = self.student(input_id, segment_id, attention_mask)
+    def recognize(self, input_id, segment_id, attention_mask, first_scores, batch_size = 1, nBest = 10 , weight = 1.0):
+        output = self.student(input_ids = input_id,token_type_ids = segment_id, attention_mask = attention_mask)
         rescore = self.fc(output[0][:, 0]).view(first_scores.shape)
-
-        weighted_score = first_scores + (self.weight * rescore)
         
-        max_sentence = torch.argmax(weighted_score)
-        # logging.warning(f'max_sentence:{max_sentence}')
-        best_hyp = input_id[max_sentence].tolist()
-        sep = best_hyp.index(102)
-        best_hyp = self.tokenizer.convert_ids_to_tokens(best_hyp[1:sep])
+        # logging.warning(f'rescore.shape:{rescore.shape}')
+        # logging.warning(f'rescore:{rescore}')
+        
+        # logging.warning(f'weight:{weight}')
+        # logging.warning(f'weight * rescore : {weight * rescore}')
+        weighted_score = first_scores + (weight * rescore)
+        # logging.warning(f'weighted_score.shape:{weighted_score.shape}')
+        # logging.warning(f'weighted_score:{weighted_score}')
+        
 
-        return rescore, weighted_score, best_hyp
+        weighted_score =  weighted_score.view(batch_size, nBest)
+
+        # logging.warning(f'weighted_score.view:{weighted_score}')
+        
+        max_sentence = torch.argmax(weighted_score, dim = -1)
+        best_hyps = input_id[max_sentence].tolist()
+
+        best_hyp_tokens = []
+        for hyp in best_hyps:
+            sep = hyp.index(102)
+            best_hyp_tokens.append(self.tokenizer.convert_ids_to_tokens(hyp[1:sep]))
+
+        return rescore, weighted_score, best_hyp_tokens, max_sentence
     
     
