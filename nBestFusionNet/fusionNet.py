@@ -4,10 +4,16 @@ import logging
 import torch.nn as nn
 from torch.nn.functional import log_softmax
 from transformers import BertModel, BertTokenizer
-from torch.nn import Conv1d
+from torch.nn import Conv1d, AvgPool1d
 
 class fusionNet(nn.Module):
-    def __init__(self, device, num_nBest, kernel_size = [2,3,4], ):
+    def __init__(self,
+    device, 
+    num_nBest,
+    kernel_size = [2,3,4],
+    pooler_size = 4, 
+    pooler_stride = 4,
+    ):
         torch.nn.Module.__init__(self)
         self.device = device
         self.num_nBest = num_nBest
@@ -21,10 +27,16 @@ class fusionNet(nn.Module):
         self.num_conv = len(self.conv)
         # self.maxpool = nn.MaxPool1d()
         self.relu = nn.ReLU()
-        self.fc = nn.Linear(256, self.num_nBest).to(device)
-        self.softmax = nn.Softmax()
+        self.softmax = nn.Softmax(dim = -1)
         self.ce = nn.CrossEntropyLoss()
+        self.pooler = AvgPool1d(pooler_size, stride = pooler_stride)
 
+        self.kernel_size = torch.tensor(kernel_size)
+        conv_dim = self.num_nBest - (self.kernel_size - 1)
+        self.final_dim =  torch.floor((conv_dim - pooler_size) / pooler_stride + 1)
+        
+        total_dim = torch.sum(self.final_dim).long().item()
+        self.fc = nn.Linear(256 * total_dim, self.num_nBest).to(device)
         
 
     def forward(self, input_id, seg, mask, label):
@@ -41,16 +53,17 @@ class fusionNet(nn.Module):
         
         conv_output = []
         for i, conv in enumerate(self.conv):
-            # batch_conv = []
-            # for i in range(output.shape[0]):
-            #     batch_conv.append(conv(output[i]))
-            output = self.relu(conv(output))
-            conv_output.append(output)
-        
-        conv_output = conv_output.view(batch_size, -1).to(self.device) # flatten
+            temp_output = self.relu(conv(output))
+            temp_output = self.pooler(temp_output)
+            conv_output.append(temp_output)
+        conv_output = torch.cat(conv_output, -1)
+
+        conv_output = torch.flatten(conv_output, start_dim = 1).to(self.device) # flatten
         logging.warning(f'conv_output.shape:{conv_output.shape}')
+
+        fc_output = self.fc(conv_output)
         
-        fc_output = self.softmax(self.fc(conv_output), -1)
+        fc_output = self.softmax(fc_output)
         logging.warning(f'fc.shape:{fc_output.shape}')
 
         loss = self.ce(fc_output, label)

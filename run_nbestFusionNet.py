@@ -9,7 +9,7 @@ from nBestFusionNet.fusionNet import fusionNet
 
 """Basic setting"""
 epochs = 30
-train_batch = 64
+train_batch = 1
 test_batch = 1
 device = 'cpu' 
 # device = 'cuda' if torch.cuda.is_available() else 'cpu'
