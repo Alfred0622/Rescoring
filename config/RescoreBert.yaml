@@ -1,0 +1,23 @@
+adapt:
+  epoch: 1
+  accum_grad: 1
+  print_loss: 200
+  mode: sequence
+  # random mode batch
+  train_batch: 256
+  # sequence mode batch
+  mlm_batch: 32
+  lr: 1e-5
+
+train: 
+  epoch: 10
+  train_batch: 64
+  valid_batch: 1
+  accumgrad: 1
+  print_loss: 200
+  mode: MD
+  lr: 1e-5
+
+recog:
+  batch: 1
+  find_weight: True

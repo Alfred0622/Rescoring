@@ -1,27 +1,34 @@
+from re import L
 import torch
 import logging
 from torch.nn.functional import log_softmax
 from transformers import BertForMaskedLM, BertModel, BertTokenizer
+from torch.optim import AdamW
 
-class RescoreBert(torch.nn.Module):
-    def __init__(self, device,weight = 1.0 ,use_MWER = False, use_MWED = False):
-        torch.nn.Module.__init__(self)
-        self.teacher = BertForMaskedLM.from_pretrained("bert-base-chinese").to(device)
-        self.student = BertModel.from_pretrained("bert-base-chinese").to(device)
+class MLMBert(torch.nn.Module):
+    def __init__(
+        self, 
+        train_batch, 
+        test_batch, 
+        nBest, 
+        device, 
+        lr = 1e-5, 
+        mode = 'random'
+        ):
+        self.device = device
+        self.model = BertForMaskedLM.from_pretrained("bert-base-chinese").to(device)
         self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
         self.mask = self.tokenizer.convert_tokens_to_ids("[MASK]")
-        self.weight = weight
-        self.use_MWER = use_MWER
-        self.use_MWED = use_MWED
-        self.device = device
-        self.l2_loss = torch.nn.MSELoss()
+        self.train_batch = train_batch
+        self.test_batch = test_batch
+        self.num_nBest = nBest
+        self.mode = mode
+        self.optimizer = AdamW(self.model.parameters(), lr = lr)
 
-        self.fc = torch.nn.Linear(768,1).to(device)
-    
-    def adaption(self, input_id, segment, attention_mask, mode = 'random'):
+    def forward(self, input_id, segment, mask):
         # random mask reference : https://github.com/jamescalam/transformers/blob/main/course/training/03_mlm_training.ipynb
         
-        if (mode == 'random'):
+        if (self.mode == 'random'):
             label = input_id.clone().detach()
             rand = torch.rand(input_id.shape).to(self.device)
             mask_index = (rand < 0.15) * (input_id != 101) * (input_id != 102) * (input != 0)
@@ -33,13 +40,19 @@ class RescoreBert(torch.nn.Module):
                 input_id[i, selection[i]] = self.mask
             label[input_id != self.mask] = -100
             
-            output = self.teacher(input_ids = input_id, token_type_ids = segment, attention_mask = attention_mask, labels = label)
+            output = self.model(
+                input_ids = input_id, 
+                token_type_ids = segment,
+                attention_mask = mask,
+                labels = label
+            )
 
             loss = output.loss
 
             return loss
-        elif (mode == 'sequence'):
-            batch_size = input_id.shape[0]
+
+        elif (self.mode == 'sequence'):
+            batch_size = self.train_batch
             
             mlm_seq = []
             mlm_seg = []
@@ -50,7 +63,7 @@ class RescoreBert(torch.nn.Module):
                 sep = id_list.index(102)
                 mask_seq = input_id[i].clone()
                 segs = segment[i].clone()
-                att_mask = attention_mask[i].clone()
+                att_mask = mask[i].clone()
                 for j in range(1, sep):
 
                     selection = mask_seq[j].item()
@@ -70,11 +83,6 @@ class RescoreBert(torch.nn.Module):
             mlm_seg = torch.stack(mlm_seg).to(self.device)
             mlm_mask = torch.stack(mlm_mask).to(self.device)
             labels = torch.stack(labels).to(self.device)
-            
-            # logging.warning(f'mlm_seq.shape:{mlm_seq}')
-            # logging.warning(f'mlm_seg.shape:{mlm_seg}')
-            # logging.warning(f'mlm_mask.shape:{mlm_mask}')
-            # logging.warning(f'labels.shape:{labels}')
 
             output = self.teacher(
                 input_ids = mlm_seq ,
@@ -86,11 +94,10 @@ class RescoreBert(torch.nn.Module):
             loss = output.loss
 
             return loss
-    
-    def pll_scoring(self, input_id, segment_id, attention_mask):
+
+    def recognize(self, input_id, segment, attention_mask):
          # generate PLL loss from teacher
         pll_score = []  # (batch_size, N-Best)
-    
         pll_input = []
         pll_seg = []
         pll_mask = []
@@ -106,7 +113,7 @@ class RescoreBert(torch.nn.Module):
                 no_token.add(j)
                 continue
 
-            seg = segment_id[j]
+            seg = segment[j]
             mask = attention_mask[j]
             tmp = input_id[j].clone()
             for k in range(1 , token_len - 1): # for each token in this hyp (exclude padding)
@@ -127,16 +134,15 @@ class RescoreBert(torch.nn.Module):
         pll_mask = torch.stack(pll_mask).to(self.device)
         mask_index = torch.tensor(mask_index)
         
-        # logging.warning(f'pll_seq.shape:{pll_input}')
-        # logging.warning(f'pll_seg.shape:{pll_seg}')
-        # logging.warning(f'pll_mask.shape:{pll_mask}')
-        # logging.warning(f'mask_index.shape:{mask_index}')
 
-        outputs = self.teacher(input_ids = pll_input, token_type_ids = pll_seg, attention_mask = pll_mask)[0]
-        outputs = log_softmax(outputs, dim = -1)
+        outputs = self.model(
+            input_ids = pll_input, 
+            token_type_ids = pll_seg,
+            attention_mask = pll_mask
+        )
+        outputs = log_softmax(outputs[0], dim = -1)
         mask_index = torch.transpose(mask_index, 0, 1)
         pll_score = outputs[mask_index[0], mask_index[1], mask_index[2]].tolist()
-    
         
         pll = []
         count = 0
@@ -155,6 +161,34 @@ class RescoreBert(torch.nn.Module):
 
         return pll_score
 
+
+class RescoreBert(torch.nn.Module):
+    def __init__(
+        self, 
+        train_batch, 
+        test_batch, 
+        nBest,
+        device, 
+        weight = 1.0, 
+        use_MWER = False, 
+        use_MWED = False,
+        lr = 1e-5
+    ):
+        torch.nn.Module.__init__(self)
+        self.model= BertModel.from_pretrained("bert-base-chinese").to(device)
+        self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
+        self.train_batch = train_batch
+        self.test_batch = test_batch
+        self.nBest = nBest
+        self.weight = weight
+        self.use_MWER = use_MWER
+        self.use_MWED = use_MWED
+        self.device = device
+        self.l2_loss = torch.nn.MSELoss()
+
+        self.fc = torch.nn.Linear(768,1).to(device)
+        self.optimizer = AdamW(self.model.parameters(), lr = lr)
+        
     def forward(self, input_id, segment_id ,attention_mask, first_scores, cers, pll_score):
         """
         input_id : (B, N_Best, Seq)
@@ -171,7 +205,7 @@ class RescoreBert(torch.nn.Module):
         loss_MWER = None
         loss_MWED = None
         
-        s_output = self.student(input_ids = input_id, token_type_ids = segment_id,attention_mask = attention_mask)
+        s_output = self.model(input_ids = input_id, token_type_ids = segment_id,attention_mask = attention_mask)
         s_score = self.fc(s_output[0][:, 0])
         # if (s_score.shape[0] != pll_score.shape[0]):
         #     logging.warning(f'problem_token:{input_id}')
@@ -215,24 +249,13 @@ class RescoreBert(torch.nn.Module):
         
         return total_loss
 
-    def recognize(self, input_id, segment_id, attention_mask, first_scores, batch_size = 1, nBest = 10 , weight = 1.0):
-        output = self.student(input_ids = input_id,token_type_ids = segment_id, attention_mask = attention_mask)
+    def recognize(self, input_id, segment_id, attention_mask, first_scores, weight = 1.0):
+        output = self.model(input_ids = input_id,token_type_ids = segment_id, attention_mask = attention_mask)
         rescore = self.fc(output[0][:, 0]).view(first_scores.shape)
         
-        # logging.warning(f'rescore.shape:{rescore.shape}')
-        # logging.warning(f'rescore:{rescore}')
-        
-        # logging.warning(f'weight:{weight}')
-        # logging.warning(f'weight * rescore : {weight * rescore}')
         weighted_score = first_scores + (weight * rescore)
-        # logging.warning(f'weighted_score.shape:{weighted_score.shape}')
-        # logging.warning(f'weighted_score:{weighted_score}')
-        
+        weighted_score =  weighted_score.view(self.test_batch, self.nBest)
 
-        weighted_score =  weighted_score.view(batch_size, nBest)
-
-        # logging.warning(f'weighted_score.view:{weighted_score}')
-        
         max_sentence = torch.argmax(weighted_score, dim = -1)
         best_hyps = input_id[max_sentence].tolist()
 

@@ -9,14 +9,14 @@ from nBestFusionNet.fusionNet import fusionNet
 
 """Basic setting"""
 epochs = 30
-train_batch = 1
+train_batch = 16
 test_batch = 1
-device = 'cpu' 
-# device = 'cuda' if torch.cuda.is_available() else 'cpu'
+# device = 'cpu' 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 accumgrad = 1
 print_loss = 200
 
-stage = 1
+stage = 2
 
 """"""
 FORMAT = '%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s'
@@ -87,8 +87,8 @@ def recogBatch(sample):
     segs = []
 
     for s in sample:
-        tokens.append(s[0])
-        segs.append(s[1])
+        tokens += s[0]
+        segs += s[1]
     
     for i, t in enumerate(tokens):
         tokens[i] = torch.tensor(t)
@@ -111,7 +111,7 @@ def recogBatch(sample):
     )
     masks = masks.masked_fill(tokens != 0 , 1)
 
-    ref = [s[5] for s in sample]
+    ref = [s[4] for s in sample]
 
     return tokens, segs, masks, ref
 
@@ -123,7 +123,7 @@ test_json = None
 load_name =  ['train', 'dev', 'test'] 
 
 for name in  load_name:
-    file_name = f'./data/aishell_{name}/token.json'
+    file_name = f'./data/aishell_{name}/token_10best.json'
     with open(file_name) as f:
         if (name == 'train'):
             train_json = json.load(f)
@@ -152,6 +152,12 @@ valid_loader = DataLoader(
     batch_size = train_batch,
     collate_fn= createBatch
 ) 
+
+recog_train_loader=DataLoader(
+    dataset = train_set,
+    batch_size = test_batch,
+    collate_fn= recogBatch
+)
 
 dev_loader =DataLoader(
     dataset = dev_set,
@@ -212,15 +218,13 @@ if (stage <= 1):
         with torch.no_grad():
             val_loss = 0.0
             for n, data in enumerate(tqdm(valid_loader)):
-                token, seg, mask, score, cer, pll = data
+                token, seg, mask, label = data
                 token = token.to(device)
                 seg = seg.to(device)
                 mask = mask.to(device)
-                score = score.to(device)
-                cer = cer.to(device)
-                pll = pll.to(device)
+                label = label.to(device)
 
-                val_loss += model(token, seg , mask, score, cer, pll)
+                val_loss += model(token, seg , mask, label)
             val_loss = val_loss / len(dev_loader)
 
         logging.warning(f'epoch :{e + 1}, validation_loss:{val_loss}')
@@ -235,16 +239,19 @@ if (stage <= 1):
 if (stage <= 2):
     print(f'recognizing')
     if (stage == 2):
-        print(f'using checkpoint: ./checkpoint/nBestFusionNet/checkpoint_train_{epochs}.pt')
-        model_args = torch.load(f'./checkpoint/nBestFusionNet/checkpoint_train_{epochs}.pt')
+
+        print(f'using checkpoint: ./checkpoint/nBestFusionNet/checkpoint_train_2.pt')
+        model_args = torch.load(f'./checkpoint/nBestFusionNet/checkpoint_train_2.pt')
         model.load_state_dict(model_args)
 
     model.eval()
-    recog_set = ['dev', 'test']
+    recog_set = ['train', 'dev', 'test']
     recog_data = None
     with torch.no_grad():
         for task in recog_set:
             print(f'recogizing: {task}')
+            if (task == 'train'):
+                recog_data = recog_train_loader
             if (task == 'dev'):
                 recog_data = dev_loader
             elif (task == 'test'):

@@ -1,41 +1,59 @@
 import os
 from tqdm import tqdm
 import json
+import yaml
 import logging
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
-from BertForRescring.RescoreBert import RescoreBert
+from BertForRescring.RescoreBert import RescoreBert, MLMBert
+
 
 """Basic setting"""
-adapt_epoch = 1
-epochs = 10
-adaption_batch = 256
-train_batch = 64
-test_batch = 1
-# device = 'cpu'
+# # device = 'cpu'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-accumgrad = 1
-print_loss = 200
 
+config = f'./config/RescoreBert.yaml'
+adapt_args = dict()
+train_args = dict()
+recog_args = dict()
+
+with open(config, 'r') as f:
+    conf = yaml.load(f.read(), Loader =yaml.FullLoader)
+    adapt_args = conf['adapt']
+    train_args = conf['train']
+    recog_args = conf['recog']
+
+# adaption
+adapt_epoch = adapt_args['epoch']
+adapt_lr = adapt_args['lr']
+adapt_mode = adapt_args['mode']
+if (adapt_mode is 'sequence'):
+    adapt_batch = adapt_args['mlm_batch']
+else:
+    adaption_batch = adapt_args['train_batch']
+
+# training
+epochs = train_args['epoch']
+train_batch = train_args['train_batch']
+valid_batch = train_args['valid_batch']
+accumgrad = train_args['accum_grad']
+print_loss = train_args['print_loss']
+train_lr = train_args['lr']
+training = train_args['mode']
 use_MWER = False
 use_MWED = False
+if (training is 'MWER'):
+    use_MWER = True
+elif (training is 'MWED'):
+    use_MWED = True
 
-stage = 1
+# recognition
+recog_batch = recog_args['batch']
+find_weight = recog_batch['find_weight']
 
-adaption_mode = 'sequence'
-if (adaption_mode is 'sequence'):
-    adaption_batch = 32
 """"""
-
-training = "MD"
-if (use_MWER):
-    print('using MWER')
-    training = "MWER"
-elif (use_MWED):
-    print('using MWED')
-    training = "MWED"
-
+stage = 1
 
 FORMAT = '%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s'
 logging.basicConfig(level=logging.INFO,
@@ -46,8 +64,6 @@ model_args = {'training': None, 'state_dict': None,
 model_args['training'] = training
 
 """ Methods """
-
-
 class adaptionData(Dataset):
     def __init__(self, nbest_list):
         self.data = nbest_list
@@ -96,9 +112,7 @@ class rescoreDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-# Fro domain adaption
-
-
+# For domain adaption
 def adaptionBatch(sample):
     tokens = [torch.tensor(s[0]) for s in sample]
     segs = [torch.tensor(s[1]) for s in sample]
@@ -122,8 +136,6 @@ def adaptionBatch(sample):
     return tokens, segs, masks
 
 # pll scoring & recognizing
-
-
 def scoringBatch(sample):
     name = [s[0] for s in sample]
 
@@ -165,8 +177,6 @@ def scoringBatch(sample):
     return name[0], tokens, segs, masks, torch.tensor(scores), ref
 
 #  MD distillation
-
-
 def createBatch(sample):
 
     tokens = []
@@ -235,7 +245,7 @@ adaption_set = adaptionData(train_json)
 train_set = rescoreDataset(train_json)
 dev_set = rescoreDataset(dev_json)
 test_set = rescoreDataset(test_json)
-
+num_nBest = len(train_json[0]['token'])
 
 """Training Dataloader"""
 adaption_loader = DataLoader(
@@ -247,24 +257,24 @@ adaption_loader = DataLoader(
 
 scoring_loader = DataLoader(
     dataset=train_set,
-    batch_size=1,
+    batch_size=valid_batch,
     collate_fn=scoringBatch
 )
 
 dev_scoring_loader = DataLoader(
     dataset=dev_set,
-    batch_size=1,
+    batch_size=recog_batch,
     collate_fn=scoringBatch
 )
 
 dev_loader = DataLoader(
     dataset=dev_set,
-    batch_size=test_batch,
+    batch_size=recog_batch,
     collate_fn=scoringBatch
 )
 test_loader = DataLoader(
     dataset=test_set,
-    batch_size=test_batch,
+    batch_size=recog_batch,
     collate_fn=scoringBatch
 )
 
@@ -272,15 +282,31 @@ test_loader = DataLoader(
 """Init model"""
 logging.warning(f'device:{device}')
 device = torch.device(device)
-model = RescoreBert(use_MWER=use_MWER, use_MWED=use_MWED,  device=device)
-adapt_optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
-train_optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5)
+
+teacher = MLMBert(
+    train_batch=train_batch, 
+    test_batch=recog_batch,
+    nBest=num_nBest,
+    device=device,
+    mode=adapt_mode,
+    lr=adapt_lr,
+)
+
+model = RescoreBert(
+    train_batch=train_batch,
+    test_batch=recog_batch,
+    nBest=num_nBest,
+    use_MWER=use_MWER, 
+    use_MWED=use_MWED, 
+    device=device,
+    lr = train_lr,
+)
 
 scoring_set = ['train', 'dev']
 
 if (stage <= 1):
-    print(f"domain adaption : {adaption_mode} mode")
-    adapt_optimizer.zero_grad()
+    print(f"domain adaption : {adapt_mode} mode")
+    teacher.optimizer.zero_grad()
     if (adapt_epoch > 0):
         for e in range(adapt_epoch):
             model.train()
@@ -291,14 +317,14 @@ if (stage <= 1):
                 seg = seg.to(device)
                 mask = mask.to(device)
 
-                loss = model.adaption(token, seg, mask, mode=adaption_mode)
+                loss = teacher(token, seg, mask)
                 loss = loss / accumgrad
                 loss.backward()
                 logging_loss += loss.clone().detach().cpu()
 
                 if (((n + 1) % accumgrad == 0) or ((n + 1) == len(adaption_loader))):
-                    adapt_optimizer.step()
-                    adapt_optimizer.zero_grad()
+                    teacher.optimizer.step()
+                    teacher.optimizer.zero_grad()
 
                 if ((n + 1) % print_loss == 0):
                     logging.warning(
@@ -376,7 +402,7 @@ if (stage <= 3):
             f"./checkpoint/adaption/checkpoint_adapt_{adapt_epoch}.pt")
         model.load_state_dict(train_args['state_dict'])
     print(f'training...')
-    train_optimizer.zero_grad()
+    model.optimizer.zero_grad()
 
     last_val = 1e8
     for e in range(epochs):
@@ -401,8 +427,8 @@ if (stage <= 3):
             logging_loss += loss.clone().detach().cpu()
 
             if ((n + 1) % accumgrad == 0 or (n + 1) == len(train_loader)):
-                train_optimizer.step()
-                train_optimizer.zero_grad()
+                model.optimizer.step()
+                model.optimizer.zero_grad()
 
             if ((n + 1) % print_loss == 0):
                 logging.warning(
@@ -433,8 +459,6 @@ if (stage <= 3):
             logging.warning(f'early stop')
             break
         last_val = val_loss
-
-find_weight = True
 
 # recognizing
 if (stage <= 4):

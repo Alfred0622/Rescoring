@@ -44,12 +44,12 @@ class fusionNet(nn.Module):
 
         output = self.encoder(input_ids = input_id,token_type_ids = seg, attention_mask = mask) 
         
-        logging.warning(f'output.shape before view:{output[0].shape}')
+        # logging.warning(f'output.shape before view:{output[0].shape}')
         
         output = output[0][:, 0]
         output = output.unsqueeze(0).view(batch_size, self.num_nBest, -1)
         output = torch.transpose(output, 1, 2)
-        logging.warning(f'output.shape:{output.shape}')
+        # logging.warning(f'output.shape:{output.shape}')
         
         conv_output = []
         for i, conv in enumerate(self.conv):
@@ -59,34 +59,42 @@ class fusionNet(nn.Module):
         conv_output = torch.cat(conv_output, -1)
 
         conv_output = torch.flatten(conv_output, start_dim = 1).to(self.device) # flatten
-        logging.warning(f'conv_output.shape:{conv_output.shape}')
+        # logging.warning(f'conv_output.shape:{conv_output.shape}')
 
         fc_output = self.fc(conv_output)
         
         fc_output = self.softmax(fc_output)
-        logging.warning(f'fc.shape:{fc_output.shape}')
+        # logging.warning(f'fc.shape:{fc_output.shape}')
 
         loss = self.ce(fc_output, label)
 
         return loss
         
     def recognize(self, input_id, seg, mask):
-        batch_size = int(input_id.shape[0] / self.num_nBest)
-
+        
+        input_id = input_id.squeeze(0)
+        seg = seg.squeeze(0)
+        mask = mask.squeeze(0)
         output = self.encoder(input_ids = input_id,token_type_ids = seg, attention_mask = mask)
         
-        output = output.view(batch_size, self.num_nBest, -1)
+        output = output[0][:, 0]
+        output = output.unsqueeze(0).view(1, self.num_nBest, -1)
+        output = torch.transpose(output, 1, 2)
+        # logging.warning(f'output.shape:{output.shape}')
         
         conv_output = []
         for i, conv in enumerate(self.conv):
-            conv_output.append(conv(output[0]))
+            temp_output = self.relu(conv(output))
+            temp_output = self.pooler(temp_output)
+            conv_output.append(temp_output)
+        conv_output = torch.cat(conv_output, -1)
 
-            
-        conv_output = torch.stack(conv_output) # conv * B * C_out * N
+        conv_output = torch.flatten(conv_output, start_dim = 1).to(self.device) # flatten
+        # logging.warning(f'conv_output.shape:{conv_output.shape}')
+
+        fc_output = self.fc(conv_output)
         
-        conv_output = conv_output.view(batch_size, -1).to(self.device)
-        
-        fc_output = self.softmax(self.fc(conv_output), -1)
+        fc_output = self.softmax(fc_output)
 
         max_index = torch.argmax(fc_output)
         best_hyp = input_id[max_index].tolist()
