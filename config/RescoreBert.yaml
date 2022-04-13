@@ -1,3 +1,4 @@
+stage: 0
 adapt:
   epoch: 1
   accum_grad: 1

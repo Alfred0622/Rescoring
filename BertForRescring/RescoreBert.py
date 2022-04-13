@@ -1,4 +1,3 @@
-from re import L
 import torch
 import logging
 from torch.nn.functional import log_softmax
@@ -194,11 +193,6 @@ class RescoreBert(torch.nn.Module):
         input_id : (B, N_Best, Seq)
         segment_id : (B, Nbest, Seq)
         """
-        # batch_size = input_id.shape[0]
-        # nbest = input_id.shape[1]
-        # input_id = input_id.view(batch_size * nbest, -1)
-        # segment_id = segment_id.view(batch_size * nbest, -1)
-        # attention_mask = attention_mask.view(batch_size * nbest, -1)
         
         total_loss = 0.0
                 
@@ -207,9 +201,6 @@ class RescoreBert(torch.nn.Module):
         
         s_output = self.model(input_ids = input_id, token_type_ids = segment_id,attention_mask = attention_mask)
         s_score = self.fc(s_output[0][:, 0])
-        # if (s_score.shape[0] != pll_score.shape[0]):
-        #     logging.warning(f'problem_token:{input_id}')
-        #     logging.warning(f'mask_num:{pll_score.shape[0]}')
             
         total_loss = self.l2_loss(pll_score, s_score.view(pll_score.shape))
         
@@ -246,6 +237,13 @@ class RescoreBert(torch.nn.Module):
             loss_MWED = -(loss_MWED.sum())
             
             total_loss = loss_MWED + 1e-4 * total_loss
+        
+        if (not self.training):
+            weight_sum = weight_sum.view(self.test_batch, self.nBest)
+            cers = cers.view(self.test_batch, self.nBest, -1)
+            best_hyp = torch.argmax(weight_sum)
+
+            return total_loss, cers[best_hyp]
         
         return total_loss
 
