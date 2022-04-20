@@ -1,29 +1,44 @@
 import os
 from tqdm import tqdm
 import json
+import yaml
 import logging
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from nBestFusionNet.fusionNet import fusionNet
+import random
 
+random.seed(42)
+torch.manual_seed(42)
+torch.cuda.manual_seed(42)
+
+FORMAT = '%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s'
+logging.basicConfig(level=logging.INFO, filename=f'./log/nBestFusionNet/train.log', filemode='w', format=FORMAT)
 """Basic setting"""
-epochs = 30
-train_batch = 16
-test_batch = 1
+config = './config/nBestFusionNet.yaml'
+stage = 0
+train_args = dict()
+recog_args = dict()
+
+with open(config, 'r') as f:
+    conf = yaml.load(f.read(), Loader=yaml.FullLoader)
+    stage = conf['stage']
+    train_args = conf['train']
+    recog_args = conf['recog']
+
+epochs = train_args['epoch']
+train_batch = train_args['train_batch']
+test_batch = recog_args['batch']
+
+accumgrad = train_args['accumgrad']
+print_loss = train_args['print_loss']
+
 # device = 'cpu' 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 if (torch.cuda.is_available()):
     torch.backends.cudnn.benchmark = True
-accumgrad = 1
-print_loss = 200
-
-stage = 0
-
 """"""
-FORMAT = '%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s'
-logging.basicConfig(level=logging.INFO, filename=f'./log/nBestFusionNet/train.log', filemode='w', format=FORMAT)
-
 
 """ Methods """
 
@@ -132,7 +147,10 @@ test_set = nBestDataset(test_json)
 train_loader = DataLoader(
     dataset = train_set,
     batch_size = train_batch,
-    collate_fn= createBatch
+    collate_fn= createBatch,
+    shuffle=True,
+    pin_memory=True,
+    num_workers=4
 )
 
 valid_loader = DataLoader(
@@ -165,12 +183,6 @@ logging.warning(f'device:{device}')
 device = torch.device(device)
 model = fusionNet(device = device, num_nBest=nBest)
 
-scheduler = torch.optim.lr_scheduler.CyclicLR(
-            model.optimizer, 
-            base_lr = 1e-4, 
-            max_lr=0.02,
-            cycle_momentum=False,
-        )
 
 scoring_set = ['train', 'dev']
 
@@ -200,7 +212,7 @@ if (stage <= 1):
 
             if ((n + 1) % accumgrad == 0 or (n + 1) == len(train_loader)):
                 model.optimizer.step()
-                scheduler.step()
+                model.scheduler.step()
 
             if ((n + 1) % print_loss == 0):
                 logging.warning(f'Training epoch:{e + 1} step:{n + 1}, training loss:{logging_loss}')

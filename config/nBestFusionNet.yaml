@@ -2,11 +2,12 @@ stage: 0
 
 train: 
   epoch: 10
-  train_batch: 16
+  train_batch: 64
   valid_batch: 1
   accumgrad: 1
   print_loss: 200
   lr: 1e-5
+  max_lr: 5e-4
 
 recog:
   batch: 1
