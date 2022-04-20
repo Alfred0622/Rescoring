@@ -1,0 +1,27 @@
+stage: 0
+adapt:
+  epoch: 1
+  accum_grad: 1
+  print_loss: 200
+  mode: sequence
+  # random mode batch
+  train_batch: 256
+  # sequence mode batch
+  mlm_batch: 32
+  lr: 1e-5
+
+train: 
+  epoch: 10
+  train_batch: 10
+  valid_batch: 1
+  accumgrad: 1
+  print_loss: 200
+  mode: MD
+  lr: 1e-5
+  train_json: /work/jason90255/rescoring/data/aishell_train/15best_token.json
+  dev_json: /work/jason90255/rescoring/data/aishell_dev/15best_token.json
+  test_json: /work/jason90255/rescoring/data/aishell_test/15best_token.json
+
+recog:
+  batch: 1
+  find_weight: True

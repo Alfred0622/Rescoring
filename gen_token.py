@@ -12,8 +12,8 @@ dataset = ['train', 'dev', 'test'] # train
 
 for d in dataset:
     print(d)
-    json_file = f'./data/aishell_{d}/dataset.json'
-    w_json = f'./data/aishell_{d}/token.json'
+    json_file = f'./data/aishell_{d}/15best_dataset.json'
+    w_json = f'./data/aishell_{d}/15best_token.json'
     with open(json_file, 'r') as f, open(w_json, 'w') as fw :
         j = json.load(f)
         for i, element in enumerate(j):
