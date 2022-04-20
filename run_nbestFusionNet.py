@@ -13,10 +13,12 @@ train_batch = 16
 test_batch = 1
 # device = 'cpu' 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+if (torch.cuda.is_available()):
+    torch.backends.cudnn.benchmark = True
 accumgrad = 1
 print_loss = 200
 
-stage = 2
+stage = 0
 
 """"""
 FORMAT = '%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s'
@@ -34,9 +36,7 @@ class nBestDataset(Dataset):
     
     def __getitem__(self, idx):
         return self.data[idx]['token'],\
-               self.data[idx]['segment'],\
                self.data[idx]['ref_token'],\
-               self.data[idx]['ref_seg'],\
                self.data[idx]['ref'],\
                
     def __len__(self):
@@ -46,28 +46,23 @@ class nBestDataset(Dataset):
 def createBatch(sample):
     tokens = []
     label = []
-    segs = []
     for s in sample:
-        label_index = torch.randint(low = 0, high = len(s[0]), size = (1,) ).item()
-        s[0][label_index] = s[2]
-        s[1][label_index] = s[3]
+        if (s[1] in s[0]):
+            label_index = s[0].index(s[1])
+            label.append(label_index)
+        else:
+            label_index = torch.randint(low = 0, high = len(s[0]), size = (1,) ).item()
+            s[0][label_index] = s[1]
+            label.append(label_index)
+        
+        assert (s[1] in s[0]), "no reference in training batch"
         tokens += s[0]
-        segs += s[1]
-        label.append(label_index)
-    
-    
+
     for i, t in enumerate(tokens):
         tokens[i] = torch.tensor(t)
-    for i, s in enumerate(segs):
-        segs[i] = torch.tensor(s)
     
     tokens = pad_sequence(
         tokens,
-        batch_first = True
-    )
-
-    segs = pad_sequence(
-        segs,
         batch_first = True
     )
 
@@ -79,7 +74,7 @@ def createBatch(sample):
 
     label = torch.tensor(label)
  
-    return tokens, segs, masks, label
+    return tokens, masks, label
 
 # for recognition dataloader
 def recogBatch(sample):
@@ -88,20 +83,13 @@ def recogBatch(sample):
 
     for s in sample:
         tokens += s[0]
-        segs += s[1]
     
     for i, t in enumerate(tokens):
         tokens[i] = torch.tensor(t)
-    for i, s in enumerate(segs):
-        segs[i] = torch.tensor(s)
+
     
     tokens = pad_sequence(
         tokens,
-        batch_first = True
-    )
-
-    segs = pad_sequence(
-        segs,
         batch_first = True
     )
 
@@ -111,9 +99,9 @@ def recogBatch(sample):
     )
     masks = masks.masked_fill(tokens != 0 , 1)
 
-    ref = [s[4] for s in sample]
+    ref = [s[2] for s in sample]
 
-    return tokens, segs, masks, ref
+    return tokens, masks, ref
 
 print(f'Prepare data')
 train_json = None
@@ -176,14 +164,20 @@ test_loader = DataLoader(
 logging.warning(f'device:{device}')
 device = torch.device(device)
 model = fusionNet(device = device, num_nBest=nBest)
-train_optimizer = torch.optim.Adam(model.parameters(), lr = 1e-4)
+
+scheduler = torch.optim.lr_scheduler.CyclicLR(
+            model.optimizer, 
+            base_lr = 1e-4, 
+            max_lr=0.02,
+            cycle_momentum=False,
+        )
 
 scoring_set = ['train', 'dev']
 
 if (stage <= 1):
     """training"""
     
-    train_optimizer.zero_grad()
+    model.optimizer.zero_grad()
     
     last_val = 1e8
     for e in range(epochs):
@@ -193,21 +187,20 @@ if (stage <= 1):
         for n, data in enumerate(tqdm(train_loader)):
             # if (n < 16000):
             #     continue
-            token, seg, mask, label = data
+            token, mask, label = data
             token = token.to(device)
-            seg = seg.to(device)
             mask = mask.to(device)
             label = label.to(device)
             
-            loss = model(token, seg, mask, label)
+            loss = model(token, mask, label)
             loss = loss / accumgrad
             loss.backward()
 
             logging_loss += loss.clone().detach().cpu()
 
             if ((n + 1) % accumgrad == 0 or (n + 1) == len(train_loader)):
-                train_optimizer.step()
-                train_optimizer.zero_grad()
+                model.optimizer.step()
+                scheduler.step()
 
             if ((n + 1) % print_loss == 0):
                 logging.warning(f'Training epoch:{e + 1} step:{n + 1}, training loss:{logging_loss}')
@@ -218,21 +211,19 @@ if (stage <= 1):
         with torch.no_grad():
             val_loss = 0.0
             for n, data in enumerate(tqdm(valid_loader)):
-                token, seg, mask, label = data
+                token, mask, label = data
                 token = token.to(device)
-                seg = seg.to(device)
                 mask = mask.to(device)
                 label = label.to(device)
 
-                val_loss += model(token, seg , mask, label)
+                val_loss += model(token, mask, label)
             val_loss = val_loss / len(dev_loader)
-
-        logging.warning(f'epoch :{e + 1}, validation_loss:{val_loss}')
-        if (last_val - val_loss < 1e-4):
-            print('early stop')
-            logging.warning(f'early stop')
-            break
-        last_val = val_loss
+            logging.warning(f'epoch :{e + 1}, validation_loss:{val_loss}')
+        # if (last_val - val_loss < 1e-4):
+        #     print('early stop')
+        #     logging.warning(f'early stop')
+        #     break
+        # last_val = val_loss
         
 
 # recognizing
@@ -260,12 +251,11 @@ if (stage <= 2):
             recog_dict = dict()
             recog_dict['utts'] = dict()
             for n, data in enumerate(tqdm(recog_data)):
-                token, seg, mask, ref = data
+                token, mask, ref = data
                 token = token.to(device)
-                seg = seg.to(device)
                 mask = mask.to(device)
 
-                best_hyp = model.recognize(token, seg, mask)
+                best_hyp = model.recognize(token, mask)
                 token_list = [str(t) for t in best_hyp]  # remove [CLS] and [SEP]
                 ref_list = [str(t) for t in ref[0][5:-5]]
                 recog_dict['utts'][f'{task}_{n}'] = dict()

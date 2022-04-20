@@ -7,10 +7,11 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from BertForRescring.RescoreBert import RescoreBert, MLMBert
+from transformers import BertTokenizer
 
 
 """Basic setting"""
-# # device = 'cpu'
+# device = 'cpu'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 config = f'./config/RescoreBert.yaml'
@@ -19,43 +20,45 @@ train_args = dict()
 recog_args = dict()
 
 with open(config, 'r') as f:
-    conf = yaml.load(f.read(), Loader =yaml.FullLoader)
+    conf = yaml.load(f.read(), Loader=yaml.FullLoader)
     stage = conf['stage']
     adapt_args = conf['adapt']
     train_args = conf['train']
     recog_args = conf['recog']
 
+print(f'stage:{stage}')
 # adaption
 adapt_epoch = adapt_args['epoch']
-adapt_lr = adapt_args['lr']
+adapt_lr = float(adapt_args['lr'])
 adapt_mode = adapt_args['mode']
-if (adapt_mode is 'sequence'):
+
+if (adapt_mode == 'sequence'):
     adapt_batch = adapt_args['mlm_batch']
 else:
-    adaption_batch = adapt_args['train_batch']
+    adapt_batch = adapt_args['train_batch']
+
 
 # training
 epochs = train_args['epoch']
 train_batch = train_args['train_batch']
-valid_batch = train_args['valid_batch']
-accumgrad = train_args['accum_grad']
+accumgrad = train_args['accumgrad']
 print_loss = train_args['print_loss']
-train_lr = train_args['lr']
+train_lr = float(train_args['lr'])
 
 training = train_args['mode']
 use_MWER = False
 use_MWED = False
-if (training is 'MWER'):
+print(f'training mode:{training}')
+if (training == 'MWER'):
     use_MWER = True
-elif (training is 'MWED'):
+elif (training == 'MWED'):
     use_MWED = True
 
 # recognition
 recog_batch = recog_args['batch']
-find_weight = recog_batch['find_weight']
+find_weight = recog_args['find_weight']
 
 """"""
-stage = 1
 
 FORMAT = '%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s'
 logging.basicConfig(level=logging.INFO,
@@ -70,12 +73,14 @@ adapt_checkpoint = {
 train_checkpoint = {
     'training': None,
     'state_dict': None,
-    'optimizer': None, 
+    'optimizer': None,
     'last_val_loss': None
 }
 train_checkpoint['training'] = training
 
 """ Methods """
+
+
 class adaptionData(Dataset):
     def __init__(self, nbest_list):
         self.data = nbest_list
@@ -119,12 +124,15 @@ class rescoreDataset(Dataset):
             self.data[idx]['token'],\
             self.data[idx]['segment'],\
             self.data[idx]['score'],\
-            self.data[idx]['ref']
+            self.data[idx]['ref'],\
+            self.data[idx]['err']
 
     def __len__(self):
         return len(self.data)
 
 # For domain adaption
+
+
 def adaptionBatch(sample):
     tokens = [torch.tensor(s[0]) for s in sample]
     segs = [torch.tensor(s[1]) for s in sample]
@@ -148,6 +156,8 @@ def adaptionBatch(sample):
     return tokens, segs, masks
 
 # pll scoring & recognizing
+
+
 def scoringBatch(sample):
     name = [s[0] for s in sample]
 
@@ -164,6 +174,8 @@ def scoringBatch(sample):
         scores += s[3]
 
     ref = [s[4] for s in sample]
+
+    cer = [s[5] for s in sample]
 
     for i, t in enumerate(tokens):
         tokens[i] = torch.tensor(t)
@@ -186,12 +198,13 @@ def scoringBatch(sample):
     )
     masks = masks.masked_fill(tokens != 0, 1)
 
-    return name[0], tokens, segs, masks, torch.tensor(scores), ref
+    return name[0], tokens, segs, masks, torch.tensor(scores), ref, cer
 
 #  MD distillation
 def createBatch(sample):
-
+    
     tokens = []
+    
     for s in sample:
         tokens += s[0]
 
@@ -236,22 +249,17 @@ def createBatch(sample):
     return tokens, segs, masks, torch.tensor(scores), torch.tensor(cers), pll
 
 
-print(f'Prepare data')
 train_json = None
 dev_json = None
 test_json = None
-stage = 0
-load_name = ['train', 'dev', 'test']
+print(f'Prepare data')
+with open(train_args['train_json']) as f, \
+     open(train_args['dev_json']) as d, \
+     open(train_args['test_json']) as t:
+    train_json = json.load(f)
+    dev_json = json.load(d)
+    test_json = json.load(t)
 
-for name in load_name:
-    file_name = f'./data/aishell_{name}/token.json'
-    with open(file_name) as f:
-        if (name == 'train'):
-            train_json = json.load(f)
-        elif (name == 'dev'):
-            dev_json = json.load(f)
-        elif (name == 'test'):
-            test_json = json.load(f)
 
 adaption_set = adaptionData(train_json)
 train_set = rescoreDataset(train_json)
@@ -262,32 +270,31 @@ num_nBest = len(train_json[0]['token'])
 """Training Dataloader"""
 adaption_loader = DataLoader(
     dataset=adaption_set,
-    batch_size=adaption_batch,
-    shuffle = True,
-    collate_fn=adaptionBatch
+    batch_size=adapt_batch,
+    shuffle=True,
+    collate_fn=adaptionBatch,
 )
 
 scoring_loader = DataLoader(
-    dataset=train_set,
-    batch_size=valid_batch,
-    collate_fn=scoringBatch
+    dataset = train_set,
+    batch_size = recog_batch,
+    collate_fn = scoringBatch,
+    pin_memory = True,
+    num_workers = 3
 )
 
-dev_scoring_loader = DataLoader(
-    dataset=dev_set,
-    batch_size=recog_batch,
-    collate_fn=scoringBatch
-)
 
 dev_loader = DataLoader(
     dataset=dev_set,
     batch_size=recog_batch,
-    collate_fn=scoringBatch
+    collate_fn=scoringBatch,
+    pin_memory=True,
 )
 test_loader = DataLoader(
     dataset=test_set,
     batch_size=recog_batch,
-    collate_fn=scoringBatch
+    collate_fn=scoringBatch,
+    pin_memory=True,
 )
 
 
@@ -296,7 +303,7 @@ logging.warning(f'device:{device}')
 device = torch.device(device)
 
 teacher = MLMBert(
-    train_batch=train_batch, 
+    train_batch=adapt_batch,
     test_batch=recog_batch,
     nBest=num_nBest,
     device=device,
@@ -308,13 +315,16 @@ model = RescoreBert(
     train_batch=train_batch,
     test_batch=recog_batch,
     nBest=num_nBest,
-    use_MWER=use_MWER, 
-    use_MWED=use_MWED, 
+    use_MWER=use_MWER,
+    use_MWED=use_MWED,
     device=device,
-    lr = train_lr,
+    lr=train_lr,
+    weight=0.59
 )
 
-scoring_set = ['train', 'dev']
+tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
+
+scoring_set = ['train', 'dev', 'test']
 
 if (stage <= 1):
     adapt_loss = []
@@ -343,17 +353,17 @@ if (stage <= 1):
                     logging.warning(
                         f'Adaption epoch :{e + 1} step:{n + 1}, adaption loss:{logging_loss}'
                     )
-                    adapt_loss.append(print_loss)
+                    adapt_loss.append(logging_loss / print_loss)
                     logging_loss = 0.0
             adapt_checkpoint['state_dict'] = teacher.model.state_dict()
             adapt_checkpoint['optimizer'] = teacher.optimizer.state_dict()
             torch.save(
                 adapt_checkpoint, f"./checkpoint/adaption/checkpoint_adapt_{e + 1}.pt"
             )
-        
-        if (not os.path.exist('./log/RescorBert')):
-            os.makedirs('./log/RescorBert')
-        torch.save(adapt_loss, './log/adaption_loss')
+
+        if (not os.path.exists('./log/RescoreBert')):
+            os.makedirs('./log/RescoreBert')
+        torch.save(adapt_loss, './log/RescoreBert/adaption_loss.pt')
 
 if (stage <= 2):
     """PLL Scoring"""
@@ -362,8 +372,8 @@ if (stage <= 2):
         adapt_checkpoint = torch.load(
             f"./checkpoint/adaption/checkpoint_adapt_{adapt_epoch}.pt"
         )
-        teacher.model.load_state_dict(train_args['state_dict'])
-    
+        teacher.model.load_state_dict(adapt_checkpoint['state_dict'])
+
     model.eval()
     pll_data = train_json
     pll_loader = scoring_loader
@@ -371,20 +381,24 @@ if (stage <= 2):
         if (t == 'train'):
             pll_data = train_json
             pll_loader = scoring_loader
-            
+
         elif (t == 'dev'):
             pll_data = dev_json
-            pll_loader = dev_scoring_loader
-            
+            pll_loader = dev_loader
+
+        elif (t == 'test'):
+            pll_data = test_json
+            pll_loader = test_loader
+
         with torch.no_grad():
             for n, data in enumerate(tqdm(pll_loader)):
-                name, token, seg, mask, _, _ = data
-                
+                name, token, seg, mask, _, _, _ = data
+
                 token = token.to(device)
                 seg = seg.to(device)
                 mask = mask.to(device)
-                    
-                pll_score = model.pll_scoring(token, seg, mask)
+
+                pll_score = teacher.recognize(token, seg, mask)
 
                 # train_json during training
                 for i, data in enumerate(pll_data):
@@ -397,7 +411,7 @@ if (stage <= 2):
             assert('pll' in data.keys()), 'PLL score not exist.'
 
         with open(f'./data/aishell_{t}/token_pll.json', 'w') as f:
-            json.dump(pll_data, f, ensure_ascii=False, indent=2)
+            json.dump(pll_data, f, ensure_ascii=False, indent=4)
 
 
 train_json = None
@@ -408,7 +422,10 @@ train_set = nBestDataset(train_json)
 train_loader = DataLoader(
     dataset=train_set,
     batch_size=train_batch,
-    collate_fn=createBatch
+    collate_fn=createBatch,
+    pin_memory=True,
+    shuffle=True,
+    num_workers=3
 )
 
 with open(f'./data/aishell_dev/token_pll.json', 'r') as f:
@@ -416,17 +433,12 @@ with open(f'./data/aishell_dev/token_pll.json', 'r') as f:
 valid_set = nBestDataset(valid_json)
 valid_loader = DataLoader(
     dataset=valid_set,
-    batch_size=train_batch,
+    batch_size=recog_batch,
     collate_fn=createBatch
 )
 
 """training"""
 if (stage <= 3):
-    if (stage == 3):
-        train_check = torch.load(
-            f"./checkpoint/adaption/checkpoint_adapt_{adapt_epoch}.pt"
-        )
-        model.model.load_state_dict(train_args['state_dict'])
     print(f'training...')
     model.optimizer.zero_grad()
 
@@ -450,6 +462,7 @@ if (stage <= 3):
 
             loss = model(token, seg, mask, score, cer, pll)
             loss = loss / accumgrad
+            logging.warning(f'loss:{loss}')
             loss.backward()
 
             logging_loss += loss.clone().detach().cpu()
@@ -458,10 +471,10 @@ if (stage <= 3):
                 model.optimizer.step()
                 model.optimizer.zero_grad()
 
-            if ((n + 1) % print_loss == 0):
-                train_loss.append(logging_loss)
+            if ((n + 1) % print_loss == 0 or (n + 1) == len(train_loader)):
+                train_loss.append(logging_loss / print_loss)
                 logging.warning(
-                    f'Training epoch:{e + 1} step:{n + 1}, training loss:{logging_loss}')
+                    f'Training epoch:{e + 1} step:{n + 1}, training loss:{logging_loss / print_loss}')
                 logging_loss = 0.0
 
         train_checkpoint['state_dict'] = model.model.state_dict()
@@ -493,7 +506,7 @@ if (stage <= 3):
                 s += err[1]
                 d += err[2]
                 i += err[3]
-            
+
             val_cer = (s + d + i) / (c + s + d)
             val_loss = val_loss / len(dev_loader)
             dev_loss.append(val_loss)
@@ -510,17 +523,17 @@ if (stage <= 3):
         last_val = val_loss
 
     logging_loss = {
-        'training_loss':train_loss,
+        'training_loss': train_loss,
         'dev_loss': dev_loss,
         'dev_cer': dev_cers
     }
-    if (not os.path.exist(f'./log/RescoreBert')):
+    if (not os.path.exists(f'./log/RescoreBert')):
         os.makedirs('./log/RescoreBert')
     torch.save(logging_loss, f'./log/RescoreBert/loss.pt')
 
 # recognizing
 if (stage <= 4):
-    print(f'recognizing')
+    print(f'scoring')
     if (stage == 4):
         print(
             f'using checkpoint: ./checkpoint/{training}/checkpoint_train_{epochs}.pt'
@@ -532,83 +545,129 @@ if (stage <= 4):
         model.optimizer.load_state_dict(checkpoint['optimizer'])
 
     model.eval()
-    recog_set = ['dev', 'test']
+    recog_set = ['train', 'dev', 'test']
     recog_data = None
     with torch.no_grad():
-        # find best weight
-        if (find_weight):
-            print(f'Finding Best weight')
-            best_cer = 100
-            best_weight = 0
-            for w in tqdm(range(100)):
-                correction = 0  # correction
-                substitution = 0  # substitution
-                deletion = 0  # deletion
-                insertion = 0  # insertion
-
-                weight = w * 0.01
-                for data in valid_loader:
-                    token, seg, mask, score, cer, pll = data
-                    token = token.to(device)
-                    seg = seg.to(device)
-                    mask = mask.to(device)
-                    score = score.to(device)
-
-                    cer = cer.view(int(token.shape[0] / 10), -1, 4)
-
-                    _, _, _, max_index = model.recognize(token, seg, mask, score, batch_size= int(token.shape[0] / 10), nBest = 10, weight = weight)
-
-                    for i, j in enumerate(max_index.tolist()):
-                        correction += cer[i][j][0]
-                        substitution += cer[i][j][1]
-                        deletion += cer[i][j][2]
-                        insertion += cer[i][j][3]
-
-                cer = (substitution + deletion + insertion) / \
-                    (correction + deletion + insertion)
-                logging.warning(f'weight:{weight}, cer:{cer}')
-                if (best_cer > cer):
-                    print(f'update weight:{weight}, cer:{cer}\r')
-                    best_cer = cer
-                    best_weight = weight
-        else:
-            best_weight = 0.5
-
-        print(f'Best weight at: {best_weight}')
         for task in recog_set:
-            print(f'recogizing: {task}')
-            if (task == 'dev'):
+            print(f'scoring: {task}')
+            if (task == 'train'):
+                recog_data = scoring_loader
+            elif (task == 'dev'):
                 recog_data = dev_loader
             elif (task == 'test'):
                 recog_data = test_loader
 
-            recog_dict = dict()
-            recog_dict['utts'] = dict()
+            recog_dict = []
             for n, data in enumerate(tqdm(recog_data)):
-                _, token, seg, mask, score, ref = data
+                _, token, seg, mask, score, ref, cer = data
                 token = token.to(device)
                 seg = seg.to(device)
                 mask = mask.to(device)
                 score = score.to(device)
 
-                rescore, weighted_score, best_hyp, _ = model.recognize(
-                    token, seg, mask, score, weight=best_weight)
+                rescore, _, _, _ = model.recognize(
+                    token, seg, mask, score, weight=1
+                )
 
-                # remove [CLS] and [SEP]
-                token_list = [str(t) for t in best_hyp[0]]
-                ref_list = [str(t) for t in ref[0][5:-5]]
-                recog_dict['utts'][f'{task}_{n}'] = dict()
-                recog_dict['utts'][f'{task}_{n}']['output'] = {
+                recog_dict.append(
+                    {
+                        'token': token.tolist(),
+                        'ref': ref,
+                        'cer': cer,
+                        'first_score': score.tolist(),
+                        'rescore': rescore.tolist()
+                        }
+                )
+            with open(f'data/aishell_{task}/rescore/{training}_recog_data.json', 'w') as f:
+                json.dump(recog_dict, f, ensure_ascii=False, indent=4)
+
+if (stage <= 5):
+    # find best weight
+    if (find_weight):
+        print(f'Finding Best weight')
+        val_score = None
+        with open(f'data/aishell_dev/rescore/{training}_recog_data.json') as f:
+            val_score = json.load(f)
+
+        best_cer = 100
+        best_weight = 0
+        for w in tqdm(range(100)):
+            correction = 0  # correction
+            substitution = 0  # substitution
+            deletion = 0  # deletion
+            insertion = 0  # insertion
+
+            weight = w * 0.01
+            for data in val_score:
+                first_score = torch.tensor(data['first_score'])
+                rescore = torch.tensor(data['rescore'])
+                cer = torch.tensor(data['cer'])
+                cer = cer.view(-1, 4)
+
+                weighted_score = first_score + weight*rescore
+                
+                max_index = torch.argmax(weighted_score)
+                
+                correction += cer[max_index][0]
+                substitution += cer[max_index][1]
+                deletion += cer[max_index][2]
+                insertion += cer[max_index][3]
+
+            cer = (substitution + deletion + insertion) / \
+                (correction + deletion + substitution)
+            logging.warning(f'weight:{weight}, cer:{cer}')
+            if (best_cer > cer):
+                print(f'update weight:{weight}, cer:{cer}\r')
+                best_cer = cer
+                best_weight = weight
+    else:
+        best_weight = 0.59
+
+if (stage <= 6):
+    print('output result')
+    if (stage == 6):
+        best_weight = 0.59
+    print(f'Best weight at: {best_weight}')
+    recog_set = ['train', 'dev', 'test']
+    for task in recog_set:
+        print(f'recogizing: {task}')
+        score_data = None
+        with open(f'data/aishell_{task}/rescore/{training}_recog_data.json') as f:
+            score_data = json.load(f)
+
+        recog_dict = dict()
+        recog_dict['utts'] = dict()
+        for n, data in enumerate(score_data):
+            token = data['token']
+            ref = data['ref']
+
+            score = torch.tensor(data['first_score'])
+            rescore = torch.tensor(data['rescore'])
+
+            weight_sum = score + best_weight * rescore
+
+            max_index = torch.argmax(weight_sum).item()
+
+            best_hyp = token[max_index]
+           
+            sep = best_hyp.index(102)
+            best_hyp = tokenizer.convert_ids_to_tokens(t for t in best_hyp[1:sep])
+            ref = list(ref[0][5:-5])
+            # remove [CLS] and [SEP]
+            token_list = [str(t) for t in best_hyp]
+            ref_list = [str(t) for t in ref]
+            recog_dict['utts'][f'{task}_{n + 1}'] = dict()
+            recog_dict['utts'][f'{task}_{n + 1}']['output'] = {
                     'rec_text': "".join(token_list),
                     'rec_token': " ".join(token_list),
                     "first_score": score.tolist(),
                     "second_score": rescore.tolist(),
-                    "rescore": weighted_score.tolist(),
+                    "rescore": weight_sum.tolist(),
                     "text": "".join(ref_list),
                     "text_token": " ".join(ref_list)
-                }
+            }
 
-            with open(f'data/aishell_{task}/rescore/{training}_rescore_data.json', 'w') as f:
-                json.dump(recog_dict, f, ensure_ascii=False, indent=2)
+        with open(f'data/aishell_{task}/rescore/{training}_rescore_data.json', 'w') as f:
+            json.dump(recog_dict, f, ensure_ascii=False, indent=4)
 
-    print('Finish')
+print('Finish')

@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch.nn.functional import log_softmax
 from transformers import BertModel, BertTokenizer
 from torch.nn import Conv1d, AvgPool1d
+from torch.optim import Adam
 
 class fusionNet(nn.Module):
     def __init__(self,
@@ -13,6 +14,7 @@ class fusionNet(nn.Module):
     kernel_size = [2,3,4],
     pooler_size = 4, 
     pooler_stride = 4,
+    lr = 1e-4
     ):
         torch.nn.Module.__init__(self)
         self.device = device
@@ -38,18 +40,26 @@ class fusionNet(nn.Module):
         total_dim = torch.sum(self.final_dim).long().item()
         self.fc = nn.Linear(256 * total_dim, self.num_nBest).to(device)
         
+        
+        model_parameters = list(self.encoder.parameters()) + list(self.fc.parameters())
+        for c in self.conv:
+            model_parameters += list(c.parameters())
 
-    def forward(self, input_id, seg, mask, label):
+        self.optimizer = Adam(model_parameters, lr = 1e-4)
+        
+        
+
+    def forward(self, input_id, mask, label):
         batch_size = int(input_id.shape[0] / self.num_nBest)
 
-        output = self.encoder(input_ids = input_id,token_type_ids = seg, attention_mask = mask) 
+        output = self.encoder(
+            input_ids = input_id,
+            attention_mask = mask
+        ) 
         
-        # logging.warning(f'output.shape before view:{output[0].shape}')
-        
-        output = output[0][:, 0]
+        output = output[0][:, 0, :]
         output = output.unsqueeze(0).view(batch_size, self.num_nBest, -1)
         output = torch.transpose(output, 1, 2)
-        # logging.warning(f'output.shape:{output.shape}')
         
         conv_output = []
         for i, conv in enumerate(self.conv):
@@ -59,28 +69,27 @@ class fusionNet(nn.Module):
         conv_output = torch.cat(conv_output, -1)
 
         conv_output = torch.flatten(conv_output, start_dim = 1).to(self.device) # flatten
-        # logging.warning(f'conv_output.shape:{conv_output.shape}')
 
         fc_output = self.fc(conv_output)
         
         fc_output = self.softmax(fc_output)
-        # logging.warning(f'fc.shape:{fc_output.shape}')
 
         loss = self.ce(fc_output, label)
 
         return loss
         
-    def recognize(self, input_id, seg, mask):
+    def recognize(self, input_id, mask):
         
         input_id = input_id.squeeze(0)
-        seg = seg.squeeze(0)
         mask = mask.squeeze(0)
-        output = self.encoder(input_ids = input_id,token_type_ids = seg, attention_mask = mask)
+        output = self.encoder(
+            input_ids = input_id,
+            attention_mask = mask
+        )
         
         output = output[0][:, 0]
         output = output.unsqueeze(0).view(1, self.num_nBest, -1)
         output = torch.transpose(output, 1, 2)
-        # logging.warning(f'output.shape:{output.shape}')
         
         conv_output = []
         for i, conv in enumerate(self.conv):
@@ -90,7 +99,6 @@ class fusionNet(nn.Module):
         conv_output = torch.cat(conv_output, -1)
 
         conv_output = torch.flatten(conv_output, start_dim = 1).to(self.device) # flatten
-        # logging.warning(f'conv_output.shape:{conv_output.shape}')
 
         fc_output = self.fc(conv_output)
         
