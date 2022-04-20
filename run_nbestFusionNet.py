@@ -1,4 +1,5 @@
 import os
+import random
 from tqdm import tqdm
 import json
 import logging
@@ -7,9 +8,13 @@ from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from nBestFusionNet.fusionNet import fusionNet
 
+random.seed(42)
+torch.manual_seed(42)
+torch.cuda.manual_seed(42)
+
 """Basic setting"""
-epochs = 30
-train_batch = 16
+epochs = 10
+train_batch = 64
 test_batch = 1
 # device = 'cpu' 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'

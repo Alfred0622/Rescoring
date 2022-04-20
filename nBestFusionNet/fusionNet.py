@@ -71,11 +71,8 @@ class fusionNet(nn.Module):
         conv_output = torch.flatten(conv_output, start_dim = 1).to(self.device) # flatten
 
         fc_output = self.fc(conv_output)
-        
-        fc_output = self.softmax(fc_output)
-
+    
         loss = self.ce(fc_output, label)
-
         return loss
         
     def recognize(self, input_id, mask):
