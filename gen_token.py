@@ -4,7 +4,7 @@ import logging
 from transformers import BertTokenizer
 
 FORMAT = '%(asctime)s %(levelname)s: %(message)s'
-logging.basicConfig(level=logging.DEBUG, filename='run.log', filemode='w', format=FORMAT)
+logging.basicConfig(level=logging.DEBUG, filename='gon_token.log', filemode='w', format=FORMAT)
 
 tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
 
@@ -31,4 +31,4 @@ for d in dataset:
             ref_token = tokenizer.tokenize(element['ref'])
             element['ref_token'] = tokenizer.convert_tokens_to_ids(ref_token)
             element['ref_seg'] = [0] * len(element['ref_token'])
-        json.dump(j, fw, ensure_ascii=False)
+        json.dump(j, fw, ensure_ascii=False, indent = 4)

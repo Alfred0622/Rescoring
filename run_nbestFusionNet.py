@@ -43,6 +43,7 @@ class nBestDataset(Dataset):
         return self.data[idx]['token'],\
                self.data[idx]['ref_token'],\
                self.data[idx]['ref'],\
+               self.data[idx]['err']
                
     def __len__(self):
         return len(self.data)
@@ -51,21 +52,26 @@ class nBestDataset(Dataset):
 def createBatch(sample):
     tokens = []
     label = []
+    cers = []
     for s in sample:
         if (s[1] in s[0]):
             label_index = s[0].index(s[1])
             label.append(label_index)
         else:
             label_index = torch.randint(low = 0, high = len(s[0]), size = (1,) ).item()
+            char_num = s[3][0][0] + s[3][0][1] + s[3][0][2]
             s[0][label_index] = s[1]
             label.append(label_index)
+            s[3][label_index] = [char_num, 0, 0, 0]
+            
         
         assert (s[1] in s[0]), "no reference in training batch"
         tokens += s[0]
+        cers += s[3]
 
     for i, t in enumerate(tokens):
         tokens[i] = torch.tensor(t)
-    
+
     tokens = pad_sequence(
         tokens,
         batch_first = True
@@ -79,12 +85,11 @@ def createBatch(sample):
 
     label = torch.tensor(label)
  
-    return tokens, masks, label
+    return tokens, masks, label, cers
 
 # for recognition dataloader
 def recogBatch(sample):
     tokens = []
-    segs = []
 
     for s in sample:
         tokens += s[0]
@@ -106,7 +111,9 @@ def recogBatch(sample):
 
     ref = [s[2] for s in sample]
 
-    return tokens, masks, ref
+    cers = s[3]
+
+    return tokens, masks, ref, cers
 
 print(f'Prepare data')
 train_json = None
@@ -142,7 +149,7 @@ train_loader = DataLoader(
 
 valid_loader = DataLoader(
     dataset = dev_set,
-    batch_size = train_batch,
+    batch_size = test_batch,
     collate_fn= createBatch
 ) 
 
@@ -170,21 +177,24 @@ logging.warning(f'device:{device}')
 device = torch.device(device)
 model = fusionNet(device = device, num_nBest=nBest)
 
-scheduler = torch.optim.lr_scheduler.CyclicLR(
-            model.optimizer, 
-            base_lr = 1e-4, 
-            max_lr=0.02,
-            cycle_momentum=False,
-        )
+# scheduler = torch.optim.lr_scheduler.CyclicLR(
+#             model.optimizer, 
+#             base_lr = 1e-4, 
+#             max_lr=0.02,
+#             cycle_momentum=False,
+#         )
 
 scoring_set = ['train', 'dev']
+best_epoch = epochs
 
 if (stage <= 1):
     """training"""
     
     model.optimizer.zero_grad()
     
-    last_val = 1e8
+    best_val = 1e8
+    best_cer = 100
+    
     for e in range(epochs):
         model.train()
         accum_loss = 0.0
@@ -192,7 +202,7 @@ if (stage <= 1):
         for n, data in enumerate(tqdm(train_loader)):
             # if (n < 16000):
             #     continue
-            token, mask, label = data
+            token, mask, label, _ = data
             token = token.to(device)
             mask = mask.to(device)
             label = label.to(device)
@@ -205,7 +215,7 @@ if (stage <= 1):
 
             if ((n + 1) % accumgrad == 0 or (n + 1) == len(train_loader)):
                 model.optimizer.step()
-                scheduler.step()
+                # scheduler.step()
 
             if ((n + 1) % print_loss == 0):
                 logging.warning(f'Training epoch:{e + 1} step:{n + 1}, training loss:{logging_loss}')
@@ -215,29 +225,51 @@ if (stage <= 1):
         model.eval()
         with torch.no_grad():
             val_loss = 0.0
+            c = 0
+            s = 0
+            d = 0
+            i = 0
+            max_indexes = []
+            labels = []
             for n, data in enumerate(tqdm(valid_loader)):
-                token, mask, label = data
+                token, mask, label, cers = data
                 token = token.to(device)
                 mask = mask.to(device)
                 label = label.to(device)
 
-                val_loss += model(token, mask, label)
-            val_loss = val_loss / len(dev_loader)
+                loss, max_index,err = model(token, mask, label, cers)
+                val_loss += loss
+                c += err[0]
+                s += err[1]
+                d += err[2]
+                i += err[3]
+
+                labels.append(label.item())
+                max_indexes.append(max_index.item())
+
+            val_loss = val_loss / len(valid_loader)
+            cer = (s + d + i) / (c + s + d)
             logging.warning(f'epoch :{e + 1}, validation_loss:{val_loss}')
-        # if (last_val - val_loss < 1e-4):
-        #     print('early stop')
-        #     logging.warning(f'early stop')
-        #     break
-        # last_val = val_loss
-        
+            logging.warning(f'epoch :{e + 1}, CER:{cer}')
+            logging.warning(f'label:{label}')
+            logging.warning(f'max_index:{max_indexes}')
+        if (cer < best_cer):
+            best_epoch = e + 1
+            best_cer = cer
+            best_val = val_loss
+        elif (cer == best_cer):
+            if (val_loss < best_val):
+                best_epoch = e + 1
+                best_cer = cer
+                best_val = val_loss
 
 # recognizing
 if (stage <= 2):
     print(f'recognizing')
     if (stage == 2):
 
-        print(f'using checkpoint: ./checkpoint/nBestFusionNet/checkpoint_train_2.pt')
-        model_args = torch.load(f'./checkpoint/nBestFusionNet/checkpoint_train_2.pt')
+        print(f'using checkpoint: ./checkpoint/nBestFusionNet/checkpoint_train_{best_epoch}.pt')
+        model_args = torch.load(f'./checkpoint/nBestFusionNet/checkpoint_train_{best_epoch}.pt')
         model.load_state_dict(model_args)
 
     model.eval()

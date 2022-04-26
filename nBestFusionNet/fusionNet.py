@@ -45,11 +45,11 @@ class fusionNet(nn.Module):
         for c in self.conv:
             model_parameters += list(c.parameters())
 
-        self.optimizer = Adam(model_parameters, lr = 1e-4)
+        self.optimizer = Adam(model_parameters, lr = lr)
         
         
 
-    def forward(self, input_id, mask, label):
+    def forward(self, input_id, mask, label, cer = None):
         batch_size = int(input_id.shape[0] / self.num_nBest)
 
         output = self.encoder(
@@ -73,6 +73,12 @@ class fusionNet(nn.Module):
         fc_output = self.fc(conv_output)
     
         loss = self.ce(fc_output, label)
+
+        if not(self.training):
+            fc_output = self.softmax(fc_output)
+            max_index = torch.argmax(fc_output)
+
+            return loss, max_index , cer[max_index]
         return loss
         
     def recognize(self, input_id, mask):

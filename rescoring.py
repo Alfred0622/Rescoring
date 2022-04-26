@@ -1,14 +1,18 @@
 import os
 from tqdm import tqdm
+import random
 import json
 import yaml
 import logging
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
-from BertForRescring.RescoreBert import RescoreBert, MLMBert
+from BertForRescoring.RescoreBert import RescoreBert, MLMBert
 from transformers import BertTokenizer
 
+random.seed(42)
+torch.manual_seed(42)
+torch.cuda.manual_seed(42)
 
 """Basic setting"""
 # device = 'cpu'
@@ -222,7 +226,7 @@ def createBatch(sample):
 
     pll = [s[4] for s in sample]
     for p in pll:
-        assert (len(p) == 10), f'illegal pll:{p}'
+        assert (len(p) == len(s[0])), f'illegal pll:{p}'
     pll = torch.tensor(pll)
 
     for i, t in enumerate(tokens):
@@ -292,7 +296,7 @@ test_scoring_loader = DataLoader(
 
 train_recog_loader = DataLoader(
     dataset=train_set,
-    batch_size=test_batch,
+    batch_size=recog_batch,
     collate_fn=scoringBatch
 )
 dev_loader = DataLoader(
