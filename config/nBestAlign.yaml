@@ -1,0 +1,16 @@
+stage: 0
+
+train: 
+  epoch: 20
+  train_batch: 256
+  valid_batch: 1
+  accumgrad: 1
+  print_loss: 200
+  mode: align
+  lr: 1e-5
+  train_json: /work/jason90255/rescoring/data/aishell_train/align_token_10best.json
+  dev_json: /work/jason90255/rescoring/data/aishell_dev/align_token_10best.json
+  test_json: /work/jason90255/rescoring/data/aishell_test/align_token_10best.json
+
+recog:
+  batch: 1
