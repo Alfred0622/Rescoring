@@ -8,7 +8,7 @@ if __name__ == "__main__":
     nBest = 3
     for task in dataset:
         print(task)
-        with open(f"./data/aishell_{task}/token_10best.json") as f:
+        with open(f"./data/aishell_{task}/bart_token/token.json") as f:
             data = json.load(f)
 
         result_dict = []
@@ -24,5 +24,5 @@ if __name__ == "__main__":
             temp_dict["err"] = d["err"][:nBest]
             result_dict.append(temp_dict)
 
-        with open(f"./data/aishell_{task}/align_token_10best.json", "w") as f:
+        with open(f"./data/aishell_{task}/bart_token/align_token.json", "w") as f:
             json.dump(result_dict, f, ensure_ascii=False, indent=4)

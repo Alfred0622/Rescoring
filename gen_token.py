@@ -1,19 +1,26 @@
 import torch
 import json
 import logging
-from transformers import BertTokenizer
+from transformers import BertTokenizer, BartTokenizer
 
 FORMAT = '%(asctime)s %(levelname)s: %(message)s'
-logging.basicConfig(level=logging.DEBUG, filename='gon_token.log', filemode='w', format=FORMAT)
+logging.basicConfig(level=logging.DEBUG, filename='gen_token.log', filemode='w', format=FORMAT)
 
-tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
+
 
 dataset = ['train', 'dev', 'test'] # train
+model_name = 'bart'
+
+
+if (model_name == 'bart'):
+    tokenizer = BertTokenizer.from_pretrained('fnlp/bart-base-chinese')
+elif (model_name == 'bert'):
+    tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
 
 for d in dataset:
     print(d)
-    json_file = f'./data/aishell_{d}/15best_dataset.json'
-    w_json = f'./data/aishell_{d}/15best_token.json'
+    json_file = f'./data/aishell_{d}/dataset.json'
+    w_json = f'./data/aishell_{d}/{model_name}_token/token.json'
     with open(json_file, 'r') as f, open(w_json, 'w') as fw :
         j = json.load(f)
         for i, element in enumerate(j):

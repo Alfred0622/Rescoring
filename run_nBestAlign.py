@@ -34,17 +34,19 @@ print_loss = train_args["print_loss"]
 train_lr = float(train_args["lr"])
 
 training_mode = train_args["mode"]
+model_name = train_args["model_name"]
 
 print(f"training mode:{training_mode}")
-
+print(f"model name:{model_name}")
 
 # recognition
 recog_batch = recog_args["batch"]
+max_len = recog_args["max_len"]
 
 FORMAT = "%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s"
 logging.basicConfig(
     level=logging.INFO,
-    filename=f"./log/nBestTransformer/{training_mode}_train.log",
+    filename=f"./log/nBestTransformer/{training_mode}_{model_name}_train.log",
     filemode="w",
     format=FORMAT,
 )
@@ -90,7 +92,7 @@ def createBatch(sample):
     ref_tokens = pad_sequence(ref_tokens, batch_first=True)
 
     masks = torch.zeros(tokens.shape[:2], dtype=torch.long)
-    
+
     masks = masks.masked_fill(torch.all(tokens != torch.zeros(tokens.shape[-1])), 1)
 
     ref = [s[2] for s in sample]
@@ -127,7 +129,6 @@ if __name__ == "__main__":
         dataset=dev_set,
         batch_size=recog_batch,
         collate_fn=createBatch,
-        shuffle=True,
         pin_memory=True,
         num_workers=3,
     )
@@ -136,25 +137,34 @@ if __name__ == "__main__":
         dataset=test_set,
         batch_size=recog_batch,
         collate_fn=createBatch,
-        shuffle=True,
+        pin_memory=True,
+        num_workers=3,
+    )
+
+    train_score_loader = DataLoader(
+        dataset=train_set,
+        batch_size=recog_batch,
+        collate_fn=createBatch,
         pin_memory=True,
         num_workers=3,
     )
 
     nBest = len(train_json[0]["token"][0])
 
-    if stage <= 1:
-        logging.warning(f"device:{device}")
-        device = torch.device(device)
+    logging.warning(f"device:{device}")
+    device = torch.device(device)
 
-        model = nBestTransformer(
-            nBest=nBest,
-            train_batch=train_batch,
-            test_batch=recog_batch,
-            device=device,
-            lr=train_lr,
-            mode=training_mode,
-        )
+    model = nBestTransformer(
+        nBest=nBest,
+        train_batch=train_batch,
+        test_batch=recog_batch,
+        device=device,
+        lr=train_lr,
+        mode=training_mode,
+        model_name=model_name
+    )
+
+    if stage <= 1:
 
         # scoring_set = ["train", "dev", "test"]
 
@@ -181,17 +191,18 @@ if __name__ == "__main__":
                     model.optimizer.step()
                     model.optimizer.zero_grad()
 
-                if (n + 1) % print_loss == 0:
+                if (n + 1) % print_loss == 0 or (n + 1) == len(train_loader):
                     logging.warning(
-                        f"Adaption epoch :{e + 1} step:{n + 1}, adaption loss:{logging_loss}"
+                        f"Training epoch :{e + 1} step:{n + 1}, training loss:{logging_loss}"
                     )
                     train_loss.append(logging_loss / print_loss)
                     logging_loss = 0.0
+                train_checkpoint["epoch"] = epochs + 1
                 train_checkpoint["state_dict"] = model.model.state_dict()
                 train_checkpoint["optimizer"] = model.optimizer.state_dict()
                 torch.save(
                     train_checkpoint,
-                    f"./checkpoint/nBestTransformer/{training_mode}/checkpoint_train_{e + 1}.pt",
+                    f"./checkpoint/nBestTransformer/{training_mode}/{model_name}/checkpoint_train_{e + 1}.pt",
                 )
 
             model.eval()
@@ -211,35 +222,74 @@ if __name__ == "__main__":
 
                 logging.warning(f"epoch :{e + 1}, validation_loss:{val_loss}")
 
-                if last_val - val_loss < 1e-4:
+                if val_loss > last_val:
                     print("early stop")
                     logging.warning(f"early stop")
                     epochs = e + 1
                     break
                 last_val = val_loss
-    logging_loss = {
-        "training_loss": train_loss,
-        "dev_loss": dev_loss,
-    }
-    if not os.path.exists(f"./log/RescoreBert/nBestTransformer"):
-        os.makedirs("./log/RescoreBert/nBestTransformer")
-    torch.save(logging_loss, f"./log/RescoreBert/nBestTransformer/loss.pt")
+        logging_loss = {
+            "training_loss": train_loss,
+            "dev_loss": dev_loss,
+        }
+        if not os.path.exists(f"./log/RescoreBert/nBestTransformer"):
+            os.makedirs("./log/RescoreBert/nBestTransformer")
+        torch.save(logging_loss, f"./log/RescoreBert/nBestTransformer/loss.pt")
 
     if stage <= 2:
         print("recognizing")
+        if stage == 2:
+            print(
+                f"using checkpoint: ./checkpoint/nBestTransformer/{training_mode}/{model_name}/checkpoint_train_{epochs}.pt"
+            )
+        checkpoint = torch.load(
+            f"./checkpoint/nBestTransformer/{training_mode}/{model_name}/checkpoint_train_{epochs}.pt"
+        )
+        model.model.load_state_dict(checkpoint["state_dict"])
         recog_set = ["dev", "test"]
+        decoder_seq = model.tokenizer.convert_tokens_to_ids(["[CLS]"])
+        decoder_ids = torch.tensor(decoder_seq).unsqueeze(0).to(device)
+
         for task in recog_set:
             if task == "dev":
+                print("dev")
                 recog_loader = dev_loader
             elif task == "test":
+                print("test")
                 recog_loader = test_loader
+            if task == "train":
+                print("train")
+                recog_loader = train_score_loader
             recog_dict = dict()
-            for n, data in enumerate(recog_loader):
-                name = f"{task}_{n}"
-                token, mask, _, ref_text = data
-                token = token.to(device)
-                mask = mask.to(device)
+            recog_dict["utts"] = dict()
+            model.eval()
+            with torch.no_grad():
+                for n, data in enumerate(tqdm(recog_loader)):
+                    name = f"{task}_{n}"
+                    token, mask, _, ref_text = data
+                    token_list = token.squeeze(0).tolist()
+                    for i, t in enumerate(token_list):
+                        logging.warning(f'chunk {i} : {model.tokenizer.convert_ids_to_tokens(t)}')
+                    token = token.to(device)
+                    mask = mask.to(device)
 
-                output = model.recognize(token, mask)
+                    output = model.recognize(token, mask, decoder_ids, max_len)
+                    output = output.squeeze(0).tolist()
+                    hyp_token = model.tokenizer.convert_ids_to_tokens(output)
+                    hyp_token = [x for x in hyp_token if x not in ['[CLS]', '[SEP]', '[PAD]']]
 
-                logging.warning(output)
+                    logging.warning(f'hyp_token:{hyp_token}')
+                   
+                    ref_token = ref_text[0][5:-5]
+                    ref_token = [str(x) for x in ref_token]
+                    logging.warning(f'ref_token:{ref_token}')
+                    
+                    recog_dict["utts"][name] = {
+                        "rec_text": "".join(hyp_token),
+                        "rec_token": " ".join(hyp_token),
+                        "text": "".join(ref_token),
+                        "text_token": " ".join(ref_token),
+                    }
+                
+            with open(f'data/aishell_{task}/nBestAlign/{model_name}/rescore_data.json', 'w') as f:
+                json.dump(recog_dict, f, ensure_ascii=False, indent=4)
