@@ -1,7 +1,7 @@
-stage: 0
+stage: 1
 
 train: 
-  epoch: 10
+  epoch: 20
   train_batch: 256
   valid_batch: 1
   accumgrad: 1
@@ -12,6 +12,7 @@ train:
   dev_json: /work/jason90255/rescoring/data/aishell_dev/bart_token/align_token.json
   test_json: /work/jason90255/rescoring/data/aishell_test/bart_token/align_token.json
   model_name: bart
+  checkpoint: /work/jason90255/rescoring/checkpoint/nBestTransformer/align/bart/checkpoint_train_10.pt
 
 recog:
   batch: 1

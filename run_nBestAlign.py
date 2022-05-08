@@ -32,6 +32,7 @@ train_batch = train_args["train_batch"]
 accumgrad = train_args["accumgrad"]
 print_loss = train_args["print_loss"]
 train_lr = float(train_args["lr"])
+checkpoint_path = train_args["checkpoint"]
 
 training_mode = train_args["mode"]
 model_name = train_args["model_name"]
@@ -93,7 +94,7 @@ def createBatch(sample):
 
     masks = torch.zeros(tokens.shape[:2], dtype=torch.long)
 
-    masks = masks.masked_fill(torch.all(tokens != torch.zeros(tokens.shape[-1])), 1)
+    masks = masks.masked_fill(torch.any(tokens != torch.zeros(tokens.shape[-1])), 1)
 
     ref = [s[2] for s in sample]
 
@@ -150,6 +151,7 @@ if __name__ == "__main__":
     )
 
     nBest = len(train_json[0]["token"][0])
+    print(f"nBest:{nBest}")
 
     logging.warning(f"device:{device}")
     device = torch.device(device)
@@ -165,21 +167,34 @@ if __name__ == "__main__":
     )
 
     if stage <= 1:
-
+        start_epoch = 0
+        print(f'training')
         # scoring_set = ["train", "dev", "test"]
+
+        if (stage == 1):
+            print(f'use checkpoint for training:{checkpoint_path}')
+            checkpoint = torch.load(checkpoint_path)
+            start_epoch = checkpoint['epoch'] - 1
+            model.model.load_state_dict(checkpoint["state_dict"])
+            model.optimizer.load_state_dict(checkpoint["optimizer"])
+            
 
         dev_loss = []
         train_loss = []
         last_val = 1e8
-        for e in range(epochs):
+        for e in range(start_epoch, epochs):
             model.train()
 
             logging_loss = 0.0
             for n, data in enumerate(tqdm(train_loader)):
-                token, mask, label, _ = data
+                token, mask, label, label_text = data
                 token = token.to(device)
                 mask = mask.to(device)
                 label = label.to(device)
+
+                # token_list = token.squeeze(0).tolist()
+                # for i, t in enumerate(token_list):
+                #     logging.warning(f'chunk {i} : {model.tokenizer.convert_ids_to_tokens(t)}')
 
                 loss = model(token, mask, label)
 
@@ -209,7 +224,7 @@ if __name__ == "__main__":
             val_loss = 0.0
             with torch.no_grad():
                 for n, data in enumerate(tqdm(dev_loader)):
-                    token, mask, label, _ = data
+                    token, mask, label, label_text = data
                     token = token.to(device)
                     mask = mask.to(device)
                     label = label.to(device)

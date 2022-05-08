@@ -97,9 +97,7 @@ class nBestTransformer(nn.Module):
         if self.mode == "align":
             input_id = input_id.view(-1, self.nBest)
 
-            # logging.warning(f"input_id.shape:{input_id.shape}")
             aligned_embedding = self.embedding(input_id)  # (L, N, 768)
-            # logging.warning(f"aligned_embedding.shape:{aligned_embedding.shape}")
             aligned_embedding = aligned_embedding.view(batch, -1, self.nBest, 768)
             aligned_embedding = aligned_embedding.flatten(start_dim=2)  # (L, 768 * N)
             proj_embedding = self.embeddingLinear(
@@ -107,9 +105,6 @@ class nBestTransformer(nn.Module):
             )  # (L, 768 * N) -> (L, 768)
 
             labels[labels == 0] = -100
-            # logging.warning(f"nbest_embedding.shape:{proj_embedding.shape}")
-            # logging.warning(f"attention_mask.shape:{attention_mask.shape}")
-            # logging.warning(f"labels:{labels.shape}")
 
             loss = self.model(
                 inputs_embeds=proj_embedding,
@@ -144,10 +139,13 @@ class nBestTransformer(nn.Module):
             input_id = input_id.view(-1, self.nBest)
             aligned_embedding = self.embedding(input_id)  # (L, N, 768)
             aligned_embedding = aligned_embedding.view(batch, -1, self.nBest, 768)
+            logging.warning(f'aligned embedding:{aligned_embedding.shape}')
             aligned_embedding = aligned_embedding.flatten(start_dim=2)  # (L, 768 * N)
+            logging.warning(f'aligned embedding:{aligned_embedding.shape}')
             proj_embedding = self.embeddingLinear(
                 aligned_embedding
             )  # (L, 768 * N) -> (L, 768)
+            logging.warning(f'proj embedding:{proj_embedding.shape}')
 
             # logging.warning(f"proj embedding:{proj_embedding}")
             # logging.warning(f"attention_mask:{attention_mask}")
@@ -155,10 +153,8 @@ class nBestTransformer(nn.Module):
             output = self.model.generate(
                 inputs_embeds=proj_embedding,
                 attention_mask=attention_mask,
-                max_length=50,
+                max_length=max_lens,
                 return_dict=True,
-                bos_token_id=self.tokenizer.convert_tokens_to_ids("[CLS]"),
-                eos_token_id=self.tokenizer.convert_tokens_to_ids("[SEP]"),
             )
 
             # decode_seq = [101]
