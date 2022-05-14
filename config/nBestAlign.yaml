@@ -1,18 +1,19 @@
-stage: 1
+stage: 0
 
 train: 
-  epoch: 20
-  train_batch: 256
+  epoch: 30
+  train_batch: 32
   valid_batch: 1
   accumgrad: 1
   print_loss: 200
   mode: align
-  lr: 1e-5
-  train_json: /work/jason90255/rescoring/data/aishell_train/bart_token/align_token.json
-  dev_json: /work/jason90255/rescoring/data/aishell_dev/bart_token/align_token.json
-  test_json: /work/jason90255/rescoring/data/aishell_test/bart_token/align_token.json
+  lr: 1e-6
+  align_embedding: 512
+  train_json: /mnt/nas3/Alfred/RescoreBert/data/aishell_train/10_best/bart_token/align_token.json
+  dev_json: /mnt/nas3/Alfred/RescoreBert/data/aishell_dev/10_best/bart_token/align_token.json
+  test_json: /mnt/nas3/Alfred/RescoreBert/data/aishell_test/10_best/bart_token/align_token.json
   model_name: bart
-  checkpoint: /work/jason90255/rescoring/checkpoint/nBestTransformer/align/bart/checkpoint_train_10.pt
+  checkpoint: # /work/jason90255/rescoring/checkpoint/nBestTransformer/align/bart/checkpoint_train_10.pt
 
 recog:
   batch: 1

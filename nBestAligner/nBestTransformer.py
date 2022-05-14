@@ -29,13 +29,15 @@ class nBestTransformer(nn.Module):
         lr=1e-5,
         mode="align",
         model_name="bart",
+        align_embedding=512,
     ):
         nn.Module.__init__(self)
         self.device = device
+        self.embedding_dim = align_embedding
 
         if model_name == "bert":
-            self.tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
- 
+            self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
+
             encoder = BertGenerationEncoder.from_pretrained(
                 "bert-base-chinese", bos_token_id=101, eos_token_id=102
             )
@@ -52,7 +54,7 @@ class nBestTransformer(nn.Module):
                 self.device
             )
         else:
-            self.tokenizer = BertTokenizer.from_pretrained('fnlp/bart-base-chinese')
+            self.tokenizer = BertTokenizer.from_pretrained("fnlp/bart-base-chinese")
 
             self.model = BartForConditionalGeneration.from_pretrained(
                 "fnlp/bart-base-chinese"
@@ -74,10 +76,10 @@ class nBestTransformer(nn.Module):
         logging.warning(self.model.config)
 
         self.embedding = nn.Embedding(
-            self.tokenizer.vocab_size, 768, padding_idx=self.pad
+            self.tokenizer.vocab_size, align_embedding, padding_idx=self.pad
         ).to(self.device)
         self.embeddingLinear = (
-            nn.Linear(768 * self.nBest, 768).to(self.device)
+            nn.Linear(align_embedding * self.nBest, 768).to(self.device)
             if self.mode == "align"
             else None
         )
@@ -93,12 +95,9 @@ class nBestTransformer(nn.Module):
         attention_mask,
         labels,
     ):
-        batch = input_id.shape[0]
         if self.mode == "align":
-            input_id = input_id.view(-1, self.nBest)
 
             aligned_embedding = self.embedding(input_id)  # (L, N, 768)
-            aligned_embedding = aligned_embedding.view(batch, -1, self.nBest, 768)
             aligned_embedding = aligned_embedding.flatten(start_dim=2)  # (L, 768 * N)
             proj_embedding = self.embeddingLinear(
                 aligned_embedding
@@ -138,40 +137,19 @@ class nBestTransformer(nn.Module):
 
             input_id = input_id.view(-1, self.nBest)
             aligned_embedding = self.embedding(input_id)  # (L, N, 768)
-            aligned_embedding = aligned_embedding.view(batch, -1, self.nBest, 768)
-            logging.warning(f'aligned embedding:{aligned_embedding.shape}')
+            aligned_embedding = aligned_embedding.view(
+                batch, -1, self.nBest, self.embedding_dim
+            )
             aligned_embedding = aligned_embedding.flatten(start_dim=2)  # (L, 768 * N)
-            logging.warning(f'aligned embedding:{aligned_embedding.shape}')
             proj_embedding = self.embeddingLinear(
                 aligned_embedding
             )  # (L, 768 * N) -> (L, 768)
-            logging.warning(f'proj embedding:{proj_embedding.shape}')
-
-            # logging.warning(f"proj embedding:{proj_embedding}")
-            # logging.warning(f"attention_mask:{attention_mask}")
 
             output = self.model.generate(
                 inputs_embeds=proj_embedding,
                 attention_mask=attention_mask,
+                decoder_input_ids=decoder_ids,
                 max_length=max_lens,
-                return_dict=True,
             )
-
-            # decode_seq = [101]
-            # for i in range(1, max_lens):
-            #     logging.warning(f"decoder_ids:{decoder_ids}")
-            #     output = self.model.generate(
-            #         inputs_embeds=proj_embedding,
-            #         attention_mask=attention_mask,
-            #         decoder_input_ids=decoder_ids,
-            #     ).logits
-            #     logging.warning(f"outputs.shape:{output.shape}")
-            #     max_token = torch.argmax(output[0][-1])
-
-            #     decode_seq.append(max_token)
-
-            #     if max_token == 102:
-            #         break
-            #     decoder_ids = torch.tensor(decode_seq).unsqueeze(0).to(self.device)
 
             return output

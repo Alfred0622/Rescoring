@@ -10,9 +10,9 @@ from torch.nn.utils.rnn import pad_sequence
 from nBestAligner.nBestTransformer import nBestTransformer
 from transformers import BertTokenizer
 
-random.seed(42)
-torch.manual_seed(42)
-torch.cuda.manual_seed(42)
+random.seed(10)
+torch.manual_seed(10)
+torch.cuda.manual_seed(10)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 # device = "cpu"
@@ -33,6 +33,7 @@ accumgrad = train_args["accumgrad"]
 print_loss = train_args["print_loss"]
 train_lr = float(train_args["lr"])
 checkpoint_path = train_args["checkpoint"]
+align_embedding = train_args["align_embedding"]
 
 training_mode = train_args["mode"]
 model_name = train_args["model_name"]
@@ -70,7 +71,7 @@ class rescoreDataset(Dataset):
     def __getitem__(self, idx):
         return (
             self.data[idx]["token"],
-            self.data[idx]["ref_token"],
+            self.data[idx]["ref_token"],  # avoid [CLS]
             self.data[idx]["ref"],
         )
 
@@ -79,7 +80,7 @@ class rescoreDataset(Dataset):
 
 
 def createBatch(sample):
-    tokens = [s[0] for s in sample]
+    tokens = [s[0][1:] for s in sample]
 
     ref_tokens = [s[1] for s in sample]
 
@@ -121,9 +122,8 @@ if __name__ == "__main__":
         dataset=train_set,
         batch_size=train_batch,
         collate_fn=createBatch,
-        shuffle=True,
         pin_memory=True,
-        num_workers=2,
+        num_workers=4,
     )
 
     dev_loader = DataLoader(
@@ -131,7 +131,7 @@ if __name__ == "__main__":
         batch_size=recog_batch,
         collate_fn=createBatch,
         pin_memory=True,
-        num_workers=3,
+        num_workers=4,
     )
 
     test_loader = DataLoader(
@@ -139,7 +139,7 @@ if __name__ == "__main__":
         batch_size=recog_batch,
         collate_fn=createBatch,
         pin_memory=True,
-        num_workers=3,
+        num_workers=4,
     )
 
     train_score_loader = DataLoader(
@@ -147,7 +147,7 @@ if __name__ == "__main__":
         batch_size=recog_batch,
         collate_fn=createBatch,
         pin_memory=True,
-        num_workers=3,
+        num_workers=4,
     )
 
     nBest = len(train_json[0]["token"][0])
@@ -163,25 +163,26 @@ if __name__ == "__main__":
         device=device,
         lr=train_lr,
         mode=training_mode,
-        model_name=model_name
+        model_name=model_name,
+        align_embedding=align_embedding,
     )
-
+    min_epoch = epochs
     if stage <= 1:
         start_epoch = 0
-        print(f'training')
+        print(f"training")
         # scoring_set = ["train", "dev", "test"]
 
-        if (stage == 1):
-            print(f'use checkpoint for training:{checkpoint_path}')
+        if stage == 1:
+            print(f"use checkpoint for training:{checkpoint_path}")
             checkpoint = torch.load(checkpoint_path)
-            start_epoch = checkpoint['epoch'] - 1
+            start_epoch = checkpoint["epoch"] - 1
             model.model.load_state_dict(checkpoint["state_dict"])
             model.optimizer.load_state_dict(checkpoint["optimizer"])
-            
 
         dev_loss = []
         train_loss = []
-        last_val = 1e8
+        min_val = 1e8
+
         for e in range(start_epoch, epochs):
             model.train()
 
@@ -191,10 +192,6 @@ if __name__ == "__main__":
                 token = token.to(device)
                 mask = mask.to(device)
                 label = label.to(device)
-
-                # token_list = token.squeeze(0).tolist()
-                # for i, t in enumerate(token_list):
-                #     logging.warning(f'chunk {i} : {model.tokenizer.convert_ids_to_tokens(t)}')
 
                 loss = model(token, mask, label)
 
@@ -212,13 +209,14 @@ if __name__ == "__main__":
                     )
                     train_loss.append(logging_loss / print_loss)
                     logging_loss = 0.0
-                train_checkpoint["epoch"] = epochs + 1
-                train_checkpoint["state_dict"] = model.model.state_dict()
-                train_checkpoint["optimizer"] = model.optimizer.state_dict()
-                torch.save(
-                    train_checkpoint,
-                    f"./checkpoint/nBestTransformer/{training_mode}/{model_name}/checkpoint_train_{e + 1}.pt",
-                )
+
+            train_checkpoint["epoch"] = epochs + 1
+            train_checkpoint["state_dict"] = model.model.state_dict()
+            train_checkpoint["optimizer"] = model.optimizer.state_dict()
+            torch.save(
+                train_checkpoint,
+                f"./checkpoint/nBestTransformer/{training_mode}/{model_name}/checkpoint_train_{e + 1}.pt",
+            )
 
             model.eval()
             val_loss = 0.0
@@ -237,12 +235,11 @@ if __name__ == "__main__":
 
                 logging.warning(f"epoch :{e + 1}, validation_loss:{val_loss}")
 
-                if val_loss > last_val:
-                    print("early stop")
-                    logging.warning(f"early stop")
-                    epochs = e + 1
-                    break
-                last_val = val_loss
+                if val_loss < min_val:
+                    min_val = val_loss
+                    min_epoch = e
+                    stage = 2
+
         logging_loss = {
             "training_loss": train_loss,
             "dev_loss": dev_loss,
@@ -255,10 +252,10 @@ if __name__ == "__main__":
         print("recognizing")
         if stage == 2:
             print(
-                f"using checkpoint: ./checkpoint/nBestTransformer/{training_mode}/{model_name}/checkpoint_train_{epochs}.pt"
+                f"using checkpoint: ./checkpoint/nBestTransformer/{training_mode}/{model_name}/checkpoint_train_{min_epoch}.pt"
             )
         checkpoint = torch.load(
-            f"./checkpoint/nBestTransformer/{training_mode}/{model_name}/checkpoint_train_{epochs}.pt"
+            f"./checkpoint/nBestTransformer/{training_mode}/{model_name}/checkpoint_train_{min_epoch}.pt"
         )
         model.model.load_state_dict(checkpoint["state_dict"])
         recog_set = ["dev", "test"]
@@ -283,28 +280,28 @@ if __name__ == "__main__":
                     name = f"{task}_{n}"
                     token, mask, _, ref_text = data
                     token_list = token.squeeze(0).tolist()
-                    for i, t in enumerate(token_list):
-                        logging.warning(f'chunk {i} : {model.tokenizer.convert_ids_to_tokens(t)}')
                     token = token.to(device)
                     mask = mask.to(device)
 
                     output = model.recognize(token, mask, decoder_ids, max_len)
                     output = output.squeeze(0).tolist()
                     hyp_token = model.tokenizer.convert_ids_to_tokens(output)
-                    hyp_token = [x for x in hyp_token if x not in ['[CLS]', '[SEP]', '[PAD]']]
+                    hyp_token = [
+                        x for x in hyp_token if x not in ["[CLS]", "[SEP]", "[PAD]"]
+                    ]
 
-                    logging.warning(f'hyp_token:{hyp_token}')
-                   
                     ref_token = ref_text[0][5:-5]
                     ref_token = [str(x) for x in ref_token]
-                    logging.warning(f'ref_token:{ref_token}')
-                    
+
                     recog_dict["utts"][name] = {
                         "rec_text": "".join(hyp_token),
                         "rec_token": " ".join(hyp_token),
                         "text": "".join(ref_token),
                         "text_token": " ".join(ref_token),
                     }
-                
-            with open(f'data/aishell_{task}/nBestAlign/{model_name}/rescore_data.json', 'w') as f:
+
+            with open(
+                f"data/aishell_{task}/10_best/{model_name}_token/rescore_data.json",
+                "w",
+            ) as f:
                 json.dump(recog_dict, f, ensure_ascii=False, indent=4)

@@ -25,9 +25,9 @@ def align(nbest, nBest, placeholder="-"):
     first_align = []
     for a in pair:
         cost_matrix = [[0 for i in range(len(a[1]) + 1)] for j in range(len(a[0]) + 1)]
-        for j in range(len(a[1])):
+        for j in range(len(a[1]) + 1):
             cost_matrix[0][j] = j
-        for i in range(len(a[0])):
+        for i in range(len(a[0]) + 1):
             cost_matrix[i][0] = i
 
         for i in range(0, len(a[0])):
@@ -47,6 +47,7 @@ def align(nbest, nBest, placeholder="-"):
 
         l1 = len(a[0]) - 1
         l2 = len(a[1]) - 1
+
         align_result = []
         while l1 >= 0 and l2 >= 0:
             if a[0][l1] == a[1][l2]:
@@ -71,6 +72,14 @@ def align(nbest, nBest, placeholder="-"):
                 else:
                     align_result = [[a[0][l1], placeholder]] + align_result
                     l1 -= 1
+        if l1 < 0:
+            while l2 >= 0:
+                align_result = [[placeholder, a[1][l2]]] + align_result
+                l2 -= 1
+        elif l2 < 0:
+            while l1 >= 0:
+                align_result = [[a[0][l1], placeholder]] + align_result
+                l1 -= 1
         first_align.append(align_result)
 
     return first_align
