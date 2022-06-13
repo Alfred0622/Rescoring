@@ -10,6 +10,7 @@ from chainer.datasets import TransformDataset
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from transformers import BertTokenizer
+from espnet.nets.pytorch_backend.nets_utils import make_non_pad_mask
 from models.AudioAware.AudioAwareReranker import AudioAwareReranker
 import kaldiio
 
@@ -19,10 +20,6 @@ torch.cuda.manual_seed(42)
 
 # device = "cpu"
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-train_audio = (
-    f"/mnt/nas3/Alfred/espnet/egs/aishell/asr1/dump/train/deltafalse/data.json"
-)
 config = f"./config/AudioAware.yaml"
 
 adapt_args = dict()
@@ -54,23 +51,22 @@ logging.basicConfig(
     format=FORMAT,
 )
 
-asr_conf_file = f"/mnt/nas3/Alfred/espnet/egs/aishell/asr1/conf/tuning/train_pytorch_transformer.yaml"
-with open(asr_conf_file, "r") as f:
-    asr_conf = yaml.load(f.read(), Loader=yaml.FullLoader)
-
 
 class AudioDataset(Dataset):
-    def __init__(self, nbest_list):
+    def __init__(self, nbest_list, nbest):
         self.data = nbest_list
-        self.audio_feat = [kaldiio.load_mat(data["feat"]) for data in self.data]
+        self.audio_feat = [
+            torch.from_numpy(kaldiio.load_mat(data["feat"])) for data in self.data
+        ]
+
+        self.nbest = nbest
 
     def __getitem__(self, idx):
-        audio_feature = torch.from_numpy(self.audio_feat[idx])
         return (
-            audio_feature,
-            self.data[idx]["nbest_token"],
-            self.data[idx]["ref_token"],
-            self.data[idx]["nbest"],
+            self.audio_feat[idx],
+            self.data[idx]["nbest_token"][: self.nbest],
+            self.data[idx]["ref_token"][: self.nbest],
+            self.data[idx]["nbest"][: self.nbest],
             self.data[idx]["ref"],
         )
 
@@ -81,27 +77,24 @@ class AudioDataset(Dataset):
 def createBatch(sample):
     token_id = []
     labels = []
-    for s in sample:
-        token_id += s[1]
-        labels += s[2]
-
     audio_feat = []
     audio_lens = []
     for s in sample:
-        audio_feat += [s[0] for _ in range(50)]
-        audio_lens += [s[0].shape[0] for _ in range(50)]
+        audio_feat += [s[0] for _ in range(3)]
+        audio_lens += [s[0].shape[0] for _ in range(3)]
+        token_id += s[1]
+        labels += s[2]
+
     audio_lens = torch.tensor(audio_lens)
 
-    for i, token in enumerate(token_id):
+    for i, (token, label) in enumerate(zip(token_id, labels)):
         token_id[i] = torch.tensor(token)
-    for i, label in enumerate(labels):
         labels[i] = torch.tensor(label)
 
     audio_feat = pad_sequence(audio_feat, batch_first=True)
     token_id = pad_sequence(token_id, batch_first=True)
     labels = pad_sequence(labels, batch_first=True, padding_value=-100)
     # attention_mask = pad_sequence(attention_mask, batch_first=True)
-
     masks = torch.zeros(token_id.shape, dtype=torch.long)
     masks = masks.masked_fill(token_id != 0, 1)
 
@@ -115,7 +108,9 @@ def createBatch(sample):
 train_json = None
 dev_json = None
 test_json = None
+debug_model = False
 print(f"Prepare data")
+logging.warning("Prepare data")
 with open(train_args["train_json"]) as f, open(train_args["dev_json"]) as d, open(
     train_args["test_json"]
 ) as t:
@@ -123,16 +118,22 @@ with open(train_args["train_json"]) as f, open(train_args["dev_json"]) as d, ope
     dev_json = json.load(d)
     test_json = json.load(t)
 
-train_set = AudioDataset(train_json)
-dev_set = AudioDataset(dev_json)
-test_set = AudioDataset(test_json)
+if debug_model == True:
+    train_set = AudioDataset(train_json[:train_batch])
+    dev_set = AudioDataset(dev_json[:recog_batch])
+    test_set = AudioDataset(test_json[:recog_batch])
+else:
+    train_set = AudioDataset(train_json, 3)
+    dev_set = AudioDataset(dev_json, 3)
+    test_set = AudioDataset(test_json, 3)
 
+print(f"Prepare Loader")
+logging.warning("Prepare Loader")
 train_loader = DataLoader(
     dataset=train_set,
     batch_size=train_batch,
     collate_fn=createBatch,
     pin_memory=True,
-    num_workers=16,
 )
 
 dev_loader = DataLoader(
@@ -140,7 +141,6 @@ dev_loader = DataLoader(
     batch_size=recog_batch,
     collate_fn=createBatch,
     pin_memory=True,
-    num_workers=16,
 )
 
 test_loader = DataLoader(
@@ -148,27 +148,29 @@ test_loader = DataLoader(
     batch_size=recog_batch,
     collate_fn=createBatch,
     pin_memory=True,
-    num_workers=16,
 )
 
-device = torch.device(device)
+
 print(f"prepare_model")
+device = torch.device(device)
 model = AudioAwareReranker(device)
 train_checkpoint = dict()
 
 if stage >= 0:
     print("training")
     min_val = 1e8
-    logging_loss = 0.0
+
     dev_loss = []
     train_loss = []
     for e in range(epochs):
         print(f"epochs:{e}")
+        logging_loss = 0.0
         model.train()
         for n, data in enumerate(tqdm(train_loader)):
             audio, ilens, token, mask, label, _, _ = data
 
             audio = audio.to(device)
+            ilens = ilens.to(device)
             token = token.to(device)
             mask = mask.to(device)
             label = label.to(device)
@@ -177,8 +179,8 @@ if stage >= 0:
 
             loss /= accumgrad
             loss.backward()
-            logging_loss += loss.clone().detach().cpu()
 
+            logging_loss += loss.clone().detach().cpu()
             if ((n + 1) % accumgrad == 0) or ((n + 1) == len(train_loader)):
                 model.optimizer.step()
                 model.optimizer.zero_grad()

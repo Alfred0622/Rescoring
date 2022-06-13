@@ -18,13 +18,14 @@ class AudioAwareReranker(nn.Module):
         device,
         d_model=768,
         decoder_layers=2,
-        use_spike=False,
+        use_spike=True,
         trigger_threshold=0.7,
         lr=1e-5,
         nbest=50,
     ):
         super().__init__()
         self.device = device
+
         asr, _ = load_trained_model(
             f"/mnt/nas3/Alfred/espnet/egs/aishell/asr1/exp/interctc/train_pytorch_20220320_12layers_6dec/results/model.last10.avg.best",
             training=False,
@@ -35,6 +36,7 @@ class AudioAwareReranker(nn.Module):
         decoder_layer = nn.TransformerDecoderLayer(
             d_model=d_model, nhead=8, batch_first=True
         )
+        self.odim = self.bert.config.vocab_size
         self.decoder = Decoder(
             decoder_layer,
             num_layers=decoder_layers,
@@ -43,6 +45,7 @@ class AudioAwareReranker(nn.Module):
         self.trigger_threshold = trigger_threshold
         self.criterion = nn.CrossEntropyLoss()
         self.project = nn.Linear(256, 768).to(self.device)
+
         self.fc = nn.Linear(768, self.odim).to(self.device)
 
         parameters = (
@@ -52,7 +55,6 @@ class AudioAwareReranker(nn.Module):
         )
         self.optimizer = AdamW(parameters, lr=lr)
         self.nbest = nbest
-        self.odim = self.bert.config.vocab_size
 
         # load state dict of E2E
         for p in self.asr.parameters():
@@ -63,7 +65,7 @@ class AudioAwareReranker(nn.Module):
     def forward(self, audio, ilens, input_ids, attention_mask, labels):
         xs_pad = audio[:, : max(ilens)]  # for data parallel
         src_mask = make_non_pad_mask(ilens.tolist()).to(xs_pad.device).unsqueeze(-2)
-        hs_pad, hs_mask, hs_intermediates = self.asr(xs_pad, src_mask)
+        hs_pad, hs_mask, hs_intermediates = self.asr(audio, src_mask)
 
         # calculate trigger threshold
         if self.use_spike:
@@ -108,6 +110,9 @@ class AudioAwareReranker(nn.Module):
         bert_embedding = self.bert(input_ids=input_ids, attention_mask=attention_mask)[
             0
         ]
+
+        logging.warning(bert_embedding.shape)
+        logging.warning(hs_pad.shape)
 
         output = self.decoder(bert_embedding, hs_pad)
         scores = self.fc(output)
