@@ -6,13 +6,13 @@ import os
 
 FORMAT = "%(asctime)s %(levelname)s: %(message)s"
 logging.basicConfig(
-    level=logging.DEBUG, filename="gen_token.log", filemode="w", format=FORMAT
+    level=logging.DEBUG, filename="./log/gen_token.log", filemode="w", format=FORMAT
 )
 
 
 dataset = ["train", "dev", "test"]  # train
-model_name = "bart"
-nbest = 10
+model_name = "bert"
+nbest = 50
 
 
 if model_name == "bart":
@@ -30,17 +30,21 @@ for d in dataset:
         j = json.load(f)
         for i, element in enumerate(j):
             ids = []
-            seg = []
+            # seg = []
+            text = []
             for seq in element["token"]:
                 tokens = tokenizer.tokenize(seq)
+                text.append(seq[5:-5])
                 ids.append(tokenizer.convert_tokens_to_ids(tokens))
-                seg.append([0] * len(ids[-1]))
+                # seg.append([0] * len(ids[-1]))
                 # logging.warning(seg)
-            element["name"] = f"{d}_{i}"
+            # element["name"] = f"{d}_{i}"
             element["token"] = ids
-            element["segment"] = seg
+            element["text"] = text
+            # element["segment"] = seg
 
             ref_token = tokenizer.tokenize(element["ref"])
             element["ref_token"] = tokenizer.convert_tokens_to_ids(ref_token)
-            element["ref_seg"] = [0] * len(element["ref_token"])
+            element["ref_text"] = element["ref"][5:-5]
+            # element["ref_seg"] = [0] * len(element["ref_token"])
         json.dump(j, fw, ensure_ascii=False, indent=4)

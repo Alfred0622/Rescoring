@@ -1,8 +1,8 @@
 stage: 0
 
 train: 
-  epoch: 30
-  train_batch: 32
+  epoch: 3
+  train_batch: 4
   valid_batch: 1
   accumgrad: 1
   print_loss: 200
