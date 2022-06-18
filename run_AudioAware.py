@@ -97,6 +97,10 @@ class RecogDataset(Dataset):
 def createBatch(sample):
     token_id = []
     labels = []
+    for s in sample:
+        token_id += s[1]
+        labels += s[2]
+
     for i, (token, label) in enumerate(zip(token_id, labels)):
         token_id[i] = torch.tensor(token)
         labels[i] = torch.tensor(label)
@@ -165,11 +169,20 @@ with open(train_args["train_json"]) as f, open(train_args["valid_json"]) as v, o
     dev_json = json.load(d)
     test_json = json.load(t)
 
-debug_model = False
+debug_model = True
 if debug_model == True:
-    train_set = AudioDataset(train_json[:train_batch], 3)
-    dev_set = AudioDataset(dev_json[:recog_batch], 3)
-    test_set = AudioDataset(test_json[:recog_batch], 3)
+    nbest = 3
+    train_set = AudioDataset(train_json[:train_batch], nbest)
+    valid_set = AudioDataset(valid_json[:recog_batch], nbest)
+    train_recog_set = RecogDataset(train_recog_json[:recog_batch], nbest)
+    dev_set = RecogDataset(dev_json[:recog_batch], nbest)
+    test_set = RecogDataset(test_json[:recog_batch], nbest)
+else:
+    train_set = AudioDataset(train_json, nbest)
+    valid_set = AudioDataset(valid_json, nbest)
+    train_recog_set = RecogDataset(train_recog_json, nbest)
+    dev_set = RecogDataset(dev_json, nbest)
+    test_set = RecogDataset(test_json, nbest)
 
 if "no_align" in train_args["train_json"] and "no_align" in train_args["valid_json"]:
     use_pos_only = True
@@ -182,11 +195,6 @@ else:
 
 logging.warning(f"use_pos_only:{use_pos_only}")
 
-train_set = AudioDataset(train_json, nbest)
-valid_set = AudioDataset(valid_json, nbest)
-train_recog_set = AudioDataset(train_recog_json, nbest)
-dev_set = RecogDataset(dev_json, nbest)
-test_set = RecogDataset(test_json, nbest)
 
 print(f"Prepare Loader")
 logging.warning(f"Prepare Loader")
@@ -221,7 +229,9 @@ test_loader = DataLoader(
 
 print(f"prepare_model")
 device = torch.device(device)
-model = AudioAwareReranker(device, d_model=768, lr=train_lr, use_res=False)
+model = AudioAwareReranker(
+    device, d_model=768, lr=train_lr, use_spike=True, use_res=False
+)
 train_checkpoint = dict()
 
 if stage <= 0:

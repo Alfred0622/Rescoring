@@ -6,3 +6,4 @@ log/*
 */__pycache__
 align/
 tmp/
+*/*/__pycache__

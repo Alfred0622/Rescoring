@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 
 task = ["dev", "test", "train"]
-espnet_path = f"/work/jason90255/espnet/egs/aishell/asr1/dump/"
+espnet_path = f"/mnt/nas3/Alfred/espnet/egs/aishell/asr1/dump/"
 
 tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
 placeholder = "*"
@@ -15,10 +15,10 @@ placeholder = "*"
 for t in task:
     print(t)
     audio_path = f"{espnet_path}/{t}/deltafalse/data.json"
-    nbest_path = f"./data/aishell_{t}/bert_token/token.json"
+    nbest_path = f"./data/aishell_{t}/50_best/bert_token/token.json"
 
     with open(audio_path) as audio, open(nbest_path) as text, open(
-        f"./data/aishell_{t}/bert_token/audio_data_no_align.json", "w"
+        f"./data/aishell_{t}/50_best/bert_token/audio_data_no_align.json", "w"
     ) as comb:
 
         audio_json = json.load(audio)["utts"]
@@ -58,8 +58,6 @@ for t in task:
             #         align_ref_token.append(p[0])
             #     align_tokens.append(align_token)
             #     align_ref_tokens.append(align_ref_token)
-
-            
 
             single_dict["nbest_token"] = align_tokens
             single_dict["ref_token"] = align_ref_tokens
