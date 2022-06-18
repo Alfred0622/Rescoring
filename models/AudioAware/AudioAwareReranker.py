@@ -5,6 +5,7 @@ from espnet.nets.pytorch_backend.nets_utils import make_non_pad_mask
 from espnet.asr.pytorch_backend.asr import load_trained_model
 import torch
 import torch.nn as nn
+from espnet.nets.pytorch_backend.transducer.utils import pad_sequence
 from transformers import BertModel
 from torch.nn import TransformerDecoder as Decoder
 from torch.nn.functional import log_softmax
@@ -89,17 +90,32 @@ class AudioAwareReranker(nn.Module):
             # debug: 每個batch的spike數未必一樣
             spikes = []
             single_spike = []
+            spike_mask = []
+            single_spike_mask = []
             last_row = spike_index[0][0]
             for i, j in spike_index:
                 if (i != last_row):
                     last_row = i
                     spikes.append(torch.stack(single_spike))
                     single_spike = []
-                single_spike.append(hs_pad[i, j, :])
 
-            spikes.append(torch.stack(single_spike))
-            single_spike = []
+                    spike_mask.append(torch.tensor(single_spike_mask))
+                    single_spike_mask = []
+                
+                single_spike.append(hs_pad[i, j, :])
+                single_spike_mask.append(False)
+
+
+            spikes.append(torch.stack(single_spike)) # (B, Seq_len, 256)
+            spike_mask.append(torch.tensor(single_spike_mask))
+
+            hs_pad = pad_sequence(spikes, batch_first = True)
+            hs_mask = pad_sequence(spike_mask, batch_first = True, pad_value = True)
             # hs_pad = hs_pad[spike_index[0], spike_index[1], :]
+        else:
+            tgt_attention_mask = torch.diag(torch.ones(bert_embedding.shape[1], dtype = torch.bool)).to(self.device)
+            tgt_mask = torch.logical_not(attention_mask) #  Mask for Cross Attention
+            hs_mask = torch.logical_not(hs_mask).squeeze(1)#  Mask for Cross Attention
 
         # project asr hidden state from dim-256 to dim-768
         hs_pad = self.project(hs_pad)
@@ -115,9 +131,7 @@ class AudioAwareReranker(nn.Module):
         
         bert_embedding = self.pe(bert_embedding)
 
-        tgt_attention_mask = torch.diag(torch.ones(bert_embedding.shape[1], dtype = torch.bool)).to(self.device)
-        tgt_mask = torch.logical_not(attention_mask) #  Mask for Cross Attention
-        hs_mask = torch.logical_not(hs_mask).squeeze(1)#  Mask for Cross Attention
+
         
         # cross attention with asr encoder hidden state & token-level embedding 
         output = self.decoder(

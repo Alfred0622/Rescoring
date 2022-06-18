@@ -50,10 +50,6 @@ logging.basicConfig(
     format=FORMAT,
 )
 
-asr_conf_file = f"/work/jason90255/espnet/egs/aishell/asr1/conf/tuning/train_pytorch_transformer.yaml"
-with open(asr_conf_file, "r") as f:
-    asr_conf = yaml.load(f.read(), Loader=yaml.FullLoader)
-
 
 class AudioDataset(Dataset):
     def __init__(self, nbest_list, nbest):

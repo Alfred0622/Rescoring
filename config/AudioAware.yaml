@@ -1,6 +1,6 @@
 stage: 0
 stop_stage: 100
-nbest: 50  # max: 50
+nbest: 10  # max: 50
 
 train: 
   epoch: 10
@@ -9,6 +9,8 @@ train:
   accumgrad: 1
   print_loss: 200
   lr: 1e-5
+  use_spike: True
+  use_res: False
   train_json: /tmp/data/aishell_train/bert_token/audio_data.json
   valid_json: /tmp/data/aishell_dev/bert_token/audio_data.json
   dev_json: /tmp/data/aishell_dev/bert_token/audio_data_no_align.json
