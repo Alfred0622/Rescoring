@@ -15,6 +15,7 @@ train:
   valid_json: /tmp/data/aishell_dev/bert_token/audio_data.json
   dev_json: /tmp/data/aishell_dev/bert_token/audio_data_no_align.json
   test_json: /tmp/data/aishell_test/bert_token/audio_data_no_align.json
+  train_recog_json: /tmp/data/aishell_train/bert_token/audio_data_no_align.json
 
 recog:
   batch: 1

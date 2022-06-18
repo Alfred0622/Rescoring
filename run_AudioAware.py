@@ -26,10 +26,12 @@ adapt_args = dict()
 train_args = dict()
 recog_args = dict()
 
+# Load yaml as config
 with open(config, "r") as f:
     conf = yaml.load(f.read(), Loader=yaml.FullLoader)
 
     stage = conf["stage"]
+    nbest = conf['nbest']
     stop_stage = conf["stop_stage"]
     train_args = conf["train"]
     recog_args = conf["recog"]
@@ -41,8 +43,7 @@ print_loss = train_args["print_loss"]
 train_lr = float(train_args["lr"])
 
 recog_batch = recog_args["batch"]
-# find_weight = recog_args["find_weight"]
-
+# logging setting
 FORMAT = "%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s"
 logging.basicConfig(
     level=logging.INFO,
@@ -51,7 +52,7 @@ logging.basicConfig(
     format=FORMAT,
 )
 
-
+# Define Training Dataset
 class AudioDataset(Dataset):
     def __init__(self, nbest_list, nbest):
         self.data = nbest_list
@@ -70,7 +71,7 @@ class AudioDataset(Dataset):
 
     def __len__(self):
         return len(self.data)
-
+# Define Testing Dataset
 class RecogDataset(Dataset):
     def __init__(self, nbest_list, nbest):
         self.data = nbest_list
@@ -94,14 +95,6 @@ class RecogDataset(Dataset):
 def createBatch(sample):
     token_id = []
     labels = []
-    audio_feat = []
-    audio_lens = []
-    for s in sample:
-        audio_feat += [s[0] for _ in range(3)]
-        audio_lens += [s[0].shape[0] for _ in range(3)]
-        token_id += s[1]
-        labels += s[2]
-    
     for i, (token, label) in enumerate(zip(token_id, labels)):
         token_id[i] = torch.tensor(token)
         labels[i] = torch.tensor(label)
@@ -109,8 +102,8 @@ def createBatch(sample):
     audio_feat = []
     audio_lens = []
     for s in sample:
-        audio_feat += [s[0] for _ in range(10)]
-        audio_lens += [s[0].shape[0] for _ in range(10)]
+        audio_feat += [s[0] for _ in range(nbest)]
+        audio_lens += [s[0].shape[0] for _ in range(nbest)]
     audio_lens = torch.tensor(audio_lens)
 
     audio_feat = pad_sequence(audio_feat, batch_first=True)
@@ -122,7 +115,7 @@ def createBatch(sample):
     labels[labels == 103] = -100
     # attention_mask = pad_sequence(attention_mask, batch_first=True)
     masks = torch.zeros(token_id.shape, dtype=torch.long)
-    masks = masks.masked_fill(token_id != 0, 1)
+    masks = masks.masked_fill(token_id != 0, 1) # Bert attention mask
 
     texts = [s[3] for s in sample]
 
@@ -141,8 +134,8 @@ def createTestBatch(sample):
     audio_feat = []
     audio_lens = []
     for s in sample:
-        audio_feat += [s[0] for _ in range(10)]
-        audio_lens += [s[0].shape[0] for _ in range(10)]
+        audio_feat += [s[0] for _ in range(nbest)]
+        audio_lens += [s[0].shape[0] for _ in range(nbest)]
     audio_lens = torch.tensor(audio_lens)
 
     audio_feat = pad_sequence(audio_feat, batch_first=True)
@@ -157,17 +150,14 @@ def createTestBatch(sample):
 
     return audio_feat, audio_lens, token_id, masks, texts, ref
 
-train_json = None
-dev_json = None
-test_json = None
 
 print(f"Prepare data")
 logging.warning(f'Prepare Data')
-with open(train_args["train_json"]) as f, open(train_args["valid_json"]) as v, open(train_args["dev_json"]) as d, open(
-    train_args["test_json"]
-) as t:
+with open(train_args["train_json"]) as f, open(train_args["valid_json"]) as v, open(train_args["dev_json"]) as d, \
+    open(train_args["test_json"]) as t, open(train_args["train_recog_json"]) as tr:
     train_json = json.load(f)
     valid_json = json.load(v)
+    train_recog_json = json.load(tr)
     dev_json = json.load(d)
     test_json = json.load(t)
 
@@ -180,10 +170,11 @@ else:
 
 logging.warning(f'use_pos_only:{use_pos_only}')
 
-train_set = AudioDataset(train_json, 10)
-valid_set = AudioDataset(valid_json, 10)
-dev_set = RecogDataset(dev_json, 10)
-test_set = RecogDataset(test_json, 10)
+train_set = AudioDataset(train_json, nbest)
+valid_set = AudioDataset(valid_json, nbest)
+train_recog_set = AudioDataset(train_recog_json, nbest)
+dev_set = RecogDataset(dev_json, nbest)
+test_set = RecogDataset(test_json, nbest)
 
 print(f"Prepare Loader")
 logging.warning(f'Prepare Loader')
