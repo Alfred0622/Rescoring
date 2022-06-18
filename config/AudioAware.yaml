@@ -3,15 +3,16 @@ stop_stage: 100
 nbest: 50  # max: 50
 
 train: 
-  epoch: 20
-  train_batch: 2
+  epoch: 10
+  train_batch: 24
   valid_batch: 1
   accumgrad: 1
   print_loss: 200
   lr: 1e-5
-  train_json: /mnt/nas3/Alfred/RescoreBert/data/aishell_train/50_best/bert_token/audio_data.json
-  dev_json: /mnt/nas3/Alfred/RescoreBert/data/aishell_dev/50_best/bert_token/audio_data.json
-  test_json: /mnt/nas3/Alfred/RescoreBert/data/aishell_test/50_best/bert_token/audio_data.json
+  train_json: /tmp/data/aishell_train/bert_token/audio_data.json
+  valid_json: /tmp/data/aishell_dev/bert_token/audio_data.json
+  dev_json: /tmp/data/aishell_dev/bert_token/audio_data_no_align.json
+  test_json: /tmp/data/aishell_test/bert_token/audio_data_no_align.json
 
 recog:
   batch: 1
