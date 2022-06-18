@@ -51,7 +51,7 @@ logging.basicConfig(
     format=FORMAT,
 )
 
-
+# Define Dataset
 class AudioDataset(Dataset):
     def __init__(self, nbest_list, nbest):
         self.data = nbest_list
@@ -108,7 +108,7 @@ def createBatch(sample):
 train_json = None
 dev_json = None
 test_json = None
-debug_model = False
+debug_model = True
 print(f"Prepare data")
 logging.warning("Prepare data")
 with open(train_args["train_json"]) as f, open(train_args["dev_json"]) as d, open(
@@ -119,9 +119,9 @@ with open(train_args["train_json"]) as f, open(train_args["dev_json"]) as d, ope
     test_json = json.load(t)
 
 if debug_model == True:
-    train_set = AudioDataset(train_json[:train_batch])
-    dev_set = AudioDataset(dev_json[:recog_batch])
-    test_set = AudioDataset(test_json[:recog_batch])
+    train_set = AudioDataset(train_json[:train_batch], 3)
+    dev_set = AudioDataset(dev_json[:recog_batch], 3)
+    test_set = AudioDataset(test_json[:recog_batch], 3)
 else:
     train_set = AudioDataset(train_json, 3)
     dev_set = AudioDataset(dev_json, 3)
@@ -174,7 +174,7 @@ if stage >= 0:
             token = token.to(device)
             mask = mask.to(device)
             label = label.to(device)
-
+            logging.warning(f"audio:{audio.shape}")
             loss = model(audio, ilens, token, mask, label)
 
             loss /= accumgrad

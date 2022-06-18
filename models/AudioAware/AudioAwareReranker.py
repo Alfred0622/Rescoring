@@ -18,7 +18,7 @@ class AudioAwareReranker(nn.Module):
         device,
         d_model=768,
         decoder_layers=2,
-        use_spike=True,
+        use_spike=False,
         trigger_threshold=0.7,
         lr=1e-5,
         nbest=50,
@@ -64,6 +64,7 @@ class AudioAwareReranker(nn.Module):
 
     def forward(self, audio, ilens, input_ids, attention_mask, labels):
         xs_pad = audio[:, : max(ilens)]  # for data parallel
+        logging.warning(f"xs_pad.shape:{xs_pad.shape}")
         src_mask = make_non_pad_mask(ilens.tolist()).to(xs_pad.device).unsqueeze(-2)
         hs_pad, hs_mask, hs_intermediates = self.asr(audio, src_mask)
 
@@ -79,11 +80,20 @@ class AudioAwareReranker(nn.Module):
             hs_pad = hs_pad[spike_index[0], spike_index[1], :]
 
         hs_pad = self.project(hs_pad)
+        logging.warning(f"hs_pad:{hs_pad.shape}")
         bert_embedding = self.bert(input_ids=input_ids, attention_mask=attention_mask)[
             0
         ]
+        tgt_mask = torch.logical_not(attention_mask)
+        hs_mask = torch.logical_not(hs_mask).squeeze(1)
 
-        output = self.decoder(bert_embedding, hs_pad)
+        logging.warning(f"tgt_mask:{tgt_mask.shape}, hs_mask:{hs_mask.shape}")
+        output = self.decoder(
+            bert_embedding,
+            hs_pad,
+            tgt_key_padding_mask=attention_mask,
+            memory_key_padding_mask=hs_mask,
+        )
 
         output = softmax(self.fc(output), dim=-1).permute(0, 2, 1)
 
@@ -110,9 +120,6 @@ class AudioAwareReranker(nn.Module):
         bert_embedding = self.bert(input_ids=input_ids, attention_mask=attention_mask)[
             0
         ]
-
-        logging.warning(bert_embedding.shape)
-        logging.warning(hs_pad.shape)
 
         output = self.decoder(bert_embedding, hs_pad)
         scores = self.fc(output)
