@@ -10,6 +10,7 @@ from chainer.datasets import TransformDataset
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from transformers import BertTokenizer
+from espnet.nets.pytorch_backend.nets_utils import make_non_pad_mask
 from models.AudioAware.AudioAwareReranker import AudioAwareReranker
 import kaldiio
 
@@ -93,7 +94,11 @@ class RecogDataset(Dataset):
 def createBatch(sample):
     token_id = []
     labels = []
+    audio_feat = []
+    audio_lens = []
     for s in sample:
+        audio_feat += [s[0] for _ in range(3)]
+        audio_lens += [s[0].shape[0] for _ in range(3)]
         token_id += s[1]
         labels += s[2]
     
@@ -116,7 +121,6 @@ def createBatch(sample):
     labels[labels == 102] = -100
     labels[labels == 103] = -100
     # attention_mask = pad_sequence(attention_mask, batch_first=True)
-
     masks = torch.zeros(token_id.shape, dtype=torch.long)
     masks = masks.masked_fill(token_id != 0, 1)
 
@@ -221,7 +225,6 @@ train_checkpoint = dict()
 if stage <= 0:
     print("training")
     min_val = 1e8
-   
     dev_loss = []
     train_loss = []
     for e in range(epochs):
@@ -235,6 +238,7 @@ if stage <= 0:
             
             # forward model
             audio = audio.to(device)
+            ilens = ilens.to(device)
             token = token.to(device)
             mask = mask.to(device)
             label = label.to(device)
@@ -244,8 +248,8 @@ if stage <= 0:
             # loss backward
             loss /= accumgrad
             loss.backward()
-            logging_loss += loss.clone().detach().cpu()
 
+            logging_loss += loss.clone().detach().cpu()
             if ((n + 1) % accumgrad == 0) or ((n + 1) == len(train_loader)):
                 model.optimizer.step()
                 model.optimizer.zero_grad()

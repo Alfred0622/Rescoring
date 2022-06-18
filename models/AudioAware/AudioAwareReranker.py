@@ -28,6 +28,7 @@ class AudioAwareReranker(nn.Module):
     ):
         super().__init__()
         self.device = device
+
         asr, _ = load_trained_model(
             f"/work/jason90255/espnet/egs/aishell/asr1/exp/interctc/train_pytorch_20220320_12layers_6dec/results/model.last10.avg.best",
             training=False,
@@ -38,6 +39,7 @@ class AudioAwareReranker(nn.Module):
         decoder_layer = nn.TransformerDecoderLayer(
             d_model=d_model, nhead=8, batch_first=True
         )
+        self.odim = self.bert.config.vocab_size
         self.decoder = Decoder(
             decoder_layer,
             num_layers=decoder_layers,
