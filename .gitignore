@@ -5,3 +5,4 @@ checkpoint/*
 log/*
 */__pycache__
 align/
+tmp/

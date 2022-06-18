@@ -26,10 +26,12 @@ adapt_args = dict()
 train_args = dict()
 recog_args = dict()
 
+# Load yaml as config
 with open(config, "r") as f:
     conf = yaml.load(f.read(), Loader=yaml.FullLoader)
 
     stage = conf["stage"]
+    nbest = conf["nbest"]
     stop_stage = conf["stop_stage"]
     train_args = conf["train"]
     recog_args = conf["recog"]
@@ -41,8 +43,7 @@ print_loss = train_args["print_loss"]
 train_lr = float(train_args["lr"])
 
 recog_batch = recog_args["batch"]
-# find_weight = recog_args["find_weight"]
-
+# logging setting
 FORMAT = "%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s"
 logging.basicConfig(
     level=logging.INFO,
@@ -51,21 +52,40 @@ logging.basicConfig(
     format=FORMAT,
 )
 
-# Define Dataset
+# Define Training Dataset
 class AudioDataset(Dataset):
     def __init__(self, nbest_list, nbest):
         self.data = nbest_list
-        self.audio_feat = [
-            torch.from_numpy(kaldiio.load_mat(data["feat"])) for data in self.data
-        ]
-
+        # self.audio_feat = [torch.from_numpy(kaldiio.load_mat(data["feat"])) for data in self.data]
         self.nbest = nbest
 
     def __getitem__(self, idx):
+        audio_feat = torch.from_numpy(kaldiio.load_mat(self.data[idx]["feat"]))
         return (
-            self.audio_feat[idx],
+            audio_feat,
             self.data[idx]["nbest_token"][: self.nbest],
             self.data[idx]["ref_token"][: self.nbest],
+            self.data[idx]["nbest"][: self.nbest],
+            self.data[idx]["ref"],
+        )
+
+    def __len__(self):
+        return len(self.data)
+
+
+# Define Testing Dataset
+class RecogDataset(Dataset):
+    def __init__(self, nbest_list, nbest):
+        self.data = nbest_list
+        # self.audio_feat = [torch.from_numpy(kaldiio.load_mat(data["feat"])) for data in self.data]
+        self.nbest = nbest
+
+    def __getitem__(self, idx):
+        audio_feat = torch.from_numpy(kaldiio.load_mat(self.data[idx]["feat"]))
+        return (
+            audio_feat,
+            self.data[idx]["nbest_token"][: self.nbest],
+            self.data[idx]["ref_token"],
             self.data[idx]["nbest"][: self.nbest],
             self.data[idx]["ref"],
         )
@@ -77,26 +97,27 @@ class AudioDataset(Dataset):
 def createBatch(sample):
     token_id = []
     labels = []
-    audio_feat = []
-    audio_lens = []
-    for s in sample:
-        audio_feat += [s[0] for _ in range(3)]
-        audio_lens += [s[0].shape[0] for _ in range(3)]
-        token_id += s[1]
-        labels += s[2]
-
-    audio_lens = torch.tensor(audio_lens)
-
     for i, (token, label) in enumerate(zip(token_id, labels)):
         token_id[i] = torch.tensor(token)
         labels[i] = torch.tensor(label)
 
+    audio_feat = []
+    audio_lens = []
+    for s in sample:
+        audio_feat += [s[0] for _ in range(nbest)]
+        audio_lens += [s[0].shape[0] for _ in range(nbest)]
+    audio_lens = torch.tensor(audio_lens)
+
     audio_feat = pad_sequence(audio_feat, batch_first=True)
     token_id = pad_sequence(token_id, batch_first=True)
     labels = pad_sequence(labels, batch_first=True, padding_value=-100)
+
+    labels[labels == 101] = -100
+    labels[labels == 102] = -100
+    labels[labels == 103] = -100
     # attention_mask = pad_sequence(attention_mask, batch_first=True)
     masks = torch.zeros(token_id.shape, dtype=torch.long)
-    masks = masks.masked_fill(token_id != 0, 1)
+    masks = masks.masked_fill(token_id != 0, 1)  # Bert attention mask
 
     texts = [s[3] for s in sample]
 
@@ -105,78 +126,128 @@ def createBatch(sample):
     return audio_feat, audio_lens, token_id, masks, labels, texts, ref
 
 
-train_json = None
-dev_json = None
-test_json = None
-debug_model = True
+def createTestBatch(sample):
+    token_id = []
+    for s in sample:
+        token_id += s[1]
+
+    for i, token in enumerate(token_id):
+        token_id[i] = torch.tensor(token)
+
+    audio_feat = []
+    audio_lens = []
+    for s in sample:
+        audio_feat += [s[0] for _ in range(nbest)]
+        audio_lens += [s[0].shape[0] for _ in range(nbest)]
+    audio_lens = torch.tensor(audio_lens)
+
+    audio_feat = pad_sequence(audio_feat, batch_first=True)
+    token_id = pad_sequence(token_id, batch_first=True)
+
+    masks = torch.zeros(token_id.shape, dtype=torch.long)
+    masks = masks.masked_fill(token_id != 0, 1)
+
+    texts = [s[3] for s in sample]
+
+    ref = s[4]
+
+    return audio_feat, audio_lens, token_id, masks, texts, ref
+
+
 print(f"Prepare data")
-logging.warning("Prepare data")
-with open(train_args["train_json"]) as f, open(train_args["dev_json"]) as d, open(
-    train_args["test_json"]
-) as t:
+logging.warning(f"Prepare Data")
+with open(train_args["train_json"]) as f, open(train_args["valid_json"]) as v, open(
+    train_args["dev_json"]
+) as d, open(train_args["test_json"]) as t, open(train_args["train_recog_json"]) as tr:
     train_json = json.load(f)
+    valid_json = json.load(v)
+    train_recog_json = json.load(tr)
     dev_json = json.load(d)
     test_json = json.load(t)
 
+debug_model = False
 if debug_model == True:
     train_set = AudioDataset(train_json[:train_batch], 3)
     dev_set = AudioDataset(dev_json[:recog_batch], 3)
     test_set = AudioDataset(test_json[:recog_batch], 3)
+
+if "no_align" in train_args["train_json"] and "no_align" in train_args["valid_json"]:
+    use_pos_only = True
+elif "no_align" in train_args["train_json"] or "no_align" in train_args["valid_json"]:
+    raise AssertionError(
+        "train_json  and valid_json should both be no_align or both not be no_align"
+    )
 else:
-    train_set = AudioDataset(train_json, 3)
-    dev_set = AudioDataset(dev_json, 3)
-    test_set = AudioDataset(test_json, 3)
+    use_pos_only = False
+
+logging.warning(f"use_pos_only:{use_pos_only}")
+
+train_set = AudioDataset(train_json, nbest)
+valid_set = AudioDataset(valid_json, nbest)
+train_recog_set = AudioDataset(train_recog_json, nbest)
+dev_set = RecogDataset(dev_json, nbest)
+test_set = RecogDataset(test_json, nbest)
 
 print(f"Prepare Loader")
-logging.warning("Prepare Loader")
+logging.warning(f"Prepare Loader")
 train_loader = DataLoader(
     dataset=train_set,
     batch_size=train_batch,
     collate_fn=createBatch,
-    pin_memory=True,
+    num_workers=4,
+)
+
+valid_loader = DataLoader(
+    dataset=valid_set,
+    batch_size=recog_batch,
+    collate_fn=createBatch,
+    num_workers=4,
 )
 
 dev_loader = DataLoader(
     dataset=dev_set,
     batch_size=recog_batch,
-    collate_fn=createBatch,
-    pin_memory=True,
+    collate_fn=createTestBatch,
+    num_workers=4,
 )
 
 test_loader = DataLoader(
     dataset=test_set,
     batch_size=recog_batch,
-    collate_fn=createBatch,
-    pin_memory=True,
+    collate_fn=createTestBatch,
+    num_workers=4,
 )
 
 
 print(f"prepare_model")
 device = torch.device(device)
-model = AudioAwareReranker(device)
+model = AudioAwareReranker(device, d_model=768, lr=train_lr, use_res=False)
 train_checkpoint = dict()
 
-if stage >= 0:
+if stage <= 0:
     print("training")
     min_val = 1e8
-
     dev_loss = []
     train_loss = []
     for e in range(epochs):
         print(f"epochs:{e}")
-        logging_loss = 0.0
+        model.optimizer.zero_grad()
         model.train()
+        logging_loss = 0.0
         for n, data in enumerate(tqdm(train_loader)):
+            # get data from dataloader
             audio, ilens, token, mask, label, _, _ = data
 
+            # forward model
             audio = audio.to(device)
             ilens = ilens.to(device)
             token = token.to(device)
             mask = mask.to(device)
             label = label.to(device)
-            logging.warning(f"audio:{audio.shape}")
-            loss = model(audio, ilens, token, mask, label)
 
+            loss = model(audio, ilens, token, mask, label, use_pos_only=use_pos_only)
+
+            # loss backward
             loss /= accumgrad
             loss.backward()
 
@@ -185,14 +256,20 @@ if stage >= 0:
                 model.optimizer.step()
                 model.optimizer.zero_grad()
 
+            # print loss
             if (n + 1) % print_loss == 0 or (n + 1) == len(train_loader):
                 logging.warning(
                     f"Training epoch :{e + 1} step:{n + 1}, training loss:{logging_loss}"
                 )
                 train_loss.append(logging_loss / print_loss)
                 logging_loss = 0.0
+                # logging.warning('Print Model Parameter')
+                # for name, param in model.named_parameters():
+                #     if param.requires_grad:
+                #         logging.warning(f'{name}: \n{param.data}')
 
-        train_checkpoint["epoch"] = epochs + 1
+        # save checkpoint
+        train_checkpoint["epoch"] = e + 1
         train_checkpoint["state_dict"] = model.state_dict()
         train_checkpoint["optimizer"] = model.optimizer.state_dict()
         if not os.path.exists(f"./checkpoint/Audio_Aware"):
@@ -202,10 +279,12 @@ if stage >= 0:
             f"./checkpoint/Audio_Aware/checkpoint_train_{e + 1}.pt",
         )
 
+        # validation
+        print(f"validation")
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
-            for n, data in enumerate(tqdm(dev_loader)):
+            for n, data in enumerate(tqdm(valid_loader)):
                 audio, ilens, token, mask, label, _, _ = data
 
                 audio = audio.to(device)
@@ -213,10 +292,12 @@ if stage >= 0:
                 mask = mask.to(device)
                 label = label.to(device)
 
-                loss = model(audio, ilens, token, mask, label)
+                loss = model(
+                    audio, ilens, token, mask, label, use_pos_only=use_pos_only
+                )
                 val_loss += loss
 
-            val_loss = val_loss / len(dev_loader)
+            val_loss = val_loss / len(valid_loader)
             dev_loss.append(val_loss)
 
             logging.warning(f"epoch :{e + 1}, validation_loss:{val_loss}")
@@ -224,12 +305,14 @@ if stage >= 0:
             if val_loss < min_val:
                 min_val = val_loss
                 min_epoch = e + 1
-                stage = 1
 
         logging_loss = {
             "training_loss": train_loss,
             "dev_loss": dev_loss,
         }
+
+        if min_epoch != epochs:
+            stage = 1
         if not os.path.exists(f"./log/Audio_Aware"):
             os.makedirs("./log/Audio_Aware")
         torch.save(logging_loss, f"./log/Audio_Aware/loss.pt")
@@ -237,6 +320,7 @@ if stage >= 0:
 if stage <= 1:
     print("recognizing")
     if stage == 1:
+        min_epoch = epochs
         print(
             f"using checkpoint: ./checkpoint/Audio_Aware/checkpoint_train_{min_epoch}.pt"
         )
@@ -260,12 +344,15 @@ if stage <= 1:
         with torch.no_grad():
             for n, data in enumerate(tqdm(recog_loader)):
                 name = f"{task}_{n}"
-                audio, ilens, token, mask, _, texts, ref = data
+                audio, ilens, token, mask, texts, ref = data
                 audio = audio.to(device)
                 token = token.to(device)
                 mask = mask.to(device)
 
-                output = model.recognize(audio, ilens, token, mask)
+                output = model.recognize(
+                    audio, ilens, token, mask, use_pos_only=use_pos_only
+                )
+                logging.warning(f"output:{output}")
                 max_index = torch.argmax(output).item()
 
                 best_hyp_token = token[max_index].tolist()
@@ -276,12 +363,13 @@ if stage <= 1:
                 recog_dict["utts"][name] = {
                     "rec_text": " ".join(best_hyp),
                     "ref_text": " ".join(ref),
+                    "lm_score": output.tolist(),
                 }
 
-        if not os.path.exists(f"./data/aishell_{task}/50_best/Audio_Aware"):
-            os.makedirs(f"./data/aishell_{task}/50_best/Audio_Aware")
+        if not os.path.exists(f"./data/aishell_{task}/Audio_Aware"):
+            os.makedirs(f"./data/aishell_{task}/Audio_Aware")
         with open(
-            f"./data/aishell_{task}/50_best/Audio_Aware/rescore_data.json",
+            f"./data/aishell_{task}/Audio_Aware/rescore_data.json",
             "w",
         ) as f:
             json.dump(recog_dict, f, ensure_ascii=False, indent=4)
