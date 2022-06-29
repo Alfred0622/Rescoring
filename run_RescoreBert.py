@@ -306,8 +306,6 @@ test_loader = DataLoader(
 if training == "SimCSE":
     pass
 
-nBest = 10
-
 """Init model"""
 logging.warning(f"device:{device}")
 device = torch.device(device)
