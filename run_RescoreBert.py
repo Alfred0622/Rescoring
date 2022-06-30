@@ -7,7 +7,7 @@ import logging
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
-from BertForRescoring.RescoreBert import RescoreBert, MLMBert
+from models.BertForRescoring.RescoreBert import RescoreBert, MLMBert
 from transformers import BertTokenizer
 
 random.seed(42)

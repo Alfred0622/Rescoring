@@ -1,17 +1,22 @@
 import torch
 import logging
 from torch.nn.functional import log_softmax
-from transformers import BertForMaskedLM, BertModel, BertTokenizer
+from transformers import (
+    BertForMaskedLM,
+    BertModel,
+    BertTokenizer,
+    DistilBertModel,
+    DistilBertConfig,
+)
 from torch.optim import AdamW
 from sentence_transformers import SentenceTransformer
 
-
 class MLMBert(torch.nn.Module):
-    def __init__(self, train_batch, test_batch, nBest, device, lr=1e-5, mode="random"):
+    def __init__(self, train_batch, test_batch, nBest, device, lr=1e-5, mode="random", pretrain_name = 'bert-base-chinese'):
         torch.nn.Module.__init__(self)
         self.device = device
-        self.model = BertForMaskedLM.from_pretrained("bert-base-chinese").to(device)
-        self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
+        self.model = BertForMaskedLM.from_pretrained(pretrain_name).to(device)
+        self.tokenizer = BertTokenizer.from_pretrained(pretrain_name)
         self.mask = self.tokenizer.convert_tokens_to_ids("[MASK]")
         self.train_batch = train_batch
         self.test_batch = test_batch
@@ -153,8 +158,9 @@ class RescoreBert(torch.nn.Module):
         lr=1e-5,
     ):
         torch.nn.Module.__init__(self)
-        self.model = BertModel.from_pretrained("bert-base-chinese").to(device)
         self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
+        self.config = DistilBertConfig(vocab_size = self.tokenizer.vocab_size, n_layers=4)
+        self.model = DistilBertModel(self.config).to(device)
         self.train_batch = train_batch
         self.test_batch = test_batch
         self.nBest = nBest

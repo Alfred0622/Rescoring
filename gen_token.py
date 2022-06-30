@@ -20,6 +20,7 @@ if model_name == "bart":
 elif model_name == "bert":
     tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
 
+logging.warning(f"start")
 for d in dataset:
     print(d)
     if not os.path.exists(f"./data/aishell/{d}/{nbest}_best"):
@@ -43,4 +44,5 @@ for d in dataset:
             element["ref_token"] = tokenizer.convert_tokens_to_ids(ref_token)
             element["ref_text"] = element["ref"]
             # element["ref_seg"] = [0] * len(element["ref_token"])
+        logging.warning(f"write file")
         json.dump(j, fw, ensure_ascii=False, indent=4)
