@@ -1,0 +1,21 @@
+args:
+  stage: 0
+  stop_stage: 100
+  nbest: 50
+  withLM: False
+  dataset: aishell
+
+train:
+  epoch: 20
+  train_batch: 8
+  valid_batch: 1
+  accumgrad: 1
+  print_loss: 200
+  lr: 1e-5
+  mode: scoring
+  train_json: ./data/aishell/train/token/token_noLM_50best.json
+  dev_json: ./data/aishell/dev/token/token_noLM_50best.json
+  test_json: ./data/aishell/test/token/token_noLM_50best.json
+
+recog:
+  batch: 1
