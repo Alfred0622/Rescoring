@@ -84,60 +84,118 @@ class MLMBert(torch.nn.Module):
 
             return loss
 
-    def recognize(self, input_id, attention_mask):
+    def recognize(self, input_id, attention_mask, free_memory = True):
         # generate PLL loss from teacher
         pll_score = []  # (batch_size, N-Best)
         pll_input = []
         pll_mask = []
         mask_index = []
         seq_for_hyp = []
-
-        expand_num = 0
-
+        
         no_token = set()
-        for j in range(input_id.shape[0]):  # for every hyp in this batch
-            token_len = torch.sum(input_id[j] != 0, dim=-1)
-            if token_len == 2:
-                no_token.add(j)
-                continue
+        
+        if (free_memory):
+            pll_scores = []
 
-            mask = attention_mask[j]
-            tmp = input_id[j].clone()
-            for k in range(
-                1, token_len - 1
-            ):  # for each token in this hyp (exclude padding)
-                to_mask = tmp[k].item()
-                tmp[k] = self.mask
+            tmps = []
+            masks = []
+            mask_index = []
+            expand_num = 0
+            for j in range(input_id.shape[0]):  # for every hyp in this batch
+                # set 10-nbest each time
+                token_len = torch.sum(input_id[j] != 0, dim=-1)
+                if token_len == 2:
+                    pll_scores.append(10000)
+                    continue
 
-                pll_input.append(tmp.clone())
-                pll_mask.append(mask)
-                mask_index.append([expand_num, k, to_mask])
-                expand_num += 1
-                tmp[k] = to_mask
+                mask = attention_mask[j].unsqueeze(0)
+                tmp = input_id[j].clone().to(self.device)
 
-            seq_for_hyp.append(expand_num - 1)
+                for k in range(1, token_len-1):
+                    to_mask = tmp[k].item()
+                    tmp[k] = self.mask
+                    tmps.append(tmp.clone())
+                    tmp[k] = to_mask
 
-        pll_input = torch.stack(pll_input).to(self.device)
-        pll_mask = torch.stack(pll_mask).to(self.device)
-        mask_index = torch.tensor(mask_index)
+                    masks.append(mask)
 
-        outputs = self.model(input_ids=pll_input, attention_mask=pll_mask)
-        outputs = log_softmax(outputs[0], dim=-1)
-        mask_index = torch.transpose(mask_index, 0, 1)
-        pll_score = outputs[mask_index[0], mask_index[1], mask_index[2]].tolist()
+                    mask_index.append([expand_num, k, to_mask])
+                    expand_num += 1
+                
+                seq_for_hyp.append(expand_num - 1)
+                
+                if (j % 10 == 0) or (j == input_id.shape[0] - 1):
+                    tmps = torch.stack(tmps)
+                    masks = torch.stack(masks)
+                    mask_index = torch.tensor(mask_index)
+                
+                    outputs = self.model(input_ids=tmps, attention_mask=masks)
+                    outputs = log_softmax(outputs[0], dim=-1)
+                    mask_index = torch.transpose(mask_index, 0, 1)
+                    pll_score = outputs[mask_index[0], mask_index[1], mask_index[2]]
+                    
+                    accum_score = 0.0
+                    for i, score in enumerate(pll_score):
+                        accum_score += score
+                        if i in seq_for_hyp:
+                            pll_scores.append(accum_score)
+                            accum_score = 0.0
+                    tmps = []
+                    masks = []
+                    mask_index = []
+                    seq_for_hyp = []
+                    expand_num = 0
+                else:
+                    continue
+            pll_scores = torch.tensor(pll_scores)
+           
+            return pll_scores
 
-        pll = []
-        count = 0
-        accum_score = 0.0
-        for i, score in enumerate(pll_score):
-            accum_score += score
-            if i in seq_for_hyp:
-                pll.append(accum_score)
-                accum_score = 0.0
-                count += 1
-            if count in no_token:
-                pll.append(10000)
-                count += 1
+        else:
+            expand_num = 0
+            for j in range(input_id.shape[0]):  # for every hyp in this batch
+                token_len = torch.sum(input_id[j] != 0, dim=-1)
+                if token_len == 2:
+                    no_token.add(j)
+                    continue
+
+                mask = attention_mask[j]
+                tmp = input_id[j].clone()
+                for k in range(
+                    1, token_len - 1
+                ):  # for each token in this hyp (exclude padding)
+                    to_mask = tmp[k].item()
+                    tmp[k] = self.mask
+
+                    pll_input.append(tmp.clone())
+                    pll_mask.append(mask)
+                    mask_index.append([expand_num, k, to_mask])
+                    expand_num += 1
+                    tmp[k] = to_mask
+
+                seq_for_hyp.append(expand_num - 1)
+
+            pll_input = torch.stack(pll_input).to(self.device)
+            pll_mask = torch.stack(pll_mask).to(self.device)
+            mask_index = torch.tensor(mask_index)
+
+            outputs = self.model(input_ids=pll_input, attention_mask=pll_mask)
+            outputs = log_softmax(outputs[0], dim=-1)
+            mask_index = torch.transpose(mask_index, 0, 1)
+            pll_score = outputs[mask_index[0], mask_index[1], mask_index[2]].tolist()
+
+            pll = []
+            count = 0
+            accum_score = 0.0
+            for i, score in enumerate(pll_score):
+                accum_score += score
+                if i in seq_for_hyp:
+                    pll.append(accum_score)
+                    accum_score = 0.0
+                    count += 1
+                if count in no_token:
+                    pll.append(10000)
+                    count += 1
 
         pll_score = torch.tensor(pll)
 
@@ -159,8 +217,8 @@ class RescoreBert(torch.nn.Module):
     ):
         torch.nn.Module.__init__(self)
         self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
-        self.config = DistilBertConfig(vocab_size = self.tokenizer.vocab_size, n_layers=4)
-        self.model = DistilBertModel(self.config).to(device)
+        # self.config = DistilBertConfig(vocab_size = self.tokenizer.vocab_size, n_layers=4)
+        self.model = BertModel.from_pretrained('bert-base-chinese').to(device)
         self.train_batch = train_batch
         self.test_batch = test_batch
         self.nBest = nBest
@@ -170,6 +228,8 @@ class RescoreBert(torch.nn.Module):
         self.device = device
         self.l2_loss = torch.nn.MSELoss()
         self.mode = mode
+
+        print(f'use_MWER:{use_MWER}, use_MWED:{use_MWED}')
 
         self.fc = torch.nn.Linear(768, 1).to(device)
         model_parameter = list(self.model.parameters()) + list(self.fc.parameters())
@@ -207,36 +267,35 @@ class RescoreBert(torch.nn.Module):
             distill_score[ignore_index] = 10000
 
             total_loss = self.l2_loss(distill_score, pll_score)
-
             weight_sum = first_scores + self.weight * s_score.view(first_scores.shape)
 
         # MWER
-        elif self.use_MWER:
-            wer = torch.stack(
-                [((s[1] + s[2] + s[3]) / (s[0] + s[1] + s[2])) for s in cers]
-            ).to(self.device)
-            p_hyp = torch.softmax(weight_sum, dim=-1)
-            avg_error = torch.mean(wer)
-            avg_error = torch.full(wer.shape, avg_error).to(self.device)
+            if self.use_MWER:
+                wer = torch.stack(
+                    [((s[1] + s[2] + s[3]) / (s[0] + s[1] + s[2])) for s in cers]
+                ).to(self.device)
+                p_hyp = torch.softmax(weight_sum, dim=-1)
+                avg_error = torch.mean(wer)
+                avg_error = torch.full(wer.shape, avg_error).to(self.device)
 
-            loss_MWER = p_hyp * (wer - avg_error)
+                loss_MWER = p_hyp * (wer - avg_error)
 
-            loss_MWER = loss_MWER.sum()
+                loss_MWER = loss_MWER.sum()
 
-            total_loss = loss_MWER + 1e-4 * total_loss
+                total_loss = loss_MWER + 1e-4 * total_loss
 
         # MWED
-        elif self.use_MWED:
-            wer = torch.stack(
-                [((s[1] + s[2] + s[3]) / (s[0] + s[1] + s[2])) for s in cers]
-            )
-            d_error = torch.softmax(wer, dim=-1)
-            d_score = torch.softmax(s_score, dim=-1)
+            elif self.use_MWED:
+                wer = torch.stack(
+                    [((s[1] + s[2] + s[3]) / (s[0] + s[1] + s[2])) for s in cers]
+                )
+                d_error = torch.softmax(wer, dim=-1)
+                d_score = torch.softmax(s_score, dim=-1)
 
-            loss_MWED = d_error * torch.log(d_score.view(d_error.shape))
-            loss_MWED = torch.neg(loss_MWED.sum())
+                loss_MWED = d_error * torch.log(d_score.view(d_error.shape))
+                loss_MWED = torch.neg(loss_MWED.sum())
 
-            total_loss = loss_MWED + 1e-4 * total_loss
+                total_loss = loss_MWED + 1e-4 * total_loss
 
         if not self.training:
             weight_sum = weight_sum.view(self.test_batch, self.nBest)
