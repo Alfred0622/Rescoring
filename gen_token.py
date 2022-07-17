@@ -10,7 +10,7 @@ logging.basicConfig(
 )
 
 setting = "withLM"
-dataset = ["train", "dev", "test"]  # train
+dataset = ["dev"]  # train
 model_name = "bert"
 nbest = 50
 
@@ -23,10 +23,10 @@ elif model_name == "bert":
 logging.warning(f"start")
 for d in dataset:
     print(d)
-    if not os.path.exists(f"./data/aishell/{d}/{nbest}_best"):
-        os.mkdir(f"./data/aishell/{d}/{nbest}_best")
-    json_file = f"./data/aishell/{d}/data_{setting}.json"
-    w_json = f"./data/aishell/{d}/token_{setting}_{nbest}best.json"
+    if not os.path.exists(f"./data/aishell/{d}/token"):
+        os.mkdir(f"./data/aishell/{d}/token")
+    json_file = f"./data/aishell/{d}/data/data_{setting}.json"
+    w_json = f"./data/aishell/{d}/token/token_{setting}_{nbest}best.json"
     with open(json_file, "r") as f, open(w_json, "w") as fw:
         j = json.load(f)
         for i, element in enumerate(j):

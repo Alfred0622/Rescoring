@@ -6,13 +6,13 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 nbest = 50
-dev = f"./data/aishell/dev/"
-test = f"./data/aishell/test/"
+dev = [f"./data/csj/dev"]
+test = [f"./data/csj/eval1", f"./data/csj/eval2", f"./data/csj/eval3"]
 
 choose_nbest = [10, 20, 30, 50]
 
-file_name = [dev, test]
-setting = ["withLM", "noLM"]
+file_name = dev + test
+setting = ["noLM"]
 
 for best in choose_nbest:
     print(f"{best} best: ")
