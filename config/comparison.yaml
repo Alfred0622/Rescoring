@@ -1,0 +1,17 @@
+stage: 0
+stop_stage: 100
+nbest: 50  # max: 50
+train:
+  epoch: 10
+  train_batch: 256
+  valid_batch: 1
+  accumgrad: 1
+  print_loss: 200
+  lr: 1e-5
+  train_json: ./data/aishell/train/token/token_noLM_concat.json
+  dev_json: ./data/aishell/dev/token/token_noLM_50best.json
+  test_json: ./data/aishell/test/token/token_noLM_50best.json
+
+recog:
+  batch: 1
+  find_weight: True
