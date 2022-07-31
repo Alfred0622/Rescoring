@@ -7,24 +7,28 @@ from transformers import BertTokenizer, BartForConditionalGeneration
 
 class RoBart(nn.Module):
     def __init__(self, device, lr=1e-5):
-        super().__init__(self)
+        nn.Module.__init__(self)
         self.device = device
 
         self.tokenizer = BertTokenizer.from_pretrained("fnlp/bart-base-chinese")
         self.model = BartForConditionalGeneration.from_pretrained(
             "fnlp/bart-base-chinese"
-        )
+        ).to(self.device)
+        self.optimizer = AdamW(self.model.parameters(), lr = lr)
 
-    def forward(self, input_id, seg, attention_masks, labels):
+    def forward(self, input_id, attention_masks, labels):
 
-        loss = self.model(input_id, seg, attention_masks, labels=labels).loss
+        loss = self.model(
+            input_id, attention_masks, labels=labels
+        ).loss
 
         return loss
 
-    def recognize(self, input_id, seg, attention_masks, max_lens=50):
+    def recognize(self, input_id, attention_masks, max_lens=50):
         output = self.model.generate(
             input_id,
-            seg,
-            attention_masks,
+            attention_mask = attention_masks,
             max_length=max_lens,
         )
+
+        return self.tokenizer.conver_ids_to_tokens(output)

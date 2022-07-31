@@ -257,11 +257,12 @@ class RescoreBert(torch.nn.Module):
             total_loss = self.l2_loss(score, pll_score)
         elif self.mode == "MD":
             s_output = self.model(input_ids=input_id, attention_mask=attention_mask)
-            s_score = self.fc(s_output[0][:, 0, :])
+            s_score = self.fc(s_output.last_hidden_state[:, 0, :])
 
             ignore_index = pll_score == 10000
             # logging.warning(f's_score before view:{s_score}')
             s_score = s_score.view(pll_score.shape)
+            # logging.warning(f'pll_score.shape:{pll_score.shape}')
 
             distill_score = s_score.clone()
             distill_score[ignore_index] = 10000
@@ -274,13 +275,22 @@ class RescoreBert(torch.nn.Module):
                 wer = torch.stack(
                     [((s[1] + s[2] + s[3]) / (s[0] + s[1] + s[2])) for s in cers]
                 ).to(self.device)
-                p_hyp = torch.softmax(weight_sum, dim=-1)
-                avg_error = torch.mean(wer)
-                avg_error = torch.full(wer.shape, avg_error).to(self.device)
+                weight_sum = weight_sum.reshape(-1, self.nBest)
+                wer = wer.reshape(-1, self.nBest) # (B, N-best)
 
+                p_hyp = torch.softmax(weight_sum, dim=-1)
+                avg_error = torch.mean(wer, dim = -1).unsqueeze(-1)
+                # logging.warning(f'wer.shape:{wer.shape}')
+                # logging.warning(f'wer:{wer[0]}')
+                # logging.warning(f'avg_error.shape:{avg_error.shape}')
+                # logging.warning(f'avg_error:{avg_error[0]}')
+                # avg_error = torch.full(wer.shape, avg_error).to(self.device)
                 loss_MWER = p_hyp * (wer - avg_error)
 
-                loss_MWER = loss_MWER.sum()
+                sub_wer = wer - avg_error
+                # logging.warning(f'wer - avg_error:{sub_wer[0]}')
+
+                loss_MWER = torch.sum(loss_MWER)
 
                 total_loss = loss_MWER + 1e-4 * total_loss
 
@@ -288,12 +298,19 @@ class RescoreBert(torch.nn.Module):
             elif self.use_MWED:
                 wer = torch.stack(
                     [((s[1] + s[2] + s[3]) / (s[0] + s[1] + s[2])) for s in cers]
-                )
-                d_error = torch.softmax(wer, dim=-1)
-                d_score = torch.softmax(s_score, dim=-1)
+                ).to(self.device)
 
-                loss_MWED = d_error * torch.log(d_score.view(d_error.shape))
-                loss_MWED = torch.neg(loss_MWED.sum())
+                wer = wer.reshape(-1, self.nBest)
+                weight_sum = weight_sum.reshape(-1, self.nBest)
+                
+                T = torch.sum(weight_sum, dim = -1) / torch.sum(wer, dim = -1) # hyperparameter T
+                T = T.unsqueeze(-1)
+                
+                d_error = torch.softmax(wer, dim=-1)
+                d_score = torch.softmax(weight_sum / T, dim=-1).reshape(d_error.shape)
+
+                loss_MWED = d_error * torch.log(d_score)
+                loss_MWED = torch.neg(torch.sum(loss_MWED))
 
                 total_loss = loss_MWED + 1e-4 * total_loss
 

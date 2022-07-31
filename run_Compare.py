@@ -2,6 +2,10 @@ import json
 import yaml
 import random
 import torch
+import glob
+import logging
+import os
+from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 from models.ComparisonRescoring.BertForComparison import BertForComparison
 from utils.Datasets import(
@@ -13,71 +17,47 @@ from utils.CollateFunc import(
     bertCompareBatch,
     bertCompareRecogBatch,
 )
+from utils.LoadConfig import load_config
 
 random.seed(42)
 torch.manual_seed(42)
 torch.cuda.manual_seed(42)
+
+FORMAT = "%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s"
+logging.basicConfig(
+    level=logging.INFO,
+    filename=f"./log/compare/train.log",
+    filemode="w",
+    format=FORMAT,
+)
 
 """Basic setting"""
 # device = 'cpu'
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 config = f"./config/comparison.yaml"
-adapt_args = dict()
-train_args = dict()
-recog_args = dict()
+args, train_args, recog_args = load_config(config)
 
-with open(config, "r") as f:
-    conf = yaml.load(f.read(), Loader=yaml.FullLoader)
-    stage = conf["stage"]
-    nbest = conf["nbest"]
-    stop_stage = conf["stop_stage"]
-    train_args = conf["train"]
-    recog_args = conf["recog"]
+setting = 'withLM' if args['withLM'] else 'noLM'
 
-print(f"stage:{stage}, stop_stage:{stop_stage}")
-
-# training
-epochs = train_args["epoch"]
-train_batch = train_args["train_batch"]
-accumgrad = train_args["accumgrad"]
-print_loss = train_args["print_loss"]
-train_lr = float(train_args["lr"])
-
-# recognition
-recog_batch = recog_args["batch"]
-find_weight = recog_args["find_weight"]
-
+print(f"stage:{args['stage']}, stop_stage:{args['stop_stage']}")
 
 # Prepare Data
 print('Data Prepare')
-train_file = train_args['train_json']
-dev_file = train_args['dev_json']
-test_file = train_args['test_json']
-with open(train_file, 'r') as train, \
-     open(dev_file, 'r') as dev, \
-     open(test_file, 'r') as test:
-     train_json = json.load(train)
+
+# training file is too large, only load dev and test data here
+with open(train_args['dev_json'], 'r') as dev, \
+     open(train_args['test_json'], 'r') as test:
      dev_json = json.load(dev)
      test_json = json.load(test)
-
-train_dataset = concatDataset(train_json, nbest = 50)
 
 dev_dataset = rescoreDataset(dev_json, nbest = 50)
 test_dataset = rescoreDataset(test_json, nbest = 50)
 
-train_loader = DataLoader(
-    train_dataset,
-    batch_size = train_batch,
-    collate_fn=bertCompareBatch,
-    pin_memory=True,
-    num_workers=4,
-)
-
 
 dev_loader = DataLoader(
     dev_dataset,
-    batch_size = recog_batch,
+    batch_size = recog_args["batch"],
     collate_fn=bertCompareRecogBatch,
     pin_memory=True,
     num_workers=4,
@@ -85,19 +65,35 @@ dev_loader = DataLoader(
 
 test_loader = DataLoader(
     test_dataset,
-    batch_size = recog_batch,
+    batch_size = recog_args["batch"],
     collate_fn=bertCompareRecogBatch,
     pin_memory=True,
     num_workers=4,
 )
 
 
-if (stage <= 0) and (stop_stage>= 0):
-    model = BertForComparision.to(device)
+if (args['stage'] <= 0) and (args['stop_stage']>= 0):
+    model = BertForComparison(
+        lr = 1e-5
+    ).to(device)
+
     print(f'training')
     min_loss = 1e8
     loss_seq = []
-    for e in range(epochs):
+    train_path = f"{train_args['train_json']}/{setting}"
+    for e in range(train_args["epoch"]):
+        with open(f"{train_path}/token_concat.json", 'r') as f:
+            train_json = json.load(f)
+        train_dataset = concatDataset(
+            train_json[:train_args["train_batch"]]
+        )
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size = train_args["train_batch"],
+            collate_fn=bertCompareBatch,
+            pin_memory=True,
+            num_workers=4,
+        )
         for n, data in enumerate(tqdm(train_loader)):
             logging_loss = 0.0
             model.train()
@@ -108,22 +104,23 @@ if (stage <= 0) and (stop_stage>= 0):
             labels = labels.to(device)
 
             loss = model(token, seg, masks, labels)
-            loss = loss / accumgrad
+            loss = loss / train_args["accumgrad"]
             loss.backward()
             
             logging_loss += loss.clone().detach().cpu()
 
-            if ((n + 1) % accumgrad == 0) or ((n + 1) == len(train_loader)):
-                teacher.optimizer.step()
-                teacher.optimizer.zero_grad()
+            if ((n + 1) % train_args["accumgrad"] == 0) or ((n + 1) == len(train_loader)):
+                model.optimizer.step()
+                model.optimizer.zero_grad()
 
-            if (n + 1) % print_loss == 0:
+            if (n + 1) % train_args["print_loss"] == 0:
                 logging.warning(
                     f"Training epoch :{e + 1} step:{n + 1}, loss:{logging_loss}"
                 )
-                loss_seq.append(logging_loss / print_loss)
+                loss_seq.append(logging_loss / train_args["print_loss"])
                 logging_loss = 0.0
         
+        train_checkpoint = dict()
         train_checkpoint["state_dict"] = model.model.state_dict()
         train_checkpoint["optimizer"] = model.optimizer.state_dict()
         if (not os.path.exists(f'./checkpoint/Comparision/BERT/{setting}')):
@@ -137,11 +134,15 @@ if (stage <= 0) and (stop_stage>= 0):
         # eval
         model.eval()
         valid_loss = 0.0
-        for n, data in enumerate(tqdm(valid_loader)):
+        for n, data in enumerate(tqdm(dev_loader)):
             tokens, segs, masks, _, _, _, _, _, labels = data
+            logging.warning(f'token.shape:{tokens.shape}')
+            tokens = tokens.to(device)
+            segs = segs.to(device)
+            masks = masks.to(device)
             loss = model(tokens, segs, masks, labels)
 
-            valid_loss += loss
+            valid_loss += loss.clone().detach().cpu()
         
         if (valid_loss < min_loss):
             torch.save(
@@ -151,7 +152,7 @@ if (stage <= 0) and (stop_stage>= 0):
 
             min_loss = valid_loss
 
-if (stage <= 1) and (stop_stage >= 1):
+if (args['stage'] <= 1) and (args['stop_stage'] >= 1):
     recog_set = ['dev', 'test']
     print(f'scoring')
 
@@ -168,7 +169,7 @@ if (stage <= 1) and (stop_stage >= 1):
         
             for i, pair in enumerate(pairs):
                 scores[pair[0]] += output[i][0]
-                scores[pair[1]] += output[i][1]
+                scores[pair[1]] += (1 - output[i][0])
             
             recog_dict.append(
                 {
@@ -190,7 +191,7 @@ if (stage <= 1) and (stop_stage >= 1):
         ) as f:
             json.dump(recog_dict, f, ensure_ascii=False, indent=4)
     
-if (stage <= 2) and (stop_stage >= 2):
+if (args['stage'] <= 2) and (args['stop_stage'] >= 2):
     print(f'rescoring')
     best_weight = 0.0
     with open(f"./data/aishell/dev/BertCompare/{setting}/{nbest}best_recog_data.json") as f:

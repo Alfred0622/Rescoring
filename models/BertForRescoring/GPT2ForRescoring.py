@@ -20,14 +20,25 @@ class CLMRescorer(nn.Module):
         self.criterion = nn.CrossEntropyLoss()
         self.tokenizer = BertTokenizerFast.from_pretrained('bert-base-chinese')
         self.mode = mode # 'scoring' or 'generate' 
-    def forward(self, input_ids,  labels):
-        output = self.model(input_ids, labels = labels)
+    def forward(self, input_ids, labels, first_score = None, cers = None):
+        # first_score, cer will not be None during validation
+        if (not self.training):
+            output = self.model(input_ids, labels = labels)
+            logit = output.logits
+            score = get_sentence_score(logit, input_ids)
+            score = score.clone().detach().cpu()
 
-        return output.loss
+            weighted_score = first_score + score
+            best_hyp = torch.argmax(weighted_score)
+
+            return output.loss,  cers[best_hyp]
+        else:
+            output = self.model(input_ids, labels = labels)
+            return output.loss
 
 
-    def recognize(self, input_ids, attention_masks):
-        output = self.model(input_ids, attention_masks)
+    def recognize(self, input_ids):
+        output = self.model(input_ids)
         
         # return output score
         logit = output.logits # (B, pad_seq, vocab)

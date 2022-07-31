@@ -317,6 +317,7 @@ if stage <= 3 and stop_stage >= 3:
         model.train()
         accum_loss = 0.0
         logging_loss = 0.0
+        model.optimizer.zero_grad()
         for n, data in enumerate(tqdm(train_loader)):
             token, text, mask, score, cer, pll = data
             token = token.to(device)
@@ -455,15 +456,15 @@ if stage <= 5 and stop_stage >= 5:
     # find best weight
     if find_weight:
         print(f"Finding Best weight")
-        print(f'loading recog from: ./data/aishell/{task}/{training}/{setting}/{nbest}best_recog_data.json')
+        print(f'loading recog from: ./data/aishell/dev/{training}/{setting}/{nbest}best_recog_data.json')
         with open(
-            f"./data/aishell/{task}/{training}/{setting}/{nbest}best_recog_data.json"
+            f"./data/aishell/dev/{training}/{setting}/{nbest}best_recog_data.json"
         ) as f:
             val_score = json.load(f)
 
         best_cer = 100
         best_weight = 0
-        for w in tqdm(range(100)):
+        for w in tqdm(range(101)):
             correction = 0  # correction
             substitution = 0  # substitution
             deletion = 0  # deletion
