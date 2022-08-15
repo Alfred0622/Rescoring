@@ -31,4 +31,4 @@ class RoBart(nn.Module):
             max_length=max_lens,
         )
 
-        return self.tokenizer.conver_ids_to_tokens(output)
+        return output

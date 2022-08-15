@@ -6,7 +6,7 @@ args:
   dataset: aishell
 
 train:
-  epochs: 3
+  epochs: 1
   batch: 16
   accumgrad: 1
   print_loss: 200

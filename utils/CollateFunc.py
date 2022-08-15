@@ -203,14 +203,11 @@ def correctRecogBatch(sample):
     
     for s in sample :
         tokens += s[0]
-        errs += s[2]
         texts += s[3]
     for i, t in enumerate(tokens):
         tokens[i] = torch.tensor(t)
     
-    tokens = pad_sequence(tokens, batch_first = True)
-    errs = torch.tensor(errs)
-    score = torch.tensor(score)
+    tokens = torch.tensor(tokens)
 
     attention_masks = torch.zeros(tokens.shape)
     attention_masks[tokens != 0] = 1
