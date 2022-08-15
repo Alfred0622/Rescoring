@@ -287,7 +287,7 @@ if args['stage']<= 3 and args['stop_stage']>= 3:
                 i += data['cer'][max_index][3]
 
                 text = data['text'][max_index].split()
-                ref = data['ref']
+                ref = data['ref'].split()
                 rescore_dict['utts'][f'{task}_{n}'] = dict()
                 rescore_dict['utts'][f'{task}_{n}']['output'] = {
                     "rec_token" : " ".join(text),
