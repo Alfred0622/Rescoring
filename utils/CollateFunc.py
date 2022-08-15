@@ -14,7 +14,6 @@ def adaptionBatch(sample):
 
     return tokens, masks
 
-
 # pll scoring & recognizing
 def pllScoringBatch(sample):
     name = [s[0] for s in sample]
@@ -46,7 +45,6 @@ def pllScoringBatch(sample):
     masks = masks.masked_fill(tokens != 0, 1)
 
     return name[0], tokens, texts, masks, torch.tensor(scores), ref, cer
-
 
 #  MD distillation
 def rescoreBertBatch(sample):
@@ -88,92 +86,69 @@ def rescoreBertBatch(sample):
 
     return tokens, texts, masks, torch.tensor(scores), torch.tensor(cers), pll
 
-def bertCompareBatch(sample):
-    # For training set of Comparision
 
+ 
+def lmBatch(sample):
     tokens = []
     labels = []
-    segs = []
-    masks = []
-
-    for s in sample:
-        tokens.append(torch.tensor(s[0]))
-        labels.append(torch.tensor(s[1]))
-
-        first_sep = s[0].index(102)
-        seg = torch.zeros(len(s[0]))
-        seg[first_sep + 1 :] = 1
-        segs.append(seg)
-        mask = torch.ones(len(s[0]))
-        masks.append(mask)
-    tokens = pad_sequence(tokens, batch_first = True)
-    segs = pad_sequence(segs, batch_first = True, padding_value = 1)
-    masks = pad_sequence(masks, batch_first = True)
-    labels = torch.tensor(labels, dtype = torch.float32)
-
-    return tokens, segs, masks, labels
-
-def bertCompareRecogBatch(sample):
-    # For valid, test set of Comparson
-    # sample of dataset include:
-    # [token, text, score, err]
-
-    tokens = []
-    segs = []
-    masks = []
-    label = []
-    texts = []
-    first_score = []
-    errs = []
-
+    cers = []
     scores = []
 
-    pairs = [] 
     for s in sample:
-        # 1. for every token sequence, concat to every other token
-        #    and add a label
-        for i, first_seq in enumerate(s[1]):
-            for j, sec_seq in enumerate(s[1]):
-                if (i == j):
-                    continue
-                concat_seq = first_seq + sec_seq[1:]
-                tokens.append(torch.tensor(concat_seq))
-                if (i < j): 
-                    # if the index of first_seq is smaller than the second
-                    label.append(1) 
-                    # first_seq is more like oracle than second one 
-                else:
-                    label.append(0)
-                segs.append(
-                    torch.tensor(
-                        [0 for _ in range(len(first_seq))] + [1 for _ in range(len(sec_seq) - 1)]
-                    )
-                )
-                masks.append(
-                    torch.tensor(
-                        [1 for _ in range(len(first_seq) + len(sec_seq) - 1)]
-                    )
-                )
-                pairs.append([i, j])
-        texts += s[2]
-        first_score += s[3]
-        errs += s[5]
+        cers += s[2]
+        scores += s[3]
+        for i, t in enumerate(s[0]):
+            tokens.append(torch.tensor(t))
+        labels.append(torch.tensor(s[1]))
 
-        scores.append(torch.zeros(len(s[0])))
-
-        # pad sequence
-        # pad token, seg, mask to same length
     tokens = pad_sequence(tokens, batch_first = True)
-    segs = pad_sequence(segs, batch_first = True, padding_value = 1)
-    masks = pad_sequence(masks, batch_first = True)
-    label = torch.tensor(label)
+    labels = pad_sequence(labels, batch_first = True)
 
-    errs = torch.tensor(errs)
-    pairs = torch.tensor(pairs)
+    attention_masks = torch.zeros(tokens.shape)
+    attention_masks[tokens != 0] = 1
+        
+    label_mask = torch.zeros(labels.shape)
+    label_mask[labels != 0] = 1
 
-    scores = torch.stack(scores)
+    return (
+        tokens, 
+        attention_masks,
+        labels,
+        label_mask,
+        torch.tensor(cers), 
+        torch.tensor(scores)
+    )
 
-    return tokens, segs, masks, first_score, errs, pairs, scores, texts, label
+def lmRecogBatch(sample):
+    tokens = []
+    labels = []
+    texts = []
+    cers = []
+    scores = []
+    ref = []
+
+    for s in sample:
+        for i, t in enumerate(s[0]):
+            tokens.append(torch.tensor(t))
+
+        tokens = pad_sequence(tokens, batch_first = True)
+
+        attention_masks = torch.zeros(tokens.shape)
+        attention_masks[tokens != 0] = 1
+        
+        cers += s[2]
+        scores += s[3]
+        texts += s[4]
+        ref += s[5]
+        
+    return (
+        tokens, 
+        attention_masks, 
+        torch.tensor(cers), 
+        torch.tensor(scores),
+        texts,
+        ref
+    )
 
 
 def correctBatch(sample):
@@ -188,7 +163,7 @@ def correctBatch(sample):
             labels.append(torch.tensor(s[1]))
 
     tokens = pad_sequence(tokens, batch_first = True)
-    labels = pad_sequence(labels, batch_first = True)
+    labels = pad_sequence(labels, batch_first = True, padding_value=-100)
 
     attention_masks = torch.zeros(tokens.shape)
     attention_masks[tokens != 0] = 1
@@ -213,6 +188,7 @@ def correctRecogBatch(sample):
     attention_masks[tokens != 0] = 1
 
     return tokens, attention_masks, texts
+
 
 # def createBatch(sample):
 #     token_id = [s[0] + s[1] for s in sample]

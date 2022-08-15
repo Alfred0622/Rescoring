@@ -52,15 +52,16 @@ with open(train_path) as f,\
     test_json = json.load(t)
 
 print(f'Create Dataset & DataLoader')
-train_set = correctDataset(train_json[:train_args['batch']])
-valid_set = correctDataset(dev_json[:recog_args['batch']])
-dev_set = correctRecogDataset(dev_json[:recog_args['batch']])
-test_set = correctRecogDataset(test_json[:recog_args['batch']])
+train_set = correctDataset(train_json, nbest = args['nbest'])
+valid_set = correctDataset(dev_json, nbest = args['nbest'])
+dev_set = correctRecogDataset(dev_json)
+test_set = correctRecogDataset(test_json)
 
 train_loader = DataLoader(
     dataset=train_set,
     batch_size=train_args['batch'],
     collate_fn=correctBatch,
+    pin_memory=True,
     num_workers=4,
 )
 
@@ -68,6 +69,7 @@ valid_loader = DataLoader(
     dataset=valid_set,
     batch_size=recog_args['batch'],
     collate_fn=correctBatch,
+    pin_memory=True,
     num_workers=4,
 )
 
@@ -95,6 +97,8 @@ if args['stage'] <= 0:
     train_loss = []
     logging_loss = 0.0
     for e in range(train_args['epochs']):
+        print(f'epoch {e + 1}: training')
+        model.train()
         for n, data in enumerate(tqdm(train_loader)):
             print(f'epoch:{e + 1}: training...')
             token, mask, label = data
@@ -126,14 +130,15 @@ if args['stage'] <= 0:
             
         if (not os.path.exists(f"./checkpoint/RoBart/{setting}")):
             os.makedirs(f"./checkpoint/RoBart/{setting}")
-            torch.save(
-                train_checkpoint,
-                f"./checkpoint/RoBart/{setting}/checkpoint_train_{e + 1}.pt",
-            )
+        torch.save(
+            train_checkpoint,
+            f"./checkpoint/RoBart/{setting}/checkpoint_train_{e + 1}.pt",
+        )
 
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
+            print(f'validation:')
             for n, data in enumerate(tqdm(valid_loader)):
                 token, mask, label = data
                 token = token.to(device)
@@ -143,8 +148,8 @@ if args['stage'] <= 0:
                 loss = model(token, mask, label)
                 val_loss += loss
 
-            val_loss = val_loss / len(dev_loader)
-            dev_loss.append(val_loss)
+                val_loss = val_loss / len(dev_loader)
+                dev_loss.append(val_loss)
 
             logging.warning(f"epoch :{e + 1}, validation_loss:{val_loss}")
 
@@ -170,13 +175,13 @@ if (args['stage'] <= 1):
 
     best_checkpoint = torch.load(f"./checkpoint/RoBart/{setting}/checkpoint_train_best.pt")
     
-    print(f'using epoch:{best_checkpoint['epoch']}')
+    print(f"using epoch:{best_checkpoint['epoch']}")
     model.model.load_state_dict(best_checkpoint['state_dict'])
 
     for task in recog_task:
         if (task == 'dev'):
             scoring_loader = dev_loader
-        elif (task == test):
+        elif (task == 'test'):
             scoring_loader = test_loader
         
         recog_dict = dict()
@@ -185,20 +190,23 @@ if (args['stage'] <= 1):
         for i, data in enumerate(scoring_loader):
             temp_dict = dict()
             token, mask, ref = data
-            token = token.unsqueeze(0).to(device)
-            mask = mask.unsqueeze(0).to(device)
-
-            logging.warning(f'token.shape:{token.shape}')
+            token = token.to(device).unsqueeze(0)
+            mask = mask.to(device).unsqueeze(0)
 
             output = model.recognize(token, mask)
+            
 
             output = output.squeeze(0).tolist()
 
-            hyp_token = model.optimizer.convert_ids_to_tokens(output)
-            hyp_token = [str(h) for h in hyp_token]
+            logging.warning(f'output:{output}')
 
+            hyp_token = model.tokenizer.convert_ids_to_tokens(output)
+            hyp_token = [str(h) for h in hyp_token if h not in ['[CLS]', '[SEP]', '[PAD]']]
+            
+            logging.warning(f'hyp:{hyp_token}')
             logging.warning(f'ref:{ref}')
 
+            recog_dict['utts'][f'{task}_{i}'] = dict()
             recog_dict['utts'][f'{task}_{i}']['output'] = {
                 'recog_text': " ".join(hyp_token),
                 'ref_token': " ".join(ref)
@@ -208,7 +216,9 @@ if (args['stage'] <= 1):
         ):
             os.makedirs(f"./data/{args['dataset']}/{task}/Correction/Bart/{setting}")
         with open(
-            f"./data/{args['dataset']}/{task}/Correction/Bart/{setting}"/rescore_data.json
+            f"./data/{args['dataset']}/{task}/Correction/Bart/{setting}/rescore_data.json",
+            'w'
         ) as fw:
             json.dump(recog_dict, fw, ensure_ascii = False, indent = 4)
+print(f'Finish')
 

@@ -19,14 +19,18 @@ class RoBart(nn.Module):
     def forward(self, input_id, attention_masks, labels):
 
         loss = self.model(
-            input_id, attention_masks, labels=labels
+            input_ids = input_id, 
+            attention_mask = attention_masks, 
+            labels=labels
         ).loss
 
         return loss
 
     def recognize(self, input_id, attention_masks, max_lens=50):
+        logging.warning(f'token:{input_id.shape}')
+        
         output = self.model.generate(
-            input_id,
+            input_ids = input_id,
             attention_mask = attention_masks,
             max_length=max_lens,
         )

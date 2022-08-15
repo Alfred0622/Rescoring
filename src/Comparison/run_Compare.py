@@ -1,3 +1,4 @@
+from asyncio import selector_events
 import json
 import yaml
 import random
@@ -7,11 +8,10 @@ import logging
 import os
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
-from models.ComparisonRescoring.BertForComparison import BertForComparison
+from model.BertForComparison import BertForComparison
 from utils.Datasets import(
-    nBestDataset,
-    rescoreDataset,
-    concatDataset
+    concatDataset,
+    compareRecogDataset
 )
 from utils.CollateFunc import(
     bertCompareBatch,
@@ -23,10 +23,13 @@ random.seed(42)
 torch.manual_seed(42)
 torch.cuda.manual_seed(42)
 
+if (not os.path.exists("./log")):
+    os.makedirs("./log")
 FORMAT = "%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s"
+
 logging.basicConfig(
     level=logging.INFO,
-    filename=f"./log/compare/train.log",
+    filename="./log/train.log",
     filemode="w",
     format=FORMAT,
 )
@@ -35,7 +38,7 @@ logging.basicConfig(
 # device = 'cpu'
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-config = f"./config/comparison.yaml"
+config = "./config/comparison.yaml"
 args, train_args, recog_args = load_config(config)
 
 setting = 'withLM' if args['withLM'] else 'noLM'
@@ -44,32 +47,6 @@ print(f"stage:{args['stage']}, stop_stage:{args['stop_stage']}")
 
 # Prepare Data
 print('Data Prepare')
-
-# training file is too large, only load dev and test data here
-with open(train_args['dev_json'], 'r') as dev, \
-     open(train_args['test_json'], 'r') as test:
-     dev_json = json.load(dev)
-     test_json = json.load(test)
-
-dev_dataset = rescoreDataset(dev_json, nbest = 50)
-test_dataset = rescoreDataset(test_json, nbest = 50)
-
-
-dev_loader = DataLoader(
-    dev_dataset,
-    batch_size = recog_args["batch"],
-    collate_fn=bertCompareRecogBatch,
-    pin_memory=True,
-    num_workers=4,
-)
-
-test_loader = DataLoader(
-    test_dataset,
-    batch_size = recog_args["batch"],
-    collate_fn=bertCompareRecogBatch,
-    pin_memory=True,
-    num_workers=4,
-)
 
 
 if (args['stage'] <= 0) and (args['stop_stage']>= 0):
@@ -81,26 +58,44 @@ if (args['stage'] <= 0) and (args['stop_stage']>= 0):
     min_loss = 1e8
     loss_seq = []
     train_path = f"{train_args['train_json']}/{setting}"
-    for e in range(train_args["epoch"]):
-        with open(f"{train_path}/token_concat.json", 'r') as f:
-            train_json = json.load(f)
+    valid_path = f"{train_args['valid_json']}/{setting}"
+
+    with open(f"{train_path}/token_concat.json", 'r') as f ,\
+         open(f"{valid_path}/token_concat.json", 'r') as v:
+        train_json = json.load(f)
+        valid_json = json.load(v)
+        print(f"# of train data:{len(train_json)}")
+        print(f"# of valid data:{len(valid_json)}")
         train_dataset = concatDataset(
-            train_json[:train_args["train_batch"]]
+            train_json
+        )
+        valid_dataset = concatDataset(
+            valid_json
         )
         train_loader = DataLoader(
             train_dataset,
             batch_size = train_args["train_batch"],
             collate_fn=bertCompareBatch,
-            pin_memory=True,
+            num_workers=4,
+            shuffle = True
+        )
+
+        valid_loader = DataLoader(
+            valid_dataset,
+            batch_size = train_args["train_batch"],
+            collate_fn=bertCompareBatch,
             num_workers=4,
         )
+    for e in range(train_args["epoch"]):
+        
         for n, data in enumerate(tqdm(train_loader)):
             logging_loss = 0.0
             model.train()
             token, seg, masks, labels = data
-            token = token.to(device)
-            seg = seg.to(device)
-            masks = masks.to(device)
+
+            token = token.to(device).to(torch.int64)
+            seg = seg.to(device).to(torch.int64)
+            masks = masks.to(device).to(torch.int64)
             labels = labels.to(device)
 
             loss = model(token, seg, masks, labels)
@@ -123,23 +118,24 @@ if (args['stage'] <= 0) and (args['stop_stage']>= 0):
         train_checkpoint = dict()
         train_checkpoint["state_dict"] = model.model.state_dict()
         train_checkpoint["optimizer"] = model.optimizer.state_dict()
-        if (not os.path.exists(f'./checkpoint/Comparision/BERT/{setting}')):
-            os.makedirs(f'./checkpoint/Comparision/BERT/{setting}')
+        if (not os.path.exists(f'./checkpoint/{setting}')):
+            os.makedirs(f'./checkpoint/{setting}')
         
         torch.save(
             train_checkpoint,
-            f"./checkpoint/Comparision/BERT/{setting}/checkpoint_train_{e + 1}.pt",
+            f"./checkpoint/{setting}/checkpoint_train_{e + 1}.pt",
         )
 
         # eval
         model.eval()
         valid_loss = 0.0
-        for n, data in enumerate(tqdm(dev_loader)):
-            tokens, segs, masks, _, _, _, _, _, labels = data
+        for n, data in enumerate(tqdm(valid_loader)):
+            tokens, segs, masks, labels = data
             logging.warning(f'token.shape:{tokens.shape}')
             tokens = tokens.to(device)
-            segs = segs.to(device)
-            masks = masks.to(device)
+            segs = segs.to(device).to(torch.int64)
+            masks = masks.to(device).to(torch.int64)
+            labels = labels.to(device)
             loss = model(tokens, segs, masks, labels)
 
             valid_loss += loss.clone().detach().cpu()
@@ -147,14 +143,46 @@ if (args['stage'] <= 0) and (args['stop_stage']>= 0):
         if (valid_loss < min_loss):
             torch.save(
                 train_checkpoint,
-                f"./checkpoint/Comparision/BERT/{setting}/checkpoint_train_best.pt",
+                f"./checkpoint/{setting}/checkpoint_train_best.pt",
             )
 
             min_loss = valid_loss
 
 if (args['stage'] <= 1) and (args['stop_stage'] >= 1):
+    print('prepare recog data')
+    with open(f"{train_args['dev_json']}/{setting}/token.json", 'r') as dev, \
+         open(f"{train_args['test_json']}/{setting}/token.json", 'r') as test:
+        dev_json = json.load(dev)
+        test_json = json.load(test)
+
+    dev_dataset = compareRecogDataset(dev_json[:recog_args["batch"]])
+    test_dataset = compareRecogDataset(test_json[:recog_args["batch"]])
+
+
+    dev_loader = DataLoader(
+        dev_dataset,
+        batch_size = recog_args["batch"],
+        collate_fn=bertCompareRecogBatch,
+        num_workers=4,
+    )
+
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size = recog_args["batch"],
+        collate_fn=bertCompareRecogBatch,
+        num_workers=4,
+    )
+
     recog_set = ['dev', 'test']
     print(f'scoring')
+    checkpoint = torch.load(
+        f'./checkpoint/{setting}/checkpoint_train_best.pt'
+    )
+
+    model = BertForComparison(
+        lr = 1e-5
+    ).to(device)
+    model.model.load_state_dict(checkpoint['state_dict'])
 
     for task in recog_set:
         if (task == 'dev'):
@@ -164,29 +192,34 @@ if (args['stage'] <= 1) and (args['stop_stage'] >= 1):
     
         recog_dict = []
         for n, data in enumerate(tqdm(score_loader)):
-            tokens, segs, masks, first_score, errs, pairs, scores, texts = data
-            output = model.recognize(tokens, segs, masks)
-        
+            name, tokens, segs, masks, pairs, texts, first_score, errs, ref, score= data
+            tokens = tokens.to(device).to(torch.int64)
+            segs = segs.to(device).to(torch.int64)
+            masks = masks.to(device).to(torch.int64)
+
+            output = model.recognize(tokens, segs, masks).clone().detach().cpu()
+            print(f'output:{output}')
             for i, pair in enumerate(pairs):
-                scores[pair[0]] += output[i][0]
-                scores[pair[1]] += (1 - output[i][0])
+                score[pair[0]] += output[i][0]
+                score[pair[1]] += (1 - output[i][0])
             
             recog_dict.append(
                 {
-                    "token": tokens.tolist(),
+                    "name": name,
+                    "text": texts,
                     "ref": texts,
                     "cer": errs,
                     "first_score": first_score.tolist(),
-                    "rescore": scores.tolist(),
+                    "rescore": score.tolist(),
                 }
             )
 
-        if (not os.path.exists(f'data/aishell/{task}/BertCompare/{setting}')):
-                os.makedirs(f'data/aishell/{task}/BertCompare/{setting}')
+        if (not os.path.exists(f'./data/aishell/{task}/{setting}')):
+                os.makedirs(f'./data/aishell/{task}/{setting}')
     
-        print(f"writing file: ./data/aishell/{task}/BertCompare/{setting}/{nbest}best_recog_data.json")
+        print(f"writing file: ./data/aishell/{task}/{setting}/recog_data.json")
         with open(
-            f"./data/aishell/{task}/BertCompare/{setting}/{nbest}best_recog_data.json",
+            f"./data/aishell/{task}/{setting}/recog_data.json",
                 "w"
         ) as f:
             json.dump(recog_dict, f, ensure_ascii=False, indent=4)
@@ -196,6 +229,11 @@ if (args['stage'] <= 2) and (args['stop_stage'] >= 2):
     best_weight = 0.0
     with open(f"./data/aishell/dev/BertCompare/{setting}/{nbest}best_recog_data.json") as f:
         recog_file = json.load(f)
+
+        correction = 0
+        substitution = 0
+        deletion = 0
+        insertion = 0
 
         # find best weight
         best_weight = 0.0

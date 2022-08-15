@@ -17,5 +17,5 @@ def get_sentence_score(logits, input_ids):
     sum_score = score.sum(dim = -1)
     score[exclude_index] = 0.0
     result = score.sum(dim = -1)
-
+    
     return result

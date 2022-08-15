@@ -1,0 +1,21 @@
+args:
+  stage: 0
+  stop_stage: 1
+  nbest: 50  # max: 50
+  withLM: True
+
+train:
+  epoch: 3
+  train_batch: 128
+  valid_batch: 1
+  accumgrad: 1
+  print_loss: 200
+  lr: 1e-5
+  train_json: ./data/aishell/train
+  valid_json: ./data/aishell/valid
+  dev_json: ./data/aishell/dev
+  test_json: ./data/aishell/test
+
+recog:
+  batch: 1
+  find_weight: True

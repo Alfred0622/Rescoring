@@ -10,7 +10,6 @@ from transformers import (
     DistilBertConfig,
 )
 from torch.optim import AdamW
-from sentence_transformers import SentenceTransformer
 
 class BertForComparison(torch.nn.Module):
     def __init__(self, lr = 1e-5):
@@ -26,7 +25,9 @@ class BertForComparison(torch.nn.Module):
         total_loss = 0.0
 
         cls = self.model(
-            input_ids=input_ids, attention_mask=attention_mask
+            input_ids=input_ids, 
+            token_type_ids = segment,
+            attention_mask=attention_mask
         ).last_hidden_state[:, 0, :]
 
         score = self.linear(cls)
@@ -41,7 +42,9 @@ class BertForComparison(torch.nn.Module):
     
     def recognize(self, input_ids, segment, attention_mask):
         cls = self.model(
-            input_ids=input_id, attention_mask=attention_mask
+            input_ids=input_ids, 
+            token_type_ids = segment,
+            attention_mask=attention_mask
         ).last_hidden_state[:, 0, :]
 
         score = self.linear(cls)
