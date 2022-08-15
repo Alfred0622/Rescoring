@@ -1,4 +1,5 @@
 import os
+from secrets import token_urlsafe
 from tqdm import tqdm
 import random
 import json
@@ -12,6 +13,9 @@ import torch.multiprocessing
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
+if (not os.path.exists("./log/clm")):
+    os.makedirs(f"./log/clm/")
+
 FORMAT = "%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s"
 logging.basicConfig(
     level=logging.INFO,
@@ -21,11 +25,12 @@ logging.basicConfig(
 )
 
 from utils.Datasets import (
-    correctDataset
+    causalLMDataset,
+    causalLMDRecogDataset
 )
 from utils.CollateFunc import(
-    correctBatch,
-    correctRecogBatch
+    lmBatch,
+    lmRecogBatch
 )
 from utils.LoadConfig import load_config
 
@@ -54,17 +59,22 @@ with open(train_args['train_json'], 'r') as train, \
      test_json = json.load(test)
 
 # set Dataset
-train_dataset = correctDataset(
+train_dataset = causalLMDataset(
     train_json,
     nbest = args['nbest']
 )
 
-dev_dataset = correctDataset(
+valid_dataset = causalLMDataset(
     dev_json,
     nbest = args['nbest']
 )
 
-test_dataset = correctDataset(
+dev_dataset = causalLMDRecogDataset(
+    dev_json,
+    nbest = args['nbest']
+)
+
+test_dataset = causalLMDRecogDataset(
     test_json,
     nbest = args['nbest']
 )
@@ -73,32 +83,28 @@ test_dataset = correctDataset(
 train_loader = DataLoader(
     train_dataset,
     batch_size = train_args['train_batch'],
-    collate_fn = correctBatch,
-    pin_memory = True,
+    collate_fn = lmBatch,
     num_workers = 4
 )
 
 valid_loader = DataLoader(
     dev_dataset,
     batch_size = train_args['valid_batch'],
-    collate_fn = correctBatch,
-    pin_memory = True,
+    collate_fn = lmBatch,
     num_workers = 4
 )
 
 dev_loader = DataLoader(
     dev_dataset,
     batch_size = recog_args['batch'],
-    collate_fn = correctRecogBatch,
-    pin_memory = True,
+    collate_fn = lmRecogBatch,
     num_workers = 4
 )
 
 test_loader = DataLoader(
     test_dataset,
     batch_size = recog_args['batch'],
-    collate_fn = correctRecogBatch,
-    pin_memory = True,
+    collate_fn = lmRecogBatch,
     num_workers = 4
 )
 
@@ -117,11 +123,11 @@ if args['stage'] <= 1 and args['stop_stage']>= 1:
         logging_loss = 0.0
         for i, data in enumerate(tqdm(train_loader)):
         
-            token, ref_token, _, _ = data
-            token = token.to(device)
+            _, _,ref_token, ref_mask,  _, _ = data
             ref_token = ref_token.to(device)
+            ref_mask = ref_mask.to(device)
 
-            loss = model(input_ids = token, labels = ref_token)
+            loss = model(input_ids = ref_token, attention_mask = ref_mask,labels = ref_token)
             loss = loss /  train_args['accumgrad']
             loss.backward()
             logging_loss += loss.clone().detach().cpu()
@@ -157,24 +163,15 @@ if args['stage'] <= 1 and args['stop_stage']>= 1:
         d = 0
         i = 0
         for i, data in enumerate(tqdm(valid_loader)):
-            token, ref_token, scores, cers = data
+            _, _, ref_token, ref_mask, _, _ = data
 
-            token = token.to(device)
             ref_token = ref_token.to(device)
-            # cers = cers.to(device)
-            # scores = scores.to(device)
+            ref_mask = ref_mask.to(device)
 
-            loss, err = model(token, ref_token, cers, scores)
+            loss = model(input_ids = ref_token, attention_mask = ref_mask,labels = ref_token)
             
-            c += err[0]
-            s += err[1]
-            d += err[2]
-            i += err[3]
-
             valid_loss += loss.clone().detach().cpu()
-        cer = (s + d + i) / (c + s + d)
         logging.warning(f'epoch: {e + 1}, valid loss:{valid_loss}')
-        logging.warning(f'epoch: {e + 1}, valid cer: {cer}')
         if (valid_loss < min_valid_loss):
             min_valid_loss = valid_loss
 
@@ -185,7 +182,7 @@ if args['stage'] <= 1 and args['stop_stage']>= 1:
         
 if args['stage']<= 2 and args['stop_stage']>= 2:
     
-    checkpoint = torch.load(f'/mnt/disk3/Alfred/Rescoring/checkpoint/clm/{setting}/checkpoint_train_best.pt')
+    checkpoint = torch.load(f'./checkpoint/clm/{setting}/checkpoint_train_best.pt')
     
     best_epoch = checkpoint['epoch']
     model.model.load_state_dict(checkpoint['state_dict'])
@@ -202,10 +199,11 @@ if args['stage']<= 2 and args['stop_stage']>= 2:
         elif (task == 'test'):
             scoring_loader = test_loader
         for i, data in enumerate(tqdm(scoring_loader)):
-            token, err, text, ref, first_score = data
+            token, mask, err, first_score, text, ref = data
 
             token = token.to(device)
-            scores = model.recognize(token)
+            mask = mask.to(device)
+            scores = model.recognize(token, attention_mask = mask)
             scores = scores.tolist()
 
             recog_dict.append(
@@ -287,7 +285,7 @@ if args['stage']<= 3 and args['stop_stage']>= 3:
                 i += data['cer'][max_index][3]
 
                 text = data['text'][max_index].split()
-                ref = data['ref'].split()
+                ref = data['ref']
                 rescore_dict['utts'][f'{task}_{n}'] = dict()
                 rescore_dict['utts'][f'{task}_{n}']['output'] = {
                     "rec_token" : " ".join(text),

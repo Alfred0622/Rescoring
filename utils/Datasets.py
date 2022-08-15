@@ -1,3 +1,4 @@
+from re import L
 import torch
 from torch.utils.data import Dataset, DataLoader
 
@@ -95,6 +96,45 @@ class concatDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
+class causalLMDataset(Dataset):
+    def __init__(self, nbest_list, nbest=10):
+        """
+        nbest_list: list() of dict()
+        """
+        self.data = nbest_list
+        self.nbest = nbest
+    def __getitem__(self, idx):
+        return (
+            self.data[idx]["token"][: self.nbest],
+            self.data[idx]["ref_token"][: self.nbest],
+            self.data[idx]['err'][: self.nbest],
+            self.data[idx]['score']
+        )
+
+    def __len__(self):
+        return len(self.data)
+
+class causalLMDRecogDataset(Dataset):
+    def __init__(self, nbest_list, nbest=10):
+        """
+        nbest_list: list() of dict()
+        """
+        self.data = nbest_list
+        self.nbest = nbest
+    def __getitem__(self, idx):
+        return (
+            self.data[idx]["token"][: self.nbest],
+            self.data[idx]["ref_token"][: self.nbest],
+            self.data[idx]['err'][: self.nbest],
+            self.data[idx]['score'],
+            self.data[idx]['text'][: self.nbest],
+            self.data[idx]['ref'],
+        )
+
+    def __len__(self):
+        return len(self.data)
+
+
 class correctDataset(Dataset):
     def __init__(self, nbest_list, nbest=10):
         """
@@ -106,13 +146,31 @@ class correctDataset(Dataset):
     def __getitem__(self, idx):
         return (
             self.data[idx]["token"][: self.nbest],
-            self.data[idx]["ref_token"][: self.nbest],
+            self.data[idx]["ref_token"],
             self.data[idx]['err'][: self.nbest],
             self.data[idx]['text'][: self.nbest],
             self.data[idx]['ref'],
             self.data[idx]['score']
         )
 
+    def __len__(self):
+        return len(self.data)
+
+class correctRecogDataset(Dataset):
+    def __init__(self, nbest_list, nbest=10):
+        """
+        nbest_list: list() of dict()
+        """
+        self.data = nbest_list
+        self.nbest = nbest
+
+    def __getitem__(self, idx):
+        return (
+            self.data[idx]["token"][0],
+            self.data[idx]["ref_token"],
+            self.data[idx]['text'][: self.nbest],
+            self.data[idx]['ref'],
+        )
     def __len__(self):
         return len(self.data)
 

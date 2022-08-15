@@ -19,26 +19,39 @@ class CLMRescorer(nn.Module):
         self.optimizer = AdamW(self.model.parameters(), lr = self.lr)
         self.criterion = nn.CrossEntropyLoss()
         self.tokenizer = BertTokenizerFast.from_pretrained('bert-base-chinese')
-        self.mode = mode # 'scoring' or 'generate' 
-    def forward(self, input_ids, labels, first_score = None, cers = None):
+        self.mode = mode # 'scoring' or 'generate'
+
+        logging.warning(self.model) 
+    def forward(self, input_ids, attention_mask, labels, first_score = None, cers = None):
         # first_score, cer will not be None during validation
-        if (not self.training):
-            output = self.model(input_ids, labels = labels)
-            logit = output.logits
-            score = get_sentence_score(logit, input_ids)
-            score = score.clone().detach().cpu()
+        # if (not self.training):
+        #     output = self.model(
+        #         input_ids = input_ids, 
+        #         attention_mask = attention_mask,
+        #         labels = labels
+        #     )
+        #     logit = output.logits
+        #     score = get_sentence_score(logit, input_ids)
+        #     score = score.clone().detach().cpu()
 
-            weighted_score = first_score + score
-            best_hyp = torch.argmax(weighted_score)
+        #     weighted_score = first_score + score
+        #     best_hyp = torch.argmax(weighted_score)
 
-            return output.loss,  cers[best_hyp]
-        else:
-            output = self.model(input_ids, labels = labels)
-            return output.loss
+        #     return output.loss,  cers[best_hyp]
+        # else:
+        output = self.model(
+            input_ids = input_ids, 
+            attention_mask = attention_mask, 
+            labels = labels
+        )
+        return output.loss
 
 
-    def recognize(self, input_ids):
-        output = self.model(input_ids)
+    def recognize(self, input_ids, attention_mask):
+        output = self.model(
+            input_ids = input_ids, 
+            attention_mask = attention_mask
+        )
         
         # return output score
         logit = output.logits # (B, pad_seq, vocab)
