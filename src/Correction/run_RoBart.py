@@ -23,15 +23,18 @@ config = f"./config/RoBart.yaml"
 
 args, train_args, recog_args = load_config(config)
 
+setting = "withLM" if args["withLM"] else "noLM"
+
+if (not os.path.exists(f"./log/{setting}/{args['nbest']}best")):
+    os.makedirs(f"./log/{setting}/{args['nbest']}best")
+
 FORMAT = "%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s"
 logging.basicConfig(
     level=logging.INFO,
-    filename=f"./log/RoBart/noLM/train.log",
+    filename=f"./log/{setting}/{args['nbest']}best/train.log",
     filemode="w",
     format=FORMAT,
 )
-
-setting = "withLM" if args["withLM"] else "noLM"
 
 train_json = None
 dev_json = None
@@ -40,9 +43,9 @@ test_json = None
 print(f"Prepare data")
 print(f'Load json file')
 
-train_path = f"./data/{args['dataset']}/train/token/token_{setting}_50best.json"
-dev_path = f"./data/{args['dataset']}/dev/token/token_{setting}_50best.json"
-test_path = f"./data/{args['dataset']}/test/token/token_{setting}_50best.json"
+train_path = f"./data/{args['dataset']}/{setting}/train/token.json"
+dev_path = f"./data/{args['dataset']}/{setting}/dev/token.json"
+test_path = f"./data/{args['dataset']}/{setting}/test/token.json"
 
 with open(train_path) as f,\
      open(dev_path) as d,\
@@ -61,7 +64,6 @@ train_loader = DataLoader(
     dataset=train_set,
     batch_size=train_args['batch'],
     collate_fn=correctBatch,
-    pin_memory=True,
     num_workers=4,
 )
 
@@ -69,21 +71,6 @@ valid_loader = DataLoader(
     dataset=valid_set,
     batch_size=recog_args['batch'],
     collate_fn=correctBatch,
-    pin_memory=True,
-    num_workers=4,
-)
-
-dev_loader = DataLoader(
-    dataset=dev_set,
-    batch_size=recog_args['batch'],
-    collate_fn=correctRecogBatch,
-    num_workers=4,
-)
-
-test_loader = DataLoader(
-    dataset=test_set,
-    batch_size=recog_args['batch'],
-    collate_fn=correctRecogBatch,
     num_workers=4,
 )
 
@@ -100,8 +87,12 @@ if args['stage'] <= 0:
         print(f'epoch {e + 1}: training')
         model.train()
         for n, data in enumerate(tqdm(train_loader)):
-            print(f'epoch:{e + 1}: training...')
             token, mask, label = data
+            # logging.warning(f'token.shape:{token.shape}')
+            # logging.warning(f'token:{token}')
+
+            # logging.warning(f'label.shape:{label.shape}')
+            # logging.warning(f'label:{label}')
             token = token.to(device)
             mask = mask.to(device)
             label = label.to(device)
@@ -120,7 +111,7 @@ if args['stage'] <= 0:
                 logging.warning(
                     f"Training epoch :{e + 1} step:{n + 1}, training loss:{logging_loss}"
                 )
-                train_loss.append(logging_loss / train_args['print_loss'])
+                train_loss.append(logging_loss)
                 logging_loss = 0.0
 
         train_checkpoint = dict()
@@ -128,13 +119,13 @@ if args['stage'] <= 0:
         train_checkpoint["state_dict"] = model.model.state_dict()
         train_checkpoint["optimizer"] = model.optimizer.state_dict()
             
-        if (not os.path.exists(f"./checkpoint/RoBart/{setting}")):
-            os.makedirs(f"./checkpoint/RoBart/{setting}")
+        if (not os.path.exists(f"./checkpoint/{setting}/{args['nbest']}best")):
+            os.makedirs(f"./checkpoint/{setting}/{args['nbest']}best")
         torch.save(
             train_checkpoint,
-            f"./checkpoint/RoBart/{setting}/checkpoint_train_{e + 1}.pt",
+            f"./checkpoint/{setting}/{args['nbest']}best/checkpoint_train_{e + 1}.pt",
         )
-
+        
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
@@ -148,8 +139,7 @@ if args['stage'] <= 0:
                 loss = model(token, mask, label)
                 val_loss += loss
 
-                val_loss = val_loss / len(dev_loader)
-                dev_loss.append(val_loss)
+            dev_loss.append(val_loss)
 
             logging.warning(f"epoch :{e + 1}, validation_loss:{val_loss}")
 
@@ -157,7 +147,7 @@ if args['stage'] <= 0:
                 min_val = val_loss
                 torch.save(
                     train_checkpoint,
-                    f"./checkpoint/RoBart/{setting}/checkpoint_train_best.pt",
+                    f"./checkpoint/{setting}/{args['nbest']}best/checkpoint_train_best.pt",
                 )
 
 
@@ -172,13 +162,28 @@ if args['stage'] <= 0:
 if (args['stage'] <= 1):
     print(f'Recognizing')
     recog_task = ['dev', 'test']
+    dev_loader = DataLoader(
+        dataset=dev_set,
+        batch_size=recog_args['batch'],
+        collate_fn=correctRecogBatch,
+        num_workers=4,
+    )
 
-    best_checkpoint = torch.load(f"./checkpoint/RoBart/{setting}/checkpoint_train_best.pt")
+    test_loader = DataLoader(
+        dataset=test_set,
+        batch_size=recog_args['batch'],
+        collate_fn=correctRecogBatch,
+        num_workers=4,
+    )
+
+
+    best_checkpoint = torch.load(f"./checkpoint/{setting}/{args['nbest']}best/checkpoint_train_best.pt")
     
     print(f"using epoch:{best_checkpoint['epoch']}")
     model.model.load_state_dict(best_checkpoint['state_dict'])
 
     for task in recog_task:
+        model.eval()
         if (task == 'dev'):
             scoring_loader = dev_loader
         elif (task == 'test'):
@@ -186,37 +191,38 @@ if (args['stage'] <= 1):
         
         recog_dict = dict()
         recog_dict['utts'] = dict()
-        
-        for i, data in enumerate(scoring_loader):
-            temp_dict = dict()
-            token, mask, ref = data
-            token = token.to(device).unsqueeze(0)
-            mask = mask.to(device).unsqueeze(0)
 
-            output = model.recognize(token, mask)
-            
+        with torch.no_grad():        
+            for i, data in enumerate(scoring_loader):
+                temp_dict = dict()
+                token, mask, ref = data
+                token = token.to(device).unsqueeze(0)
+                mask = mask.to(device).unsqueeze(0)
 
-            output = output.squeeze(0).tolist()
+                output = model.recognize(token, mask)
+                
+                output = output.squeeze(0).tolist()
 
-            logging.warning(f'output:{output}')
+                logging.warning(f'output:{output}')
 
-            hyp_token = model.tokenizer.convert_ids_to_tokens(output)
-            hyp_token = [str(h) for h in hyp_token if h not in ['[CLS]', '[SEP]', '[PAD]']]
-            
-            logging.warning(f'hyp:{hyp_token}')
-            logging.warning(f'ref:{ref}')
+                hyp_token = model.tokenizer.convert_ids_to_tokens(output)
+                hyp_token = [str(h) for h in hyp_token if h not in ['[CLS]', '[SEP]', '[PAD]']]
+                
+                logging.warning(f'hyp:{hyp_token}')
+                logging.warning(f'ref:{ref}')
 
-            recog_dict['utts'][f'{task}_{i}'] = dict()
-            recog_dict['utts'][f'{task}_{i}']['output'] = {
-                'recog_text': " ".join(hyp_token),
-                'ref_token': " ".join(ref)
-            }
+                recog_dict['utts'][f'{task}_{i}'] = dict()
+                recog_dict['utts'][f'{task}_{i}']['output'] = {
+                    'recog_text': " ".join(hyp_token),
+                    'ref_token': " ".join(ref)
+                }
+
         if (not os.path.exists(
-            f"./data/{args['dataset']}/{task}/Correction/Bart/{setting}")
+            f"./data/{args['dataset']}/{setting}/{task}")
         ):
-            os.makedirs(f"./data/{args['dataset']}/{task}/Correction/Bart/{setting}")
+            os.makedirs(f"./data/{args['dataset']}/{setting}/{task}")
         with open(
-            f"./data/{args['dataset']}/{task}/Correction/Bart/{setting}/rescore_data.json",
+            f"./data/{args['dataset']}/{setting}/{task}/{args['nbest']}best_rescore_data.json",
             'w'
         ) as fw:
             json.dump(recog_dict, fw, ensure_ascii = False, indent = 4)

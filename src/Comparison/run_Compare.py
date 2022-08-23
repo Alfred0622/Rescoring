@@ -198,7 +198,6 @@ if (args['stage'] <= 1) and (args['stop_stage'] >= 1):
             masks = masks.to(device).to(torch.int64)
 
             output = model.recognize(tokens, segs, masks).clone().detach().cpu()
-            print(f'output:{output}')
             for i, pair in enumerate(pairs):
                 score[pair[0]] += output[i][0]
                 score[pair[1]] += (1 - output[i][0])

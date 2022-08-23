@@ -6,16 +6,22 @@ import random
 
 random.seed(42)
 nbest = 20
-dataset = ['train', 'dev']
+dataset = ['dev']
 setting = ['noLM', 'withLM']
 
 # train & valid
 for s in setting:
-
     for task in dataset:
+        if (nbest > 20):
+                sample_num = 20
+            else:
+                sample_num = -1
+
         if (task == 'dev'):
             save_path = 'valid'
-        else: save_path = task
+            sample_num = 2
+        else: 
+            save_path = task
         print(f"file: /mnt/disk1/Alfred/Rescoring/data/aishell/{task}/token/token_{s}_50best.json")
         with open(f'/mnt/disk1/Alfred/Rescoring/data/aishell/{task}/token/token_{s}_50best.json') as f:
             token_file = json.load(f)
@@ -24,10 +30,6 @@ for s in setting:
             
             concat_dict = list()
 
-            if (nbest > 20):
-                sample_num = 20
-            else:
-                sample_num = -1
 
             if (sample_num > 0):
                 for n, data in enumerate(tqdm(token_file)):
@@ -50,6 +52,7 @@ for s in setting:
                             temp_dict['label'] = 1
                         concat_dict.append(temp_dict)
             else:
+                print(f'{nbest} best')
                 for n, data in enumerate(tqdm(token_file)):
                     temp_dict = dict()
                     for i in range(nbest):
@@ -68,10 +71,13 @@ for s in setting:
 
             if (not os.path.exists(f'../data/aishell/{save_path}/{s}')):
                 os.makedirs(f"../data/aishell/{save_path}/{s}")
+            
+
             with open(f'../data/aishell/{save_path}/{s}/token_concat.json', 'w') as fw:
                 json.dump(
                     concat_dict, fw, ensure_ascii = False, indent = 4
                 )
+
 
 recog_set = ['dev', 'test']
 # dev & test
@@ -110,3 +116,4 @@ for s in setting:
             f'../data/aishell/{task}/{s}/token.json', 'w'
         ) as fw:
             json.dump(save_list, fw, ensure_ascii = False, indent = 4)
+        print(f'total_data_num : {len(save_dict)}')

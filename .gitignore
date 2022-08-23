@@ -1,7 +1,11 @@
+__pycache__/
+*.pyc
+checkpoint/
+*.pt
 /src/*/log
 /src/*/checkpoint
-/src/*/data
-/src/*/*/__pycache__
+/src/*/data/*
+/src/*/*/
 /*/data
 data/*
 *.log

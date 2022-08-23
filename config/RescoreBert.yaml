@@ -1,4 +1,4 @@
-stage: 3
+stage: 0
 stop_stage: 100
 nbest: 50  # max: 50
 withLM: True

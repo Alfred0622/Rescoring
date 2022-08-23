@@ -151,44 +151,6 @@ def lmRecogBatch(sample):
     )
 
 
-def correctBatch(sample):
-    tokens = []
-    labels = []
-    scores = []
-    cers = []
-    for s in sample:
-        batch = len(s[0])
-        for i, t in enumerate(s[0]):
-            tokens.append(torch.tensor(t))
-            labels.append(torch.tensor(s[1]))
-
-    tokens = pad_sequence(tokens, batch_first = True)
-    labels = pad_sequence(labels, batch_first = True, padding_value=-100)
-
-    attention_masks = torch.zeros(tokens.shape)
-    attention_masks[tokens != 0] = 1
-
-    return tokens, attention_masks, labels
-
-def correctRecogBatch(sample):
-    tokens = []
-    errs = []
-    texts = []
-    score = []
-    
-    for s in sample :
-        tokens += s[0]
-        texts += s[3]
-    for i, t in enumerate(tokens):
-        tokens[i] = torch.tensor(t)
-    
-    tokens = torch.tensor(tokens)
-
-    attention_masks = torch.zeros(tokens.shape)
-    attention_masks[tokens != 0] = 1
-
-    return tokens, attention_masks, texts
-
 
 # def createBatch(sample):
 #     token_id = [s[0] + s[1] for s in sample]
