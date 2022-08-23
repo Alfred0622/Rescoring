@@ -6,6 +6,7 @@ import yaml
 import logging
 import torch
 
+from 
 from models.nBestAligner.nBestTransformer import nBestTransformer
 from transformers import BertTokenizer
 from utils.LoadConfig import load_config
@@ -20,8 +21,6 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # device = "cpu"
 
 config = f"./config/nBestAlign.yaml"
-train_args = dict()
-recog_args = dict()
 
 args, train_args, recog_args = load_config(config)
 
