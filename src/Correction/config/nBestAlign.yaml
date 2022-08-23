@@ -1,0 +1,20 @@
+stage: 0
+
+train: 
+  epoch: 3
+  train_batch: 4
+  valid_batch: 1
+  accumgrad: 1
+  print_loss: 200
+  mode: align
+  lr: 1e-5
+  align_embedding: 512
+  train_json: ./data/aishell/train/10_best/bart_token/align_token.json
+  dev_json: ./data/aishell/dev/10_best/bart_token/align_token.json
+  test_json: ./data/aishell/test/10_best/bart_token/align_token.json
+  model_name: bart
+  checkpoint: # /work/jason90255/rescoring/checkpoint/nBestTransformer/align/bart/checkpoint_train_10.pt
+
+recog:
+  batch: 1
+  max_len: 50

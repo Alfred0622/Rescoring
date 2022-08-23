@@ -2,10 +2,13 @@ __pycache__/
 *.pyc
 checkpoint/
 *.pt
+data/
+*.json
+*.trn
+*.txt
 /src/*/log
 /src/*/checkpoint
 /src/*/data/*
-/src/*/*/
 /*/data
 data/*
 *.log
