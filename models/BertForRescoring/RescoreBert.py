@@ -40,6 +40,7 @@ class MLMBert(torch.nn.Module):
 
             for i in range(input_id.shape[0]):
                 input_id[i, selection[i]] = self.mask
+
             label[input_id != self.mask] = -100
 
             output = self.model(input_ids=input_id, attention_mask=mask, labels=label)

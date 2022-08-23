@@ -9,9 +9,9 @@ logging.basicConfig(
     level=logging.DEBUG, filename="./log/gen_token.log", filemode="w", format=FORMAT
 )
 
-setting = "withLM"
-dataset = ["dev"]  # train
-model_name = "bert"
+setting = ["withLM", "noLM"]
+dataset = ["train", "dev", "test"]  # train
+model_name = "bart"
 nbest = 50
 
 
@@ -21,28 +21,28 @@ elif model_name == "bert":
     tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
 
 logging.warning(f"start")
-for d in dataset:
-    print(d)
-    if not os.path.exists(f"./data/aishell/{d}/token"):
-        os.mkdir(f"./data/aishell/{d}/token")
-    json_file = f"./data/aishell/{d}/data/data_{setting}.json"
-    w_json = f"./data/aishell/{d}/token/token_{setting}_{nbest}best.json"
-    with open(json_file, "r") as f, open(w_json, "w") as fw:
-        j = json.load(f)
-        for i, element in enumerate(j):
-            ids = []
-            text = []
-            for seq in element["token"]:
-                token = tokenizer.tokenize("[CLS]" + seq + "[SEP]")
-                text.append(seq)
-                ids.append(tokenizer.convert_tokens_to_ids(token))
-            element["token"] = ids
-            element["text"] = text
-            # element["segment"] = seg
+for s in setting:
+    for d in dataset:
+        print(f'{d}:{s}')
+        if not os.path.exists(f"./data/aishell/{d}/token"):
+            os.mkdir(f"./data/aishell/{d}/token")
+        json_file = f"./data/aishell/{d}/data/data_{s}.json"
+        w_json = f"./data/aishell/{d}/token/{model_name}_token_{s}.json"
+        with open(json_file, "r") as f, open(w_json, "w") as fw:
+            j = json.load(f)
+            for i, element in enumerate(j):
+                ids = []
+                text = []
+                for seq in element["token"]:
+                    token = tokenizer.tokenize("[CLS]" + seq + "[SEP]")
+                    text.append(seq)
+                    ids.append(tokenizer.convert_tokens_to_ids(token))
+                element["token"] = ids
+                element["text"] = text
 
-            ref_token = tokenizer.tokenize("[CLS]" + element["ref"] + "[SEP]")
-            element["ref_token"] = tokenizer.convert_tokens_to_ids(ref_token)
-            element["ref_text"] = element["ref"]
-            # element["ref_seg"] = [0] * len(element["ref_token"])
-        logging.warning(f"write file")
-        json.dump(j, fw, ensure_ascii=False, indent=4)
+                ref_token = tokenizer.tokenize("[CLS]" + element["ref"] + "[SEP]")
+                element["ref_token"] = tokenizer.convert_tokens_to_ids(ref_token)
+                element["ref_text"] = element["ref"]
+
+            logging.warning(f"write file")
+            json.dump(j, fw, ensure_ascii=False, indent=4)

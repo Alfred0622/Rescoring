@@ -20,8 +20,8 @@ for s in setting:
         if (task == 'dev'):
             save_path = 'valid'
             sample_num = 2
-
-        else: save_path = task
+        else: 
+            save_path = task
         print(f"file: /mnt/disk1/Alfred/Rescoring/data/aishell/{task}/token/token_{s}_50best.json")
         with open(f'/mnt/disk1/Alfred/Rescoring/data/aishell/{task}/token/token_{s}_50best.json') as f:
             token_file = json.load(f)
@@ -52,7 +52,9 @@ for s in setting:
                             temp_dict['label'] = 1
                         concat_dict.append(temp_dict)
             else:
-                for n, data in enumerate(tqdm(token_file)): 
+                print(f'{nbest} best')
+                for n, data in enumerate(tqdm(token_file)):
+                    temp_dict = dict()
                     for i in range(nbest):
                         for j in range(nbest):
                             temp_dict = dict()
@@ -78,6 +80,7 @@ for s in setting:
                 json.dump(
                     concat_dict, fw, ensure_ascii = False, indent = 4
                 )
+
 
 recog_set = ['dev', 'test']
 # dev & test
@@ -117,4 +120,4 @@ for s in setting:
             f'../data/aishell/{task}/{s}/token.json', 'w'
         ) as fw:
             json.dump(save_list, fw, ensure_ascii = False, indent = 4)
-        
+        print(f'total_data_num : {len(save_dict)}')
