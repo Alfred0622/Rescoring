@@ -1,11 +1,11 @@
 args:
-  stage: 0
-  stop_stage: 1
-  nbest: 50  # max: 50
-  withLM: True
+  stage: 2
+  stop_stage: 2
+  nbest: 20  # max: 50
+  withLM: False
 
 train:
-  epoch: 3
+  epoch: 4
   train_batch: 128
   valid_batch: 1
   accumgrad: 1

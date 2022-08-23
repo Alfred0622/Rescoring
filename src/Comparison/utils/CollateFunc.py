@@ -39,7 +39,7 @@ def bertCompareRecogBatch(sample):
     masks = []
 
     texts = []
-    score = []
+    first_score = []
     err = []
     ref = []
 
@@ -58,7 +58,7 @@ def bertCompareRecogBatch(sample):
         pairs += s[2]
 
         texts += s[3]
-        score += s[4]
+        first_score += s[4]
 
         err += s[5]
         ref += s[6]
@@ -75,7 +75,7 @@ def bertCompareRecogBatch(sample):
         masks,
         pairs,
         texts,
-        score,
+        first_score,
         err,
         ref,
         score

@@ -11,7 +11,7 @@ from transformers import (
 )
 from torch.optim import AdamW
 
-class BertForComparison(torch.nn.Module):
+class BertForComparison(torch.nn.Module): # Bert_sem
     def __init__(self, lr = 1e-5):
         torch.nn.Module.__init__(self)
         self.model = BertModel.from_pretrained('bert-base-chinese')
@@ -31,10 +31,8 @@ class BertForComparison(torch.nn.Module):
         ).last_hidden_state[:, 0, :]
 
         score = self.linear(cls)
+        logging.warning(f'score:{score.shape}')
         score = self.sigmoid(score).squeeze(-1)
-
-        logging.warning(f'score.shape:{score.dtype}')
-        logging.warning(f'labels.shape:{labels.dtype}')
         
         loss = self.loss(score, labels)
 
@@ -51,3 +49,11 @@ class BertForComparison(torch.nn.Module):
         score = self.sigmoid(score)
 
         return score
+
+# class BertForComparason_AL(torch.nn.Module): # Bert Alsem
+#     def __init__(self, pretrain_name ,lr = 1e-5):
+#         torch.nn.Module.__init__(self)
+#         self.bert = BertModel.from_pretrained(pretrain_name)
+#         self.rnn = 
+#         self.lr = lr
+

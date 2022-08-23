@@ -213,11 +213,11 @@ if (args['stage'] <= 1):
                 'ref_token': " ".join(ref)
             }
         if (not os.path.exists(
-            f"./data/{args['dataset']}/{task}/Correction/Bart/{setting}")
+            f"../data/{args['dataset']}/{task}/Correction/Bart/{setting}")
         ):
             os.makedirs(f"./data/{args['dataset']}/{task}/Correction/Bart/{setting}")
         with open(
-            f"./data/{args['dataset']}/{task}/Correction/Bart/{setting}/rescore_data.json",
+            f"../data/{args['dataset']}/{task}/Correction/Bart/{setting}/rescore_data.json",
             'w'
         ) as fw:
             json.dump(recog_dict, fw, ensure_ascii = False, indent = 4)
