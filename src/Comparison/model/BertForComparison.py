@@ -31,7 +31,7 @@ class BertForComparison(torch.nn.Module): # Bert_sem
         ).last_hidden_state[:, 0, :]
 
         score = self.linear(cls)
-        logging.warning(f'score:{score.shape}')
+        # logging.warning(f'score:{score.shape}')
         score = self.sigmoid(score).squeeze(-1)
         
         loss = self.loss(score, labels)

@@ -12,6 +12,7 @@ logging.basicConfig(
 setting = ["withLM", "noLM"]
 dataset = ["train", "dev", "test"]  # train
 model_name = "bart"
+task = "Correction"
 nbest = 50
 
 
@@ -27,7 +28,7 @@ for s in setting:
         if not os.path.exists(f"./data/aishell/{d}/token"):
             os.mkdir(f"./data/aishell/{d}/token")
         json_file = f"./data/aishell/{d}/data/data_{s}.json"
-        w_json = f"./data/aishell/{d}/token/{model_name}_token_{s}.json"
+        w_json = f"./src/{task}/data/aishell/{s}/{d}/token.json"
         with open(json_file, "r") as f, open(w_json, "w") as fw:
             j = json.load(f)
             for i, element in enumerate(j):

@@ -1,8 +1,8 @@
 args:
-  stage: 2
+  stage: 0
   stop_stage: 2
-  nbest: 20  # max: 50
-  withLM: False
+  nbest: 10  # max: 50
+  withLM: True
 
 train:
   epoch: 4

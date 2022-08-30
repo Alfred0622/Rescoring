@@ -48,12 +48,13 @@ print(f"stage:{args['stage']}, stop_stage:{args['stop_stage']}")
 # Prepare Data
 print('Data Prepare')
 print(f'setting:{setting}')
+print(f"nbest:{args['nbest']}")
 recog_set = ['dev', 'test']   
 
 
 if (args['stage'] <= 0) and (args['stop_stage']>= 0):
     model = BertForComparison(
-        lr = 1e-5
+        lr = float(train_args['lr'])
     ).to(device)
 
     print(f'training')
@@ -62,8 +63,8 @@ if (args['stage'] <= 0) and (args['stop_stage']>= 0):
     train_path = f"{train_args['train_json']}/{setting}"
     valid_path = f"{train_args['valid_json']}/{setting}"
 
-    with open(f"{train_path}/token_concat.json", 'r') as f ,\
-         open(f"{valid_path}/token_concat.json", 'r') as v:
+    with open(f"{train_path}/{args['nbest']}best/token_concat.json", 'r') as f ,\
+         open(f"{valid_path}/{args['nbest']}best/token_concat.json", 'r') as v:
         train_json = json.load(f)
         valid_json = json.load(v)
         print(f"# of train data:{len(train_json)}")
@@ -124,12 +125,12 @@ if (args['stage'] <= 0) and (args['stop_stage']>= 0):
         train_checkpoint = dict()
         train_checkpoint["state_dict"] = model.model.state_dict()
         train_checkpoint["optimizer"] = model.optimizer.state_dict()
-        if (not os.path.exists(f'./checkpoint/{setting}')):
-            os.makedirs(f'./checkpoint/{setting}')
+        if (not os.path.exists(f"./checkpoint/{setting}/{args['nbest']}")):
+            os.makedirs(f"./checkpoint/{setting}/{args['nbest']}")
         
         torch.save(
             train_checkpoint,
-            f"./checkpoint/{setting}/checkpoint_train_{e + 1}.pt",
+            f"./checkpoint/{setting}/{args['nbest']}/checkpoint_train_{e + 1}.pt",
         )
 
         # eval
@@ -149,15 +150,15 @@ if (args['stage'] <= 0) and (args['stop_stage']>= 0):
         if (valid_loss < min_loss):
             torch.save(
                 train_checkpoint,
-                f"./checkpoint/{setting}/checkpoint_train_best.pt",
+                f"./checkpoint/{setting}/{args['nbest']}/checkpoint_train_best.pt",
             )
 
             min_loss = valid_loss
 
 if (args['stage'] <= 1) and (args['stop_stage'] >= 1):
     print('prepare recog data')
-    with open(f"{train_args['dev_json']}/{setting}/token.json", 'r') as dev, \
-         open(f"{train_args['test_json']}/{setting}/token.json", 'r') as test:
+    with open(f"{train_args['dev_json']}/{setting}/{args['nbest']}best/token.json", 'r') as dev, \
+         open(f"{train_args['test_json']}/{setting}/{args['nbest']}best/token.json", 'r') as test:
         dev_json = json.load(dev)
         test_json = json.load(test)
 
@@ -214,17 +215,17 @@ if (args['stage'] <= 1) and (args['stop_stage'] >= 1):
                     "text": texts,
                     "ref": ref,
                     "cer": errs,
-                    "first_score": first_score,
+                    "first_score": first_score[:args['nbest']],
                     "rescore": score.tolist(),
                 }
             )
 
-        if (not os.path.exists(f'./data/aishell/{task}/{setting}')):
-                os.makedirs(f'./data/aishell/{task}/{setting}')
+        if (not os.path.exists(f"./data/aishell/{task}/{setting}/{args['nbest']}best")):
+                os.makedirs(f"./data/aishell/{task}/{setting}/{args['nbest']}best")
     
-        print(f"writing file: ./data/aishell/{task}/{setting}/recog_data.json")
+        print(f"writing file: ./data/aishell/{task}/{setting}/{args['nbest']}best/recog_data.json")
         with open(
-            f"./data/aishell/{task}/{setting}/recog_data.json",
+            f"./data/aishell/{task}/{setting}/{args['nbest']}best/recog_data.json",
                 "w"
         ) as f:
             json.dump(recog_dict, f, ensure_ascii=False, indent=4)
@@ -233,7 +234,7 @@ if (args['stage'] <= 2) and (args['stop_stage'] >= 2):
     print(f'rescoring')
     am_weight = 0.0
     lm_weight = 0.0
-    with open(f"./data/aishell/dev/{setting}/recog_data.json") as f:
+    with open(f"./data/aishell/dev/{setting}/{args['nbest']}best/recog_data.json") as f:
         recog_file = json.load(f)
 
         # find best weight
@@ -249,7 +250,7 @@ if (args['stage'] <= 2) and (args['stop_stage'] >= 2):
             l_weight = l * 0.01
             for data in recog_file:
                 first_score = torch.tensor(data['first_score'][:args['nbest']])
-                rescore = torch.tensor(data['rescore'])
+                rescore = torch.tensor(data['rescore'][:args['nbest']])
                 # print(first_score.shape)
                 # print(rescore.shape)
                 cer = torch.tensor(data['cer']).view(-1, 4)
@@ -266,11 +267,12 @@ if (args['stage'] <= 2) and (args['stop_stage'] >= 2):
             err_for_weight = (substitution + deletion + insertion) / (
                     correction + deletion + substitution
                 )
+            logging.warning(f'weight = {l_weight} : {err_for_weight}')
             if (err_for_weight < min_err):
                     # print(f'better_weight:{a_weight}, {l_weight} ;  smaller_err:{min_err}')
                 best_lm = l_weight
                 min_err = err_for_weight
-        print(f'min_weight:{l_weight}, min_err:{min_err}')
+        print(f'min_weight:{best_lm}, min_err:{min_err}')
     
     print(f'using best_weight:{best_lm}')
     for task in recog_set:
@@ -279,7 +281,7 @@ if (args['stage'] <= 2) and (args['stop_stage'] >= 2):
         deletion = 0
         insertion = 0
 
-        with open(f"./data/aishell/{task}/{setting}/recog_data.json") as f:       
+        with open(f"./data/aishell/{task}/{setting}/{args['nbest']}best/recog_data.json") as f:       
             recog_file = json.load(f)
 
             recog_dict = dict()
@@ -289,7 +291,7 @@ if (args['stage'] <= 2) and (args['stop_stage'] >= 2):
                 ref = data["ref"]
 
                 score = torch.tensor(data["first_score"][:args['nbest']])
-                rescore = torch.tensor(data["rescore"])
+                rescore = torch.tensor(data["rescore"][:args['nbest']])
                 cer = torch.tensor(data['cer']).view(-1, 4)
 
                 weight_sum = 1 * score + best_lm * rescore
@@ -319,7 +321,7 @@ if (args['stage'] <= 2) and (args['stop_stage'] >= 2):
             print(f'{setting} / {task} : {err}')
 
         with open(
-            f"./data/aishell/{task}/{setting}/BertSem_recog_data.json",
+            f"./data/aishell/{task}/{setting}/{args['nbest']}best/BertSem_recog_data.json",
             "w",
         ) as f:
             json.dump(recog_dict, f, ensure_ascii=False, indent=4)
