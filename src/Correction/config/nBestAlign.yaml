@@ -1,0 +1,23 @@
+args:
+  stage: 0
+  stop_stage: 100
+  withLM: False
+
+train: 
+  start_epoch: 0
+  epoch: 10
+  train_batch: 64
+  valid_batch: 1
+  accumgrad: 1
+  print_loss: 200
+  mode: align
+  lr: 1e-5
+  align_embedding: 512
+  train_json: train
+  dev_json: dev
+  test_json: test
+  model_name: bart
+
+recog:
+  batch: 1
+  max_len: 50
