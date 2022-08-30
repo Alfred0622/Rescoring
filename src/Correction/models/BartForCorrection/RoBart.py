@@ -28,11 +28,11 @@ class RoBart(nn.Module):
         return loss
 
     def recognize(self, input_id, attention_masks, max_lens=50):
-        logging.warning(f'token:{input_id.shape}')
         
         output = self.model.generate(
             input_ids = input_id,
             attention_mask = attention_masks,
+            num_beams = 3,
             max_length=max_lens,
         )
 

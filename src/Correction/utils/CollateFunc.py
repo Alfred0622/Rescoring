@@ -8,11 +8,11 @@ def correctBatch(sample):
     scores = []
     cers = []
     for s in sample:
-        batch = len(s[0])
-        for i, t in enumerate(s[0]):
-            tokens.append(torch.tensor(t))
-            labels.append(torch.tensor(s[1]))
-
+        tokens.append(torch.tensor(s[0]))
+        labels.append(torch.tensor(s[1]))
+        # for i, t in enumerate(s[0]):
+        #     print(f'token:{t}')
+        #     tokens.append(torch.tensor(t))
     tokens = pad_sequence(tokens, batch_first = True)
     labels = pad_sequence(labels, batch_first = True, padding_value=-100)
 
@@ -23,16 +23,14 @@ def correctBatch(sample):
 
 def correctRecogBatch(sample):
     tokens = []
-    errs = []
     texts = []
-    score = []
     
     for s in sample :
-        tokens += s[0]
-        texts += s[3]
-    for i, t in enumerate(tokens):
-        tokens[i] = torch.tensor(t)
-    
+        tokens.append(torch.tensor(s[0]))
+        texts.append(s[1])
+    # for i, t in enumerate(tokens):
+    #     tokens[i] = torch.tensor(t)
+
     tokens = torch.tensor(tokens)
 
     attention_masks = torch.zeros(tokens.shape)
@@ -41,22 +39,28 @@ def correctRecogBatch(sample):
     return tokens, attention_masks, texts
 
 def nBestAlignBatch(sample):
-    tokens = [s[0][1:] for s in sample]
+    tokens = [s[0] for s in sample]
 
     ref_tokens = [s[1] for s in sample]
 
+    masks = list()
+
     for i, t in enumerate(tokens):
         tokens[i] = torch.tensor(t)
+        # logging.warning(f'tokens[i]:{tokens[i]}')
+        masks.append(torch.ones(tokens[i].shape[0]))
 
     for i, t in enumerate(ref_tokens):
         ref_tokens[i] = torch.tensor(t)
 
     tokens = pad_sequence(tokens, batch_first=True)
+    # logging.warning(f'Pad tokens: {tokens}')
     ref_tokens = pad_sequence(ref_tokens, batch_first=True)
+    masks = pad_sequence(masks, batch_first = True)
 
-    masks = torch.zeros(tokens.shape[:2], dtype=torch.long)
+    # masks = torch.zeros(tokens.shape[:2], dtype=torch.long)
 
-    masks = masks.masked_fill(torch.any(tokens != torch.zeros(tokens.shape[-1])), 1)
+    # masks = masks.masked_fill(torch.any(tokens != torch.zeros(tokens.shape[-1])), 1)
 
     ref = [s[2] for s in sample]
 

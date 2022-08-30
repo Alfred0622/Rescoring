@@ -93,7 +93,7 @@ def align(nbest, nBest, placeholder="-"):
     # First, align them pair by pair -- using minimum edit distance
     first_align = []
     for a in pair:
-        cost_matrix = [[0 for i in range(len(a[1]) + 1)] for j in range(len(a[0]) + 1)]
+        cost_matrix = [[0 for j in range(len(a[1]) + 1)] for i in range(len(a[0]) + 1)]
         for j in range(len(a[1]) + 1):
             cost_matrix[0][j] = j
         for i in range(len(a[0]) + 1):
@@ -199,23 +199,48 @@ def alignNbest(nbestAlign, placeholder="-"):
                     )
                     l2 += 1
 
-            if l1 == len(ali[0]):
-                while l2 < len(ali[1]):
-                    align.append(
-                        [placeholder]
-                        + [placeholder for _ in range(len(ali[0][l1 - 1]) - 1)]
-                        + ali[1][l2][1:]
-                    )
-                    l2 += 1
-            elif l2 == len(ali[1]):
-                while l1 < len(ali[0]):
-                    align.append(
-                        [placeholder]
-                        + ali[0][l1][1:]
-                        + [placeholder for _ in range(len(ali[1][l2 - 1]) - 1)]
-                    )
-                    l1 += 1
+        while l1 < len(ali[0]):
+            align.append(
+                [placeholder]
+                + ali[0][l1][1:]
+                + [placeholder for _ in range(len(ali[1][l2 - 1]) - 1)]
+            )
+            l1 += 1
+
+        while l2 < len(ali[1]):
+            align.append(
+                [placeholder]
+                + [placeholder for _ in range(len(ali[0][l1 - 1]) - 1)]
+                + ali[1][l2][1:]
+            )
+            l2 += 1
 
         alignResult = align
 
     return alignResult
+
+if __name__ == '__main__':
+    hyp = [
+        ['a','b','c','e'],
+        ['a','c','e'],
+        ['a','b','c','r','g','e'],
+        ['a','b','b','r', 'c'],
+    ]
+
+    ref = ['a','b','c','d','e']
+
+    align_pair = align(
+                    hyp,
+                    nBest=4,
+                    placeholder= '*',
+                )
+    print("align_pair")
+    for p in align_pair:
+        print(p)
+    align_result = alignNbest(
+        align_pair,
+        placeholder='*'
+    )
+    print(f'align_result')
+    for r in align_result:
+        print(r)

@@ -16,7 +16,7 @@ from transformers import (
     BartForConditionalGeneration,
 )
 from torch.nn.utils.rnn import pad_sequence
-from nBestAligner.nBestAlign import align, alignNbest
+from models.nBestAligner.nBestAlign import align, alignNbest
 
 
 class nBestTransformer(nn.Module):
@@ -34,31 +34,12 @@ class nBestTransformer(nn.Module):
         nn.Module.__init__(self)
         self.device = device
         self.embedding_dim = align_embedding
+        
+        self.tokenizer = BertTokenizer.from_pretrained("fnlp/bart-base-chinese")
 
-        if model_name == "bert":
-            self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
-
-            encoder = BertGenerationEncoder.from_pretrained(
-                "bert-base-chinese", bos_token_id=101, eos_token_id=102
-            )
-
-            decoder = BertGenerationDecoder.from_pretrained(
-                "bert-base-chinese",
-                add_cross_attention=True,
-                is_decoder=True,
-                bos_token_id=101,
-                eos_token_id=102,
-            )
-
-            self.model = EncoderDecoderModel(encoder=encoder, decoder=decoder).to(
-                self.device
-            )
-        else:
-            self.tokenizer = BertTokenizer.from_pretrained("fnlp/bart-base-chinese")
-
-            self.model = BartForConditionalGeneration.from_pretrained(
-                "fnlp/bart-base-chinese"
-            ).to(self.device)
+        self.model = BartForConditionalGeneration.from_pretrained(
+            "fnlp/bart-base-chinese"
+        ).to(self.device)
 
         self.nBest = nBest
         self.train_batch = train_batch
@@ -71,12 +52,11 @@ class nBestTransformer(nn.Module):
         self.model.config.decoder_start_token_id = self.tokenizer.convert_tokens_to_ids(
             "[CLS]"
         )
-        self.model.config.pad_token_id = self.tokenizer.convert_tokens_to_ids("[PAD]")
 
         logging.warning(self.model.config)
 
         self.embedding = nn.Embedding(
-            self.tokenizer.vocab_size, align_embedding, padding_idx=self.pad
+            self.model.config.vocab_size, align_embedding, padding_idx=self.pad
         ).to(self.device)
         self.embeddingLinear = (
             nn.Linear(align_embedding * self.nBest, 768).to(self.device)
@@ -86,7 +66,7 @@ class nBestTransformer(nn.Module):
 
         parameters = list(self.embedding.parameters()) + list(self.model.parameters())
         if self.mode == "align":
-            parameters += list(self.embeddingLinear.parameters())
+            parameters = parameters + list(self.embeddingLinear.parameters())
         self.optimizer = AdamW(parameters, lr=lr)
 
     def forward(
@@ -98,7 +78,9 @@ class nBestTransformer(nn.Module):
         if self.mode == "align":
 
             aligned_embedding = self.embedding(input_id)  # (L, N, 768)
+            # logging.warning(f'aligned_embedding.shape:{aligned_embedding.shape}')
             aligned_embedding = aligned_embedding.flatten(start_dim=2)  # (L, 768 * N)
+            # logging.warning(f'flattened aligned_embedding.shape:{aligned_embedding.shape}')
             proj_embedding = self.embeddingLinear(
                 aligned_embedding
             )  # (L, 768 * N) -> (L, 768)
@@ -149,6 +131,7 @@ class nBestTransformer(nn.Module):
                 inputs_embeds=proj_embedding,
                 attention_mask=attention_mask,
                 decoder_input_ids=decoder_ids,
+                num_beams=3,
                 max_length=max_lens,
             )
 

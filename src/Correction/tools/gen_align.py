@@ -10,7 +10,7 @@ topk = 4
 
 
 tokenizer = BertTokenizer.from_pretrained("fnlp/bart-base-chinese")
-placeholder = "-"
+placeholder = "*"
 print(f"placeholder {placeholder} = {tokenizer.convert_tokens_to_ids(placeholder)}")
 if __name__ == "__main__":
     for s in setting:
@@ -32,13 +32,13 @@ if __name__ == "__main__":
                 )
 
                 temp_dict["token"] = align_result
-                temp_dict["score"] = d["score"][:nBest]
+                temp_dict["score"] = d["score"][:topk]
                 temp_dict["ref"] = d["ref"]
                 temp_dict["ref_token"] = d["ref_token"]
-                temp_dict["err"] = d["err"][:nBest]
+                temp_dict["err"] = d["err"][:topk]
                 result_dict.append(temp_dict)
 
             with open(
-                f"../data/aishell/{s}/{task}/{nBest}_align_token.json", "w"
+                f"../data/aishell/{s}/{task}/{topk}_align_token.json", "w"
             ) as f:
                 json.dump(result_dict, f, ensure_ascii=False, indent=4)
