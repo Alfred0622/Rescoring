@@ -12,10 +12,7 @@ data/
 /*/data
 data/*
 *.log
-__pycache__/*
 checkpoint/*
 log/*
-*/__pycache__
 align/
 tmp/
-*/*/__pycache__

@@ -109,7 +109,7 @@ def align(nbest, nBest, placeholder="-"):
                     )
                 else:
                     cost_matrix[i + 1][j + 1] = min(
-                        cost_matrix[i][j] + 2,
+                        cost_matrix[i][j] + 1,
                         cost_matrix[i + 1][j] + 1,
                         cost_matrix[i][j + 1] + 1,
                     )
@@ -122,7 +122,7 @@ def align(nbest, nBest, placeholder="-"):
             if a[0][l1] == a[1][l2]:
                 cost = 0
             else:
-                cost = 2
+                cost = 1
 
             r = cost_matrix[l1 + 1][l2 + 1]
             diag = cost_matrix[l1][l2]
