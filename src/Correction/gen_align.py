@@ -4,7 +4,7 @@ from models.nBestAligner.nBestAlign import align, alignNbest
 import json
 from transformers import BertTokenizer
 
-dataset = ["train", "dev", "test"]
+dataset = ["train", "dev", "valid","test"]
 setting = ['noLM', 'withLM']
 topk = 4
 
@@ -16,6 +16,7 @@ if __name__ == "__main__":
     for s in setting:
         for task in dataset:
             print(task)
+
             with open(f"./data/aishell/{s}/{task}/token.json") as f:
                 data = json.load(f)
 

@@ -43,20 +43,23 @@ test_json = None
 print(f"Prepare data")
 print(f'Load json file')
 
-train_path = f"./data/{args['dataset']}/{setting}/train/token.json"
-dev_path = f"./data/{args['dataset']}/{setting}/dev/token.json"
-test_path = f"./data/{args['dataset']}/{setting}/test/token.json"
+train_path = f"./data/{args['dataset']}/{setting}/train/{args['nbest']}best/token.json"
+valid_path = f"./data/{args['dataset']}/{setting}/valid/{args['nbest']}best/token.json"
+dev_path = f"./data/{args['dataset']}/{setting}/dev/1best/token.json"
+test_path = f"./data/{args['dataset']}/{setting}/test/1best/token.json"
 
 with open(train_path) as f,\
+     open(valid_path) as v,\
      open(dev_path) as d,\
      open(test_path) as t:
     train_json = json.load(f)
+    valid_json = json.load(v)
     dev_json = json.load(d)
     test_json = json.load(t)
 
 print(f'Create Dataset & DataLoader')
-train_set = correctDataset(train_json, nbest = args['nbest'])
-valid_set = correctDataset(dev_json, nbest = args['nbest'])
+train_set = correctDataset(train_json)
+valid_set = correctDataset(valid_json)
 dev_set = correctRecogDataset(dev_json)
 test_set = correctRecogDataset(test_json)
 
@@ -220,9 +223,9 @@ if (args['stage'] <= 1):
         if (not os.path.exists(
             f"./data/{args['dataset']}/{setting}/{task}")
         ):
-            os.makedirs(f"./data/{args['dataset']}/{setting}/{task}")
+            os.makedirs(f"./data/{args['dataset']}/{setting}/{task}/{args['nbest']}best_correct")
         with open(
-            f"./data/{args['dataset']}/{setting}/{task}/{args['nbest']}best_rescore_data.json",
+            f"./data/{args['dataset']}/{setting}/{task}/{args['nbest']}best_correct/rescore_data.json",
             'w'
         ) as fw:
             json.dump(recog_dict, fw, ensure_ascii = False, indent = 4)
