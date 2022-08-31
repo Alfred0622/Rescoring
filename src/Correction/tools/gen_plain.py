@@ -7,7 +7,7 @@ from transformers import BertTokenizer
 setting = ['withLM', 'noLM']
 task = ['train', 'dev', 'test']
 
-assert len(sys.argv == 3), "Usage: python ./gen_plain.py <dataset> <nbest> <delimeter>"
+assert len(sys.argv) == 3, "Usage: python ./gen_plain.py <dataset> <nbest> <delimeter>"
 
 tokenizer = BertTokenizer.from_pretrained('fnlp/bart-base-chinese')
 
@@ -16,6 +16,7 @@ nbest = sys.argv[2]
 delimeter = sys.argv[3]  # delimeter : '#'
 
 delimeter_token = tokenizer.convert_tokens_to_ids(delimeter)
+print(f'delimeter:{delimeter} = {delimeter_token}')
 
 for s in setting:
     for t in task:
@@ -26,10 +27,10 @@ for s in setting:
             gen_data = list()
 
             for d in data:
-                tokens = data['token']
-                ref_token = data['ref_token']
-                ref_text = data['ref']
-                ref_token = data['ref_token']
+                tokens = d['token']
+                ref_token = d['ref_token']
+                ref_text = d['ref']
+                ref_token = d['ref_token']
 
                 concat_token = list()
 
@@ -51,5 +52,8 @@ for s in setting:
                         'ref_token': ref_token
                     }
                 )
-        with open(f'../data/{dataset}/{s}/{t}/{nbest}_plain.json', 'w') as fw:
+        if (not os.path.exists(f"../data/{dataset}/{s}/{t}/{nbest}plain/")):
+            os.makedirs(f'../data/{dataset}/{s}/{t}/{nbest}plain')
+
+        with open(f'../data/{dataset}/{s}/{t}/{nbest}plain/token.json', 'w') as fw:
             json.dump(gen_data, fw, ensure_ascii=False, indent = 4)
