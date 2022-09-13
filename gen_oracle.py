@@ -6,13 +6,12 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 nbest = 50
-dev = [f"./data/csj/dev"]
-test = [f"./data/csj/eval1", f"./data/csj/eval2", f"./data/csj/eval3"]
 
-choose_nbest = [10, 20, 30, 50]
+choose_nbest = [50]
 
-file_name = dev + test
-setting = ["noLM"]
+dataset = 'csj'
+file_name = ['dev']
+setting = ["withLM"]
 
 for best in choose_nbest:
     print(f"{best} best: ")
@@ -25,11 +24,11 @@ for best in choose_nbest:
             total_s = 0
             total_d = 0
             total_i = 0
-            with open(f"{n}/data_{s}.json", "r") as f:
+            with open(f"./data/{dataset}/data/{s}/{n}/data_05.json", "r") as f:
                 data = json.load(f)
                 for d in data:
-                    token = d["token"][:best]
-                    err = d["err"][:best]
+                    token = d["hyp"]
+                    err = d["err"]
                     ref = d["ref"]
 
                     min_err = 1e8
@@ -38,6 +37,7 @@ for best in choose_nbest:
                     min_s = 0
                     min_d = 0
                     min_i = 0
+
                     for t, e in zip(token, err):
                         cer = (e[1] + e[2] + e[3]) / (e[0] + e[1] + e[2])
                         if cer < min_err:
@@ -47,10 +47,6 @@ for best in choose_nbest:
                             min_s = e[1]
                             min_d = e[2]
                             min_i = e[3]
-                    best_hyp = best_hyp
-                    best_hyp = " ".join([h for h in best_hyp])
-                    ref = ref
-                    ref = " ".join([r for r in ref])
 
                     total_c += min_c
                     total_d += min_d
@@ -60,15 +56,21 @@ for best in choose_nbest:
                     hyps.append(best_hyp)
                     refs.append(ref)
 
-            if not os.path.exists(f"{n}/oracle"):
-                os.mkdir(f"{n}/oracle")
+            if not os.path.exists(f"./data/{dataset}/oracle/{s}/{n}"):
+                os.makedirs(f"./data/{dataset}/oracle/{s}/{n}")
 
-            with open(f"{n}/oracle/{s}_{best}best_hyp.trn", "w") as h, open(
-                f"{n}/oracle/{s}_{best}best_ref.trn", "w"
+            with open(f"./data/{dataset}/oracle/{s}/{n}/hyp_05.trn", "w") as h, open(
+                f"./data/{dataset}/oracle/{s}/{n}/ref_05.trn", "w"
             ) as r:
                 for i, temp in enumerate(zip(hyps, refs)):
                     hyp, ref = temp
                     h.write(f"{hyp} (oracle_{i + 1})\n")
                     r.write(f"{ref} (oracle_{i + 1})\n")
             cer = (total_i + total_s + total_d) / (total_c + total_s + total_d)
-            print(f"{n}:{cer}")
+            print(f"{s} : {n} -- {round(cer, 5)}")
+            print(f'correct:{total_c}')
+            print(f'substitution:{total_s}')
+            print(f'deletion:{total_d}')
+            print(f'insert:{total_i}')
+
+            print('\n')

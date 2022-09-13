@@ -10,9 +10,9 @@ from torch.nn.utils.rnn import pad_sequence
 from nBestAligner.nBestTransformer import nBestTransformer
 from transformers import BertTokenizer
 
-random.seed(10)
-torch.manual_seed(10)
-torch.cuda.manual_seed(10)
+random.seed(42)
+torch.manual_seed(42)
+torch.cuda.manual_seed(42)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 # device = "cpu"
@@ -124,6 +124,7 @@ if __name__ == "__main__":
         collate_fn=createBatch,
         pin_memory=True,
         num_workers=4,
+        shuffle=True
     )
 
     dev_loader = DataLoader(

@@ -1,13 +1,14 @@
 args:
   stage: 0
   stop_stage: 100
-  nbest: 20
+  nbest: 1
   withLM: True
   dataset: aishell
 
 train:
+  start_epoch: 0
   epochs: 10
-  batch: 64
+  batch: 128
   accumgrad: 1
   print_loss: 200
   lr: 1e-5

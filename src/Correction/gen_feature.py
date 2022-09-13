@@ -4,7 +4,7 @@ import os
 
 setting = ['noLM','withLM']
 task = ['train', 'dev', 'valid','test']
-nbest = 20
+nbest = 10
 dataset = 'aishell'
 
 for s in setting:
@@ -16,7 +16,7 @@ for s in setting:
         if (t == 'valid'):
             name = 'dev'
 
-        if (t in ['dev', 'test']):
+        if (name in ['dev', 'test']):
             topk = 1
             
         
@@ -28,8 +28,8 @@ for s in setting:
                 'ref':list()
             }
             for d in data:
-                token = d['token'][:nbest]
-                err = d['err'][:nbest]
+                token = d['token'][:topk]
+                err = d['err'][:topk]
                 ref = d['ref_text']
                 ref_token = d['ref_token']
             
