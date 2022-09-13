@@ -34,6 +34,7 @@ class correctRecogDataset(Dataset):
     def __len__(self):
         return len(self.data['token'])
 
+
 class correctDataset_withPho(Dataset):
     def __init__(self, nbest_list):
         self.data = nbest_list

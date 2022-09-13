@@ -5,7 +5,7 @@ from transformers import BertTokenizer
 #Usage: python ./gen_plain.py <dataset> <nbest> <delimeter>
 
 setting = ['withLM', 'noLM']
-task = ['train', 'dev', 'test']
+task_group = ['train', 'dev', 'test']
 
 print(len(sys.argv))
 assert len(sys.argv) == 4, "Usage: python ./gen_plain.py <dataset> <nbest> <delimeter>"
@@ -13,34 +13,39 @@ assert len(sys.argv) == 4, "Usage: python ./gen_plain.py <dataset> <nbest> <deli
 tokenizer = BertTokenizer.from_pretrained('fnlp/bart-base-chinese')
 
 dataset = sys.argv[1]
-nbest = sys.argv[2]
+nbest = int(sys.argv[2])
 delimeter = sys.argv[3]  # delimeter : '#'
 
+if (delimeter == 'SEP'):
+    delimeter = '[SEP]'
 delimeter_token = tokenizer.convert_tokens_to_ids(delimeter)
 print(f'delimeter:{delimeter} = {delimeter_token}')
 
 for s in setting:
-    for t in task:
-        print(f'{s}:{t}')
-        with open(f'../data/{dataset}/{s}/{t}/token.json') as f:
+    for task in task_group:
+        print(f'{s}:{task}')
+        with open(f'../data/{dataset}/{s}/{task}/token.json') as f:
             data = json.load(f)
 
-            gen_data = list()
+            gen_data = {
+                'token': list(),
+                'ref_token': list(),
+                'ref': list()
+            }
 
             for d in data:
                 tokens = d['token']
                 ref_token = d['ref_token']
                 ref_text = d['ref']
-                ref_token = d['ref_token']
 
                 concat_token = list()
 
-                for i, t in enumerate(tokens):
+                for i, t in enumerate(tokens[:nbest]):
                     
                     if (i == 0):
                         t[-1] = delimeter_token # [CLS] A B C [SEP] -> [CLS] A B C #
                         concat_token += t # first adding
-                    elif i == len(tokens) - 1:
+                    elif i == nbest - 1:
                         concat_token += t[1:] 
                     else:
                         t[-1] = delimeter_token # [CLS] A B C [SEP] -> [CLS] A B C #

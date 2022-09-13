@@ -55,14 +55,16 @@ class nBestTransformer(nn.Module):
 
         logging.warning(self.model.config)
 
-        self.embedding = nn.Embedding(
-            self.model.config.vocab_size, align_embedding, padding_idx=self.pad
-        ).to(self.device)
-        self.embeddingLinear = (
-            nn.Linear(align_embedding * self.nBest, 768).to(self.device)
-            if self.mode == "align"
-            else None
-        )
+        if (self.mode == 'align'):
+            self.embedding = nn.Embedding(
+                self.model.config.vocab_size, align_embedding, padding_idx=self.pad
+            ).to(self.device)
+            self.embeddingLinear = (
+                nn.Linear(align_embedding * self.nBest, 768).to(self.device)
+                if self.mode == "align"
+                else None
+            )
+
 
         parameters = list(self.embedding.parameters()) + list(self.model.parameters())
         if self.mode == "align":
@@ -96,10 +98,6 @@ class nBestTransformer(nn.Module):
             return loss
 
         elif self.mode == "plain":
-            assert (
-                attention_mask is not None
-            ), "Attention Mask will not be produced during plain mode forward"
-
             loss = self.model(
                 input_ids=input_id, attention_mask=attention_mask, labels=labels
             )

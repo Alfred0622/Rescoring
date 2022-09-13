@@ -44,7 +44,7 @@ print(f"Prepare data")
 print(f'Load json file')
 
 train_path = f"./data/{args['dataset']}/{setting}/train/{args['nbest']}best/token.json"
-valid_path = f"./data/{args['dataset']}/{setting}/valid/{args['nbest']}best/token.json"
+valid_path = f"./data/{args['dataset']}/{setting}/valid/1best/token.json"
 dev_path = f"./data/{args['dataset']}/{setting}/dev/1best/token.json"
 test_path = f"./data/{args['dataset']}/{setting}/test/1best/token.json"
 
@@ -82,6 +82,9 @@ model = RoBart(device, lr = float(train_args['lr']))
 
 if args['stage'] <= 0:
     print("training")
+    print(f"# of training data:{len(train_json['token'])}")
+    print(f"# of validation data:{len(valid_json['token'])}")
+
     min_val = 1e8
     dev_loss = []
     train_loss = []
@@ -196,21 +199,20 @@ if (args['stage'] <= 1):
         recog_dict['utts'] = dict()
 
         with torch.no_grad():        
-            for i, data in enumerate(scoring_loader):
+            for i, data in enumerate(tqdm(scoring_loader)):
                 temp_dict = dict()
                 token, mask, ref = data
-                token = token.to(device).unsqueeze(0)
-                mask = mask.to(device).unsqueeze(0)
+                token = token.to(device)
+                mask = mask.to(device)
 
                 output = model.recognize(token, mask)
                 
                 output = output.squeeze(0).tolist()
 
-                logging.warning(f'output:{output}')
-
                 hyp_token = model.tokenizer.convert_ids_to_tokens(output)
                 hyp_token = [str(h) for h in hyp_token if h not in ['[CLS]', '[SEP]', '[PAD]']]
                 
+                ref = [t for t in ref[0]]
                 logging.warning(f'hyp:{hyp_token}')
                 logging.warning(f'ref:{ref}')
 
@@ -221,11 +223,11 @@ if (args['stage'] <= 1):
                 }
 
         if (not os.path.exists(
-            f"./data/{args['dataset']}/{setting}/{task}")
+            f"./data/{args['dataset']}/{setting}/{task}//{args['nbest']}best")
         ):
-            os.makedirs(f"./data/{args['dataset']}/{setting}/{task}/{args['nbest']}best_correct")
+            os.makedirs(f"./data/{args['dataset']}/{setting}/{task}/{args['nbest']}best")
         with open(
-            f"./data/{args['dataset']}/{setting}/{task}/{args['nbest']}best_correct/rescore_data.json",
+            f"./data/{args['dataset']}/{setting}/{task}/{args['nbest']}best/rescore_data.json",
             'w'
         ) as fw:
             json.dump(recog_dict, fw, ensure_ascii = False, indent = 4)

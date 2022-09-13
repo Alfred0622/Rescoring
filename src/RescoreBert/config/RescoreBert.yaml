@@ -2,7 +2,7 @@ stage: 0
 stop_stage: 100
 nbest: 50  # max: 50
 withLM: True
-dataset: aishell
+dataset: tedlium2
 
 adapt:
   epoch: 1
@@ -21,11 +21,8 @@ train:
   valid_batch: 1
   accumgrad: 1
   print_loss: 200
-  mode: MWER
+  mode: MD
   lr: 5e-6
-  train_json: ./data/aishell/train/token/token_withLM_50best.json
-  dev_json: ./data/aishell/dev/token/token_withLM_50best.json
-  test_json: ./data/aishell/test/token/token_withLM_50best.json
 
 recog:
   batch: 1

@@ -215,11 +215,12 @@ class RescoreBert(torch.nn.Module):
         use_MWER=False,
         use_MWED=False,
         lr=1e-5,
+        pretrain_name = "bert-base-chinese"
     ):
         torch.nn.Module.__init__(self)
-        self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
+        self.tokenizer = BertTokenizer.from_pretrained(pretrain_name)
         # self.config = DistilBertConfig(vocab_size = self.tokenizer.vocab_size, n_layers=4)
-        self.model = BertModel.from_pretrained('bert-base-chinese').to(device)
+        self.model = BertModel.from_pretrained(pretrain_name).to(device)
         self.train_batch = train_batch
         self.test_batch = test_batch
         self.nBest = nBest

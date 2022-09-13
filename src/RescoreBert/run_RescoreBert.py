@@ -19,6 +19,7 @@ from utils.CollateFunc import(
     rescoreBertBatch
 )
 
+
 random.seed(42)
 torch.manual_seed(42)
 torch.cuda.manual_seed(42)
@@ -99,11 +100,11 @@ logging.basicConfig(
 )
 
 print(f"Prepare data")
-train_json = f"./data/{dataset}/train/{setting}/token.json"
-print(train_args["train_json"])
-with open(train_args["train_json"]) as f, open(train_args["dev_json"]) as d, open(
-    train_args["test_json"]
-) as t:
+train_json = f"./data/{dataset}/{setting}/train/token/token.json"
+dev_json = f'./data/{dataset}/{setting}/dev/token/token.json'
+test_json = f'./data/{dataset}/{setting}/test/token/token.json'
+
+with open(train_json) as f, open(dev_json) as d, open(test_json) as t:
     train_json = json.load(f)
     dev_json = json.load(d)
     test_json = json.load(t)
@@ -112,9 +113,6 @@ adaption_set = adaptionDataset(train_json)
 train_set = rescoreDataset(train_json, nbest)
 dev_set = rescoreDataset(dev_json, nbest)
 test_set = rescoreDataset(test_json, nbest)
-num_nBest = len(train_json[0]["token"])
-
-print(f"total_nbest:{num_nBest}")
 
 """Training Dataloader"""
 adaption_loader = DataLoader(
@@ -153,15 +151,16 @@ if training == "SimCSE":
 logging.warning(f"device:{device}")
 device = torch.device(device)
 
-
+pretrain_name = "bert-base-chinese"
 if (dataset in ['aishell', 'aishell2']):
     tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
 elif (dataset in ['tedlium2', 'librispeech']):
-    pass  #english
+    tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+    pretrain_name = "bert-base-uncased"
 elif (dataset in ['csj']):
     pass  #japanese
 
-scoring_set = ["train", "dev", "test"]
+scoring_set = [ "dev", "test"]
 
 if stage <= 2:
     model = MLMBert(
@@ -171,6 +170,7 @@ if stage <= 2:
         device=device,
         mode=adapt_mode,
         lr=adapt_lr,
+        pretrain_name = pretrain_name
     )
 
 if stage <= 1 and stop_stage >= 1:
@@ -277,6 +277,7 @@ if stop_stage >= 3:
         device=device,
         lr=train_lr,
         weight=0.59,
+        pretrain_name = pretrain_name
     )
     
 min_epoch = epochs
