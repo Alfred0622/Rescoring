@@ -23,13 +23,25 @@ class pllDataset(Dataset):
         self.nbest = nbest
 
     def __getitem__(self, idx):
-        return (
-            self.data[idx]["token"][: self.nbest],
-            self.data[idx]["text"][: self.nbest],
-            self.data[idx]["score"][: self.nbest],
-            self.data[idx]["err"][: self.nbest],
-            self.data[idx]["pll"][: self.nbest],
-        )
+        if (self.nbest <= len(self.data[idx]["token"])):
+            return (
+            
+                self.data[idx]["token"][: self.nbest],
+                self.data[idx]["text"][: self.nbest],
+                self.data[idx]["score"][: self.nbest],
+                self.data[idx]["err"][: self.nbest],
+                self.data[idx]["pll"][: self.nbest],
+                self.data[idx]["name"]
+            )
+        else:
+            return (
+            
+                self.data[idx]["token"],
+                self.data[idx]["text"],
+                self.data[idx]["score"],
+                self.data[idx]["err"],
+                self.data[idx]["pll"],
+            )
         #    self.data[idx]['name'],\
 
     def __len__(self):
@@ -44,12 +56,20 @@ class nBestDataset(Dataset):
         self.nbest = nbest
 
     def __getitem__(self, idx):
-        return (
-            self.data[idx]["token"][: self.nbest],
-            self.data[idx]["text"][: self.nbest],
-            self.data[idx]["score"][: self.nbest],
-            self.data[idx]["err"][: self.nbest],
-        )
+        if (self.nbest <= len(self.data[idx]["token"])):
+            return (
+                self.data[idx]["token"][: self.nbest],
+                self.data[idx]["text"][: self.nbest],
+                self.data[idx]["score"][: self.nbest],
+                self.data[idx]["err"][: self.nbest],
+            )
+        else:
+            return (
+                self.data[idx]["token"],
+                self.data[idx]["text"],
+                self.data[idx]["score"],
+                self.data[idx]["err"],
+            )
         #    self.data[idx]['name'],\
     def __len__(self):
         return len(self.data)
@@ -63,14 +83,24 @@ class rescoreDataset(Dataset):
         self.nbest = nbest
 
     def __getitem__(self, idx):
-        return (
-            self.data[idx]["name"],
-            self.data[idx]["token"][: self.nbest],
-            self.data[idx]["text"][: self.nbest],
-            self.data[idx]["score"][: self.nbest],
-            self.data[idx]["ref"],
-            self.data[idx]["err"][: self.nbest],
-        )
+       if (self.nbest <= len(self.data[idx]["token"])):
+            return (
+                self.data[idx]["name"],
+                self.data[idx]["token"][: self.nbest],
+                self.data[idx]["text"][: self.nbest],
+                self.data[idx]["score"][: self.nbest],
+                self.data[idx]["ref"],
+                self.data[idx]["err"][: self.nbest],
+            )
+       else:
+            return (
+                self.data[idx]["name"],
+                self.data[idx]["token"],
+                self.data[idx]["text"],
+                self.data[idx]["score"],
+                self.data[idx]["ref"],
+                self.data[idx]["err"],
+            )
 
     def __len__(self):
         return len(self.data)

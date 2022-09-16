@@ -1,8 +1,11 @@
-stage: 0
-stop_stage: 100
-nbest: 50  # max: 50
-withLM: True
-dataset: tedlium2
+args:
+  stage: 3
+  stop_stage: 100
+  nbest: 50  # max: 50
+  withLM: True
+  dataset: tedlium2
+  free_memory: True
+  sentence_per_process: 40 # Activated when free_memory = true
 
 adapt:
   epoch: 1
@@ -10,14 +13,14 @@ adapt:
   print_loss: 200
   mode: random
   # random mode batch
-  train_batch: 256
+  train_batch: 128
   # sequence mode batch
   mlm_batch: 16
   lr: 1e-5
 
 train: 
   epoch: 10
-  train_batch: 8
+  train_batch: 4
   valid_batch: 1
   accumgrad: 1
   print_loss: 200

@@ -7,3 +7,4 @@ data/
 *.log
 align/
 tmp/
+tools/debug.ipynb

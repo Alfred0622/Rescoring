@@ -52,7 +52,8 @@ for s in setting:
             
             write_data = {
                 "token": ids,
-                "ref_token": ref_ids
+                "ref_token": ref_ids,
+                "ref": j["ref"]
             }
 
             json.dump(write_data, fw, ensure_ascii=False, indent=4)

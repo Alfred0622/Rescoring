@@ -16,7 +16,7 @@ for s in setting:
         if (t == 'valid'):
             name = 'dev'
 
-        if (name in ['dev', 'test']):
+        if (t in ['valid', 'dev', 'test']):
             topk = 1
             
         
