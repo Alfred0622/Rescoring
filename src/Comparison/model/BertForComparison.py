@@ -2,6 +2,7 @@ import torch
 import logging
 from torch.nn.functional import softmax
 from torch.nn import CrossEntropyLoss, BCELoss, Sigmoid
+from torch.nn import LSTM, Linear
 from transformers import (
     BertForMaskedLM,
     BertModel,
@@ -9,7 +10,7 @@ from transformers import (
     DistilBertModel,
     DistilBertConfig,
 )
-from torch.optim import AdamW
+from torch.optim import Adam, AdamW
 
 class BertForComparison(torch.nn.Module): # Bert_sem
     def __init__(self, lr = 1e-5):
@@ -50,10 +51,46 @@ class BertForComparison(torch.nn.Module): # Bert_sem
 
         return score
 
-# class BertForComparason_AL(torch.nn.Module): # Bert Alsem
-#     def __init__(self, pretrain_name ,lr = 1e-5):
-#         torch.nn.Module.__init__(self)
-#         self.bert = BertModel.from_pretrained(pretrain_name)
-#         self.rnn = 
-#         self.lr = lr
+class BertForComparason_AL(torch.nn.Module): # Bert Alsem
+    def __init__(
+        self, 
+        pretrain_name, 
+        hidden_size = 2048, 
+        output_size = 64,
+        dropout = 0.3,
+        lr = 1e-5
+    ):
+        torch.nn.Module.__init__(self)
+        self.bert = BertModel.from_pretrained(pretrain_name)
+        self.rnn = torch.nn.LSTM(
+            input_size = 768,
+            hidden_size = hidden_size,
+            num_layers = 1,
+            batch_first = True,
+            dropout = dropout,
+            bidirectional = True,
+            proj_size = output_size
+        ) # output: 64 * 2(bidirectional)
+        
+        # input: 128(output) + 4 (am_score + lm_score of the two hyps)
+        self.fc1 = torch.nn.Sequntial(
+            Linear(132, 64),
+            Linear(64, 1),
+            torch.nn.ReLU()
+        )
+
+        self.fc2 = torch.nn.Linear(
+            Linear(),
+            Linear(),
+            Sigmoid()
+        )
+
+        self.lr = lr
+        
+        parameters = list(self.bert.parameters()) + \
+                     list(self.rnn.parameters()) + \
+                     list(self.fc1.parameters()) + \
+                     list(self.fc2.parameters())
+
+        self.optimizer = Adam(parameters, lr = lr)
 

@@ -148,8 +148,9 @@ class MLMBert(torch.nn.Module):
                     expand_num = 0
                 else:
                     continue
-            pll_scores = torch.tensor(pll_scores)
            
+            pll_scores = torch.tensor(pll_scores)
+            
             return pll_scores
 
         else:
@@ -320,7 +321,7 @@ class RescoreBert(torch.nn.Module):
             weight_sum = weight_sum.view(self.test_batch, self.nBest)
             cers = cers.view(self.test_batch, self.nBest, -1)
             best_hyp = torch.argmax(weight_sum)
-
+            logging.warning(f'cers:{cers.shape}')
             return total_loss, cers[0][best_hyp]
 
         return total_loss

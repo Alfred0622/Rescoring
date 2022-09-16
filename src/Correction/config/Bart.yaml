@@ -1,7 +1,7 @@
 args:
   stage: 0
   stop_stage: 100
-  nbest: 1
+  nbest: 20
   withLM: True
   dataset: aishell
 

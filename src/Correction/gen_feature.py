@@ -4,7 +4,7 @@ import os
 
 setting = ['noLM','withLM']
 task = ['train', 'dev', 'valid','test']
-nbest = 10
+nbest = 20
 dataset = 'aishell'
 
 for s in setting:
@@ -38,7 +38,7 @@ for s in setting:
                         (err_unit[1] + err_unit[2] + err_unit[3]) / (err_unit[0] + err_unit[1] + err_unit[2])
                     )
 
-                    if (cer < 0.5):
+                    if (cer <= 0.5):
                         new_data['token'].append(token_unit)
                         new_data['ref_token'].append(ref_token)
                         new_data['ref'].append(ref)

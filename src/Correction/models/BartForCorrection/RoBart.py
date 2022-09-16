@@ -43,7 +43,7 @@ class RoBart(nn.Module):
         output = self.model.generate(
             input_ids = input_id,
             attention_mask = attention_masks,
-            num_beams = 3,
+            top_k = 5,
             max_length=max_lens,
         )
 

@@ -19,7 +19,7 @@ torch.cuda.manual_seed(42)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-config = f"./config/RoBart.yaml"
+config = f"./config/Bart.yaml"
 
 args, train_args, recog_args = load_config(config)
 
@@ -217,9 +217,9 @@ if (args['stage'] <= 1):
                 logging.warning(f'ref:{ref}')
 
                 recog_dict['utts'][f'{task}_{i}'] = dict()
-                recog_dict['utts'][f'{task}_{i}']['output'] = {
-                    'recog_text': " ".join(hyp_token),
-                    'ref_token': " ".join(ref)
+                recog_dict['utts'][f'{task}_{i}'] = {
+                    'hyp': " ".join(hyp_token),
+                    'ref': " ".join(ref)
                 }
 
         if (not os.path.exists(
@@ -227,7 +227,7 @@ if (args['stage'] <= 1):
         ):
             os.makedirs(f"./data/{args['dataset']}/{setting}/{task}/{args['nbest']}best")
         with open(
-            f"./data/{args['dataset']}/{setting}/{task}/{args['nbest']}best/rescore_data.json",
+            f"./data/{args['dataset']}/{setting}/{task}/{args['nbest']}best/correct_data.json",
             'w'
         ) as fw:
             json.dump(recog_dict, fw, ensure_ascii = False, indent = 4)

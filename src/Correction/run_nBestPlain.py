@@ -140,23 +140,17 @@ if __name__ == "__main__":
             model.optimizer.zero_grad()
             for n, data in enumerate(tqdm(train_loader)):
                 token, _ ,mask, label = data
-                # logging.warning(f'token.shape:{token.shape}')
                 token = token.to(device)
-                # logging.warning(f'token:{token}')
                 mask = mask.to(device)
-                # logging.warning(f'mask:{mask}')
-                # seg = seg.to(device)
-                # logging.warning(f'seg:{seg}')
+
                 
                 label = label.to(device)
-                # logging.warning(f'label:{label}')
 
                 loss = model(
                     input_id = token,
                     attention_masks = mask, 
                     labels = label
                 )
-                # logging.warning(f'loss:{loss}')
 
                 loss /= train_args["accumgrad"]
                 loss.backward()

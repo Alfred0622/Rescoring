@@ -19,7 +19,6 @@ from utils.CollateFunc import(
     rescoreBertBatch
 )
 
-
 random.seed(42)
 torch.manual_seed(42)
 torch.cuda.manual_seed(42)
