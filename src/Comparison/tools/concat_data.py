@@ -54,6 +54,7 @@ for s in setting:
             else:
                 print(f'{nbest} best')
                 sample_num = nbest * (nbest - 1)
+                same_cer = 0
                 for n, data in enumerate(tqdm(token_file)):
                     temp_dict = dict()
                     for i in range(nbest):
@@ -63,6 +64,20 @@ for s in setting:
                                 continue
                             first_seq = data['token'][i]
                             second_seq = data['token'][j]
+                            if (task == 'train'):
+                                err_1 = data['err'][i]
+                                err_2 = data['err'][j]
+
+                                cer_1 = (
+                                    (err_1[1] + err_1[2] + err_1[3])/(err_1[0] + err_1[1] + err_1[2])
+                                )
+                                cer_2 = (
+                                    (err_2[1] + err_2[2] + err_2[3])/(err_2[0] + err_2[1] + err_2[2])
+                                )
+
+                                if (cer_1 == cer_2):
+                                    same_cer += 1
+                                    continue
 
                             temp_dict['token'] = first_seq + second_seq[1:]
                             if (i < j): 
@@ -76,6 +91,7 @@ for s in setting:
                 os.makedirs(f"../data/{name}/{save_path}/{s}/{nbest}best")
             print(f'nbest:{nbest}')
             print(f'total num should be:{total_data * sample_num}')    
+            print(f'same cer num:{same_cer}')
             print(f'total_data_num : {len(concat_dict)}')
             with open(f'../data/{name}/{save_path}/{s}/{nbest}best/token_concat.json', 'w') as fw:
                 json.dump(

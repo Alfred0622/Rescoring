@@ -66,11 +66,12 @@ def rescoreBertBatch(sample):
     cers = []
     for s in sample:
         cers += s[3]
+    plls = []
+    for s in sample:
+        plls += s[4]
 
-    pll = [s[4] for s in sample]
-    for p in pll:
-        assert len(p) == len(s[0]), f"illegal pll:{p}"
-    pll = torch.tensor(pll)
+    assert len(plls) == len(tokens), f"illegal pll:{len(plls)} != {len(tokens)}"
+    plls = torch.tensor(plls)
 
     for i, t in enumerate(tokens):
         tokens[i] = torch.tensor(t)
@@ -84,7 +85,7 @@ def rescoreBertBatch(sample):
     masks = torch.zeros(tokens.shape, dtype=torch.long)
     masks = masks.masked_fill(tokens != 0, 1)
 
-    return tokens, texts, masks, torch.tensor(scores), torch.tensor(cers), pll
+    return tokens, texts, masks, torch.tensor(scores), torch.tensor(cers), plls
 
 
  

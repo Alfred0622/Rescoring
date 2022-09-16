@@ -9,7 +9,7 @@ from transformers import (
     DistilBertConfig,
 )
 from torch.optim import AdamW
-from sentence_transformers import SentenceTransformer
+# from sentence_transformers import SentenceTransformer
 
 class MLMBert(torch.nn.Module):
     def __init__(self, train_batch, test_batch, nBest, device, lr=1e-5, mode="random", pretrain_name = 'bert-base-chinese'):
@@ -85,8 +85,9 @@ class MLMBert(torch.nn.Module):
 
             return loss
 
-    def recognize(self, input_id, attention_mask, free_memory = True):
+    def recognize(self, input_id, attention_mask, free_memory = True, sentence_per_process = 40):
         # generate PLL loss from teacher
+        # only support batch = 1
         pll_score = []  # (batch_size, N-Best)
         pll_input = []
         pll_mask = []
@@ -96,14 +97,13 @@ class MLMBert(torch.nn.Module):
         no_token = set()
         
         if (free_memory):
-            pll_scores = []
-
             tmps = []
             masks = []
             mask_index = []
             expand_num = 0
+            pll_scores = [] # for return 
+
             for j in range(input_id.shape[0]):  # for every hyp in this batch
-                # set 10-nbest each time
                 token_len = torch.sum(input_id[j] != 0, dim=-1)
                 if token_len == 2:
                     pll_scores.append(10000)
@@ -124,33 +124,97 @@ class MLMBert(torch.nn.Module):
                     expand_num += 1
                 
                 seq_for_hyp.append(expand_num - 1)
+
+                tmps = torch.stack(tmps)
+                masks = torch.stack(masks)
+                mask_index = torch.tensor(mask_index) 
+                # Mask index will be like below here:
+                # [ [0,1,v1], [0,2,v2], [0,3,v3]...etc]
                 
-                if (j % 10 == 0) or (j == input_id.shape[0] - 1):
-                    tmps = torch.stack(tmps)
-                    masks = torch.stack(masks)
-                    mask_index = torch.tensor(mask_index)
-                
-                    outputs = self.model(input_ids=tmps, attention_mask=masks)
-                    outputs = log_softmax(outputs[0], dim=-1)
-                    mask_index = torch.transpose(mask_index, 0, 1)
-                    pll_score = outputs[mask_index[0], mask_index[1], mask_index[2]]
+                outputs = self.model(input_ids=tmps, attention_mask=masks)
+                outputs = log_softmax(outputs[0], dim=-1)
+                # logging.warning(f'mask index{mask_index}')
+                mask_index = torch.transpose(mask_index, 0, 1) 
+                # logging.warning(f'mask index after transpose:{mask_index}')
+                # [ [0,1,v1], [0,2,v2], [0,3,v3]...etc ]
+                # -> [
+                # [0,0,0 ... etc], [1,2,3,...etc], [v1,v2,v3... etc]
+                # ]
+                pll_score = outputs[mask_index[0], mask_index[1], mask_index[2]]
+                # logging.warning(f'pll_score:{pll_score}')
                     
-                    accum_score = 0.0
-                    for i, score in enumerate(pll_score):
-                        accum_score += score
-                        if i in seq_for_hyp:
-                            pll_scores.append(accum_score)
-                            accum_score = 0.0
-                    tmps = []
-                    masks = []
-                    mask_index = []
-                    seq_for_hyp = []
-                    expand_num = 0
-                else:
-                    continue
+                accum_score = 0.0
+                for i, score in enumerate(pll_score):
+                    accum_score += score
+                # logging.warning(f'accum_score:{accum_score}')
+                pll_scores.append(accum_score)
+                accum_score = 0.0
+
+                tmps = []
+                masks = []
+                mask_index = []
+                seq_for_hyp = []
+                expand_num = 0
+            if (len(pll_scores) != input_id.shape[0]):
+                logging.warning(f'pll_scores:{len(pll_scores)}')
+                logging.warning(f'input_id:{input_id.shape[0]}')
+                logging.warning(f'pll_scores:{pll_scores}')
+                logging.warning(f'input_id:{input_id}')
+            assert(len(pll_scores) == input_id.shape[0]), f"{len(pll_score)} != {input_id.shape[0]}"
             pll_scores = torch.tensor(pll_scores)
-           
+            # logging.warning(f'pll_scores:{pll_scores}')
+
             return pll_scores
+
+            # for j in range(input_id.shape[0]):  # for every hyp in this batch
+            #     # set 10-nbest each time
+            #     token_len = torch.sum(input_id[j] != 0, dim=-1)
+            #     logging.warning(f'{j} -- token len:{token_len}')
+            #     if token_len == 2:
+            #         pll_scores.append(-10000)
+            #         continue
+
+            #     mask = attention_mask[j].unsqueeze(0)
+            #     tmp = input_id[j].clone().to(self.device)
+
+            #     final_score = 0.0
+            #     for k in range(1, token_len-1):
+            #         to_mask = tmp[k].item()
+            #         tmp[k] = self.mask
+            #         tmps.append(tmp.clone())
+            #         tmp[k] = to_mask
+
+            #         masks.append(mask)
+
+            #         mask_index.append([expand_num, k, to_mask]) #(num of row, index, char)
+            #         expand_num += 1
+
+            #         if (k % sentence_per_process == 0) or (k == (token_len - 2)):
+            #             tmps = torch.stack(tmps)
+            #             masks = torch.stack(masks)
+            #             mask_index = torch.tensor(mask_index)
+
+            #             outputs = self.model(input_ids = tmps, attention_mask = masks)
+            #             outputs = log_softmax(outputs[0], dim=-1)
+            #             mask_index = torch.transpose(mask_index, 0, 1)
+            #             pll_score = outputs[mask_index[0], mask_index[1], mask_index[2]]
+
+            #             logging.warning(f'{j} -- calculate score:{pll_score}')
+
+            #             for i, score in enumerate(pll_score):
+            #                 final_score += score
+                
+            #             tmps = []
+            #             masks = []
+            #             mask_index = []
+            #             expand_num = 0
+
+            #     logging.warning(f'{j} -- final_score:{final_score}')
+            #     pll_scores.append(final_score)
+    
+            # pll_scores = torch.tensor(pll_scores)
+           
+            # return pll_scores
 
         else:
             expand_num = 0
@@ -195,7 +259,7 @@ class MLMBert(torch.nn.Module):
                     accum_score = 0.0
                     count += 1
                 if count in no_token:
-                    pll.append(10000)
+                    pll.append(-10000)
                     count += 1
 
         pll_score = torch.tensor(pll)
@@ -238,8 +302,8 @@ class RescoreBert(torch.nn.Module):
         # self.optimizer = AdamW(self.model.parameters(), lr = lr)
         self.optimizer = AdamW(model_parameter, lr=lr)
 
-        if self.mode == "SimCSE":
-            self.model = SentenceTransformer("cyclone/simcse-chinese-roberta-wwm-ext")
+        # if self.mode == "SimCSE":
+        #     self.model = SentenceTransformer("cyclone/simcse-chinese-roberta-wwm-ext")
 
     def forward(self, input_id, text, attention_mask, first_scores, cers, pll_score):
         """
@@ -251,6 +315,8 @@ class RescoreBert(torch.nn.Module):
         loss_MWER = None
         loss_MWED = None
 
+        batch_size = input_id.shape[0]
+
         if self.mode == "SimCSE":
             embedding = torch.from_numpy(self.model.encode(text))
 
@@ -261,13 +327,13 @@ class RescoreBert(torch.nn.Module):
             s_output = self.model(input_ids=input_id, attention_mask=attention_mask)
             s_score = self.fc(s_output.last_hidden_state[:, 0, :])
 
-            ignore_index = pll_score == 10000
+            ignore_index = pll_score == -10000
             # logging.warning(f's_score before view:{s_score}')
             s_score = s_score.view(pll_score.shape)
             # logging.warning(f'pll_score.shape:{pll_score.shape}')
 
             distill_score = s_score.clone()
-            distill_score[ignore_index] = 10000
+            distill_score[ignore_index] = -10000
 
             total_loss = self.l2_loss(distill_score, pll_score)
             weight_sum = first_scores + self.weight * s_score.view(first_scores.shape)
@@ -277,8 +343,8 @@ class RescoreBert(torch.nn.Module):
                 wer = torch.stack(
                     [((s[1] + s[2] + s[3]) / (s[0] + s[1] + s[2])) for s in cers]
                 ).to(self.device)
-                weight_sum = weight_sum.reshape(-1, self.nBest)
-                wer = wer.reshape(-1, self.nBest) # (B, N-best)
+                weight_sum = weight_sum.reshape(batch_size, -1)
+                wer = wer.reshape(batch_size, -1) # (B, N-best)
 
                 p_hyp = torch.softmax(weight_sum, dim=-1)
                 avg_error = torch.mean(wer, dim = -1).unsqueeze(-1)
@@ -302,8 +368,8 @@ class RescoreBert(torch.nn.Module):
                     [((s[1] + s[2] + s[3]) / (s[0] + s[1] + s[2])) for s in cers]
                 ).to(self.device)
 
-                wer = wer.reshape(-1, self.nBest)
-                weight_sum = weight_sum.reshape(-1, self.nBest)
+                wer = wer.reshape(batch_size, -1)
+                weight_sum = weight_sum.reshape(batch_size, -1)
                 
                 T = torch.sum(weight_sum, dim = -1) / torch.sum(wer, dim = -1) # hyperparameter T
                 T = T.unsqueeze(-1)
@@ -317,8 +383,8 @@ class RescoreBert(torch.nn.Module):
                 total_loss = loss_MWED + 1e-4 * total_loss
 
         if not self.training:
-            weight_sum = weight_sum.view(self.test_batch, self.nBest)
-            cers = cers.view(self.test_batch, self.nBest, -1)
+            weight_sum = weight_sum.view(self.test_batch, -1)
+            cers = cers.view(self.test_batch, -1, 4)
             best_hyp = torch.argmax(weight_sum)
 
             return total_loss, cers[0][best_hyp]
@@ -326,6 +392,7 @@ class RescoreBert(torch.nn.Module):
         return total_loss
 
     def recognize(self, input_id, text, attention_mask, first_scores, weight=1.0):
+        batch_size = input_id.shape[0]
         if self.mode == "SimCSE":
             embedding = torch.from_numpy(self.model.encode(text))
             rescore = self.fc(embedding).view(first_scores.shape)
@@ -334,7 +401,7 @@ class RescoreBert(torch.nn.Module):
             rescore = self.fc(output[0][:, 0, :]).view(first_scores.shape)
 
         weighted_score = first_scores + (weight * rescore)
-        weighted_score = weighted_score.view(self.test_batch, self.nBest)
+        weighted_score = weighted_score.view(batch_size, -1)
 
         max_sentence = torch.argmax(weighted_score, dim=-1)
         best_hyps = input_id[max_sentence].tolist()
