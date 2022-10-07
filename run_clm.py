@@ -11,6 +11,7 @@ from models.BertForRescoring.GPT2ForRescoring import CLMRescorer
 from transformers import BertTokenizerFast
 import torch.multiprocessing
 
+
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 if (not os.path.exists("./log/clm")):

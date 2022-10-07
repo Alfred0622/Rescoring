@@ -16,7 +16,8 @@ from utils.Datasets import (
 from utils.CollateFunc import(
     adaptionBatch,
     pllScoringBatch,
-    rescoreBertBatch
+    rescoreBertBatch,
+    RescoreBertRecog
 )
 from utils.LoadConfig import load_config
 
@@ -135,7 +136,7 @@ if args['stage'] <= 1 and args['stop_stage'] >= 1:
                 loss = model(token, mask)
                 loss = loss / train_args["accumgrad"]
                 loss.backward()
-                logging_loss += loss.clone().detach().cpu()
+                logging_loss += loss.item()
 
                 if ((n + 1) % train_args["accumgrad"] == 0) or ((n + 1) == len(adaption_loader)):
                     model.optimizer.step()
@@ -147,6 +148,7 @@ if args['stage'] <= 1 and args['stop_stage'] >= 1:
                     )
                     adapt_loss.append(logging_loss / train_args["print_loss"])
                     logging_loss = 0.0
+
             adapt_checkpoint["state_dict"] = model.model.state_dict()
             adapt_checkpoint["optimizer"] = model.optimizer.state_dict()
             if (not os.path.exists(f"./checkpoint/{args['dataset']}/adaption")):
@@ -416,24 +418,24 @@ if args['stage'] <= 4 and args['stop_stage'] >= 4:
             recog_data = DataLoader(
                 dataset=recog_dataset,
                 batch_size=recog_args["batch"],
-                collate_fn=rescoreBertBatch,
+                collate_fn=RescoreBertRecog,
                 pin_memory=True,
             )
 
             recog_dict = []
             for n, data in enumerate(tqdm(recog_data)):
-                _, token, text, mask, score, ref, cer = data
+                _, token, mask, score, texts, ref, cers = data
                 token = token.to(device)
                 mask = mask.to(device)
-                score = score.to(device)
+                score = torch.tensor(score).to(device)
 
-                rescore, _, _, _ = model.recognize(token, text, mask, score, weight=1)
+                rescore, _, _, _ = model.recognize(token, texts, mask, score, weight=1)
 
                 recog_dict.append(
                     {
-                        "token": token.tolist(),
+                        "hyp": texts,
                         "ref": ref,
-                        "cer": cer,
+                        "cer": cers,
                         "first_score": score.tolist(),
                         "rescore": rescore.tolist(),
                     }
@@ -474,7 +476,7 @@ if args['stage'] <= 5 and args['stop_stage'] >= 5:
 
                 weighted_score = first_score + weight * rescore
 
-                max_index = torch.argmax(weighted_score)
+                max_index = torch.argmax(weighted_score).item()
 
                 correction += cer[max_index][0]
                 substitution += cer[max_index][1]
@@ -497,20 +499,28 @@ if args['stage'] <= 6 and args['stop_stage']>= 6:
     if args['stage'] == 6:
         best_weight = 0.59
     print(f"Best weight at: {best_weight}")
-    recog_set = ["train", "dev", "test"]
+    recog_set = ["dev", "test"]
     for task in recog_set:
         print(f"recogizing: {task}")
         score_data = None
         with open(
-            f"data/{args['dataset']}/{setting}/{task}/{train_args['mode']}/recog_data.json"
+            f"./data/{args['dataset']}/{setting}/{task}/{train_args['mode']}/recog_data.json"
         ) as f:
             score_data = json.load(f)
 
         recog_dict = dict()
         recog_dict["utts"] = dict()
+
+        c = 0
+        s = 0
+        i = 0
+        d = 0
+
         for n, data in enumerate(score_data):
-            token = data["token"][:args["nbest"]]
+            token = data["hyp"][:args["nbest"]]
             ref = data["ref"]
+            cer = torch.tensor(data["cer"][:args["nbest"]])
+            cer = cer.view(-1, 4)
 
             score = torch.tensor(data["first_score"][:args["nbest"]])
             rescore = torch.tensor(data["rescore"][:args["nbest"]])
@@ -521,25 +531,30 @@ if args['stage'] <= 6 and args['stop_stage']>= 6:
 
             best_hyp = token[max_index]
 
-            sep = best_hyp.index(102)
-            best_hyp = tokenizer.convert_ids_to_tokens(t for t in best_hyp[1:sep])
-            ref = list(ref[0])
-            # remove [CLS] and [SEP]
-            token_list = [str(t) for t in best_hyp]
-            ref_list = [str(t) for t in ref]
+            c += cer[max_index][0]
+            s += cer[max_index][1]
+            d += cer[max_index][2]
+            i += cer[max_index][3]
+
+            ref_str = str()
+            for t in ref:
+                ref_str += t
+
             recog_dict["utts"][f"{task}_{n + 1}"] = dict()
             recog_dict["utts"][f"{task}_{n + 1}"]["output"] = {
-                "rec_text": "".join(token_list),
-                "rec_token": " ".join(token_list),
+                "hyp": "".join(best_hyp),
+                "ref": " ".join(ref),
                 "first_score": score.tolist(),
                 "second_score": rescore.tolist(),
                 "rescore": weight_sum.tolist(),
-                "text": "".join(ref_list),
-                "text_token": " ".join(ref_list),
+                # "text": "".join(ref_list),
+                # "text_token": " ".join(ref_list),
             }
+        cer = (i + d + s) / (c + d + s)
+        print(f'cer:{cer}')
 
         with open(
-            f"data/{args['dataset']}/{setting}/{task}/{train_args['mode']}/{args['best']}best_rescore_data.json",
+            f"./data/{args['dataset']}/{setting}/{task}/{train_args['mode']}/{args['nbest']}best_rescore_data.json",
             "w",
         ) as f:
             json.dump(recog_dict, f, ensure_ascii=False, indent=4)

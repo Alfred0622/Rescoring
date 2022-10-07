@@ -1,7 +1,7 @@
 args:
-  stage: 3
+  stage: 5
   stop_stage: 100
-  nbest: 50  # max: 50
+  nbest: 50 # max: 50
   withLM: True
   dataset: tedlium2
   free_memory: True
@@ -18,7 +18,7 @@ adapt:
   mlm_batch: 16
   lr: 1e-5
 
-train: 
+train:
   epoch: 10
   train_batch: 4
   valid_batch: 1

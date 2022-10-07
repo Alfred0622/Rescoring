@@ -1,9 +1,10 @@
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
+from torch.optim.lr_scheduler import ExponentialLR
 import logging
-from transformers import BertTokenizer, BartForConditionalGeneration, BartConfig
-
+from transformers import BertTokenizer, BartForConditionalGeneration, BartConfig, AutoModelForSeq2SeqLM, AutoTokenizer
+from transformers import AdamWeightDecay
 
 class RoBart(nn.Module):
     def __init__(self, device, lr=1e-5):
@@ -15,26 +16,24 @@ class RoBart(nn.Module):
             "fnlp/bart-base-chinese"
         ).to(self.device)
 
-        # self.config = BartConfig.from_pretrained("fnlp/bart-base-chinese")
-        # embedding_weight = self.model.model.encoder.embed_tokens.weight.data.clone()
-        # decoder_embedding = torch.nn.Embedding(self.config.vocab_size, self.config.d_model, self.config.pad_token_id)
-        # decoder_embedding.weight.data = embedding_weight
-        # self.model.model.decoder.set_input_embeddings(
-        #     decoder_embedding
-        # )
+        # self.model = AutoModelForSeq2SeqLM.from_pretrained('fnlp/bart-base-chinese').to(self.device)
+        # self.tokenizer = BertTokenizer.from_pretrained('fnlp/bart-base-chinese')
 
-        self.optimizer = AdamW(self.model.parameters(), lr = lr)
+        logging.warning(self.model.config)
+
+        self.optimizer = AdamW(self.model.parameters(), lr = lr, eps = 1e-6, weight_decay = 0.1)
 
         logging.warning(self.model)
 
     def forward(self, input_id, attention_masks, labels, segments = None):
-
-        loss = self.model(
+        output = self.model(
             input_ids = input_id,
             attention_mask = attention_masks, 
             labels=labels,
             return_dict = True
-        ).loss
+        )
+
+        loss = output.loss
 
         return loss
 

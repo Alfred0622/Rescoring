@@ -9,46 +9,64 @@ from transformers import (
     BertTokenizer,
     DistilBertModel,
     DistilBertConfig,
+    Trainer,
 )
+from transformers.modeling_outputs import SequenceClassifierOutput
 from torch.optim import Adam, AdamW
 
 class BertForComparison(torch.nn.Module): # Bert_sem
-    def __init__(self, lr = 1e-5):
+    def __init__(self, dataset, device, lr = 1e-5):
         torch.nn.Module.__init__(self)
-        self.model = BertModel.from_pretrained('bert-base-chinese')
-        self.lr = lr
-        self.optimizer = AdamW(self.model.parameters(), lr = self.lr)
-        self.linear = torch.nn.Linear(768, 1)
+        self.dataset = dataset
+        if (self.dataset in ['aishell', 'aishell2']):
+            self.model = BertModel.from_pretrained('bert-base-chinese')
+        elif (self.dataset in ['tedlium2', 'librispeech']):
+            self.model = BertModel.from_pretrained('bert-base-uncased')
+        elif (self.dataset in ['csj']):
+            pass
+            # self.model = BertModel.from_pretrained()
+        self.model = self.model.to(device)
+        
+        self.linear = torch.nn.Linear(768, 1).to(device)
         self.loss = BCELoss()
         self.sigmoid = Sigmoid()
 
-    def forward(self, input_ids, segment, attention_mask, labels):
+        parameters = list(self.model.parameters()) + list(self.linear.parameters())
+
+        self.optimizer = AdamW(parameters, lr = lr)
+
+    def forward(self, input_ids, token_type_ids, attention_mask, labels):
         total_loss = 0.0
 
         cls = self.model(
             input_ids=input_ids, 
-            token_type_ids = segment,
+            token_type_ids = token_type_ids,
             attention_mask=attention_mask
         ).last_hidden_state[:, 0, :]
 
         score = self.linear(cls)
         # logging.warning(f'score:{score.shape}')
         score = self.sigmoid(score).squeeze(-1)
-        
-        loss = self.loss(score, labels)
 
-        return loss
+        if (labels is not None):
+            loss = self.loss(score, labels)
+        else:
+            loss = None
+
+        return SequenceClassifierOutput(
+            loss = loss,
+            logits = score
+        )
     
-    def recognize(self, input_ids, segment, attention_mask):
+    def recognize(self, input_ids, token_type_ids, attention_mask):
         cls = self.model(
             input_ids=input_ids, 
-            token_type_ids = segment,
+            token_type_ids = token_type_ids,
             attention_mask=attention_mask
         ).last_hidden_state[:, 0, :]
 
         score = self.linear(cls)
         score = self.sigmoid(score)
-
         return score
 
 class BertForComparason_AL(torch.nn.Module): # Bert Alsem
@@ -94,3 +112,4 @@ class BertForComparason_AL(torch.nn.Module): # Bert Alsem
 
         self.optimizer = Adam(parameters, lr = lr)
 
+        return

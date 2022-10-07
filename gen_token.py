@@ -11,11 +11,12 @@ logging.basicConfig(
 )
 
 setting = ["withLM", "noLM"]
-dataset = ["train", "dev", "test"]  # train
+dataset = [ "dev", "test","train"]  # train
 model_name = "bert"
-task = "RescoreBert"
+task = "Correction"
 nbest = 50
-data_name = 'tedlium2'
+data_name = 'aishell'
+addidtional_name = "/3align_concat/"
 
 
 if (data_name in ['aishell', 'aishell2']):

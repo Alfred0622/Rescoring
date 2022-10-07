@@ -72,7 +72,8 @@ if __name__ == "__main__":
 
             if (not os.path.exists(f"./data/aishell/{s}/{task}/{token_type}")):
                 os.makedirs(f"./data/aishell/{s}/{task}/{token_type}")
-
+            
+            print(f"./data/aishell/{s}/{task}/{token_type}/data.json")
             with open(
                 f"./data/aishell/{s}/{task}/{token_type}/data.json", "w"
             ) as f:

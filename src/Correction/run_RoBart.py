@@ -5,24 +5,27 @@ import yaml
 import logging
 import torch
 import json
+import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from models.BartForCorrection.RoBart import RoBart
-from utils.Datasets import correctDataset, correctRecogDataset
-from utils.CollateFunc import correctBatch, correctRecogBatch
+from utils.Datasets import get_dataset
+from utils.CollateFunc import trainBatch, recogBatch
+from utils.PrepareModel import prepare_model
 from transformers import BertTokenizer
 from utils.LoadConfig import load_config
+from jiwer import wer
+from torch.optim import AdamW
 
 random.seed(42)
 torch.manual_seed(42)
 torch.cuda.manual_seed(42)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
+device = torch.device(device)
 config = f"./config/Bart.yaml"
 
 args, train_args, recog_args = load_config(config)
-
 setting = "withLM" if args["withLM"] else "noLM"
 
 if (not os.path.exists(f"./log/{setting}/{args['nbest']}best")):
@@ -35,83 +38,71 @@ logging.basicConfig(
     filemode="w",
     format=FORMAT,
 )
-
-train_json = None
-dev_json = None
-test_json = None
+if (args['dataset'] == 'old_aishell'):
+    setting = ""
 
 print(f"Prepare data")
 print(f'Load json file')
 
-train_path = f"./data/{args['dataset']}/{setting}/train/{args['nbest']}best/token.json"
-valid_path = f"./data/{args['dataset']}/{setting}/valid/1best/token.json"
-dev_path = f"./data/{args['dataset']}/{setting}/dev/1best/token.json"
-test_path = f"./data/{args['dataset']}/{setting}/test/1best/token.json"
+train_path = f"../../data/{args['dataset']}/data/train/{setting}/data.json"
+dev_path = f"../../data/{args['dataset']}/data/dev/{setting}/data.json"
+test_path = f"../../data/{args['dataset']}/data/test/{setting}/data.json"
 
 with open(train_path) as f,\
-     open(valid_path) as v,\
      open(dev_path) as d,\
      open(test_path) as t:
     train_json = json.load(f)
-    valid_json = json.load(v)
     dev_json = json.load(d)
     test_json = json.load(t)
 
+model , tokenizer = prepare_model(args['dataset'])
+optimizer = AdamW(model.parameters(), lr = 1e-5)
+
 print(f'Create Dataset & DataLoader')
-train_set = correctDataset(train_json)
-valid_set = correctDataset(valid_json)
-dev_set = correctRecogDataset(dev_json)
-test_set = correctRecogDataset(test_json)
+train_set = get_dataset(train_json, tokenizer,topk = args['nbest'], for_train = True)
+valid_set = get_dataset(dev_json, tokenizer, topk = args['nbest'], for_train = True)
+dev_set = get_dataset(dev_json, tokenizer, topk = 1, for_train = False)
+test_set = get_dataset(test_json, tokenizer, topk = 1, for_train = False)
 
 train_loader = DataLoader(
     dataset=train_set,
-    batch_size=train_args['batch'],
-    collate_fn=correctBatch,
+    batch_size=train_args['train_batch'],
+    collate_fn=trainBatch,
     num_workers=4,
 )
 
 valid_loader = DataLoader(
     dataset=valid_set,
-    batch_size=recog_args['batch'],
-    collate_fn=correctBatch,
+    batch_size=train_args['valid_batch'],
+    collate_fn=trainBatch,
     num_workers=4,
 )
 
-device = torch.device(device)
-model = RoBart(device, lr = float(train_args['lr']))
+# model = RoBart(device, lr = float(train_args['lr']))
 
 if args['stage'] <= 0:
     print("training")
-    print(f"# of training data:{len(train_json['token'])}")
-    print(f"# of validation data:{len(valid_json['token'])}")
 
     min_val = 1e8
+    min_cer = 100
     dev_loss = []
     train_loss = []
     logging_loss = 0.0
-    for e in range(train_args['epochs']):
+    model = model.to(device)
+    for e in range(train_args['epoch']):
         print(f'epoch {e + 1}: training')
         model.train()
         for n, data in enumerate(tqdm(train_loader)):
-            token, mask, label = data
-            # logging.warning(f'token.shape:{token.shape}')
-            # logging.warning(f'token:{token}')
-
-            # logging.warning(f'label.shape:{label.shape}')
-            # logging.warning(f'label:{label}')
-            token = token.to(device)
-            mask = mask.to(device)
-            label = label.to(device)
-
-            loss = model(token, mask, label)
+            data = {k: v.to(device)  for k, v in data.items()}
+            loss = model(**data, return_dict = True).loss
 
             loss /= train_args['accumgrad']
             loss.backward()
             logging_loss += loss.clone().detach().cpu()
 
             if ((n + 1) % train_args['accumgrad'] == 0) or ((n + 1) == len(train_loader)):
-                model.optimizer.step()
-                model.optimizer.zero_grad()
+                optimizer.step()
+                optimizer.zero_grad()
 
             if ((n + 1) % train_args['print_loss'] == 0) or (n + 1) == len(train_loader):
                 logging.warning(
@@ -122,8 +113,11 @@ if args['stage'] <= 0:
 
         train_checkpoint = dict()
         train_checkpoint["epoch"] = e + 1
-        train_checkpoint["state_dict"] = model.model.state_dict()
-        train_checkpoint["optimizer"] = model.optimizer.state_dict()
+        train_checkpoint["state_dict"] = model.state_dict()
+        train_checkpoint = dict()
+        train_checkpoint["epoch"] = e + 1
+        train_checkpoint["state_dict"] = model.state_dict()
+        train_checkpoint["optimizer"] = optimizer.state_dict()
             
         if (not os.path.exists(f"./checkpoint/{setting}/{args['nbest']}best")):
             os.makedirs(f"./checkpoint/{setting}/{args['nbest']}best")
@@ -135,26 +129,39 @@ if args['stage'] <= 0:
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
+            refs = []
+            hyps = []
             print(f'validation:')
             for n, data in enumerate(tqdm(valid_loader)):
-                token, mask, label = data
-                token = token.to(device)
-                mask = mask.to(device)
-                label = label.to(device)
+                data = {k:v.to(device) for k, v in data.items()}
 
-                loss = model(token, mask, label)
+                loss = model(**data, return_dict = True).loss
+                hyp = model.generate(input_ids = data["input_ids"], attention_mask = data["attention_mask"])
+                hyp = tokenizer.batch_decode(hyp, skip_special_tokens = True)
+                labels = data["labels"].clone().cpu()
+                ref = np.where(labels != -100, labels, tokenizer.pad_token_id)
+                ref = tokenizer.batch_decode(ref, skip_special_tokens = True)
+
+                for h, r in zip(hyp, ref):
+                    hyps.append(h)
+                    refs.append(r)
+
                 val_loss += loss
+            cer = wer(refs, hyps)
 
             dev_loss.append(val_loss)
 
             logging.warning(f"epoch :{e + 1}, validation_loss:{val_loss}")
+            logging.warning(f'epoch :{e + 1}, validation cer: {cer}')
 
-            if val_loss < min_val:
+            if cer < min_cer:
                 min_val = val_loss
                 torch.save(
                     train_checkpoint,
                     f"./checkpoint/{setting}/{args['nbest']}best/checkpoint_train_best.pt",
                 )
+            logging.warning(f'hyp:{hyps[0]}')
+            logging.warning(f'ref:{refs[0]}')
 
 
         save_loss = {
@@ -168,68 +175,71 @@ if args['stage'] <= 0:
 if (args['stage'] <= 1):
     print(f'Recognizing')
     recog_task = ['dev', 'test']
-    dev_loader = DataLoader(
-        dataset=dev_set,
-        batch_size=recog_args['batch'],
-        collate_fn=correctRecogBatch,
-        num_workers=4,
-    )
-
-    test_loader = DataLoader(
-        dataset=test_set,
-        batch_size=recog_args['batch'],
-        collate_fn=correctRecogBatch,
-        num_workers=4,
-    )
-
 
     best_checkpoint = torch.load(f"./checkpoint/{setting}/{args['nbest']}best/checkpoint_train_best.pt")
     
     print(f"using epoch:{best_checkpoint['epoch']}")
-    model.model.load_state_dict(best_checkpoint['state_dict'])
+    model.load_state_dict(best_checkpoint['state_dict'])
+    model = model.to(device)
 
     for task in recog_task:
         model.eval()
         if (task == 'dev'):
-            scoring_loader = dev_loader
+            dataloader = DataLoader(
+                dataset=dev_set,
+                batch_size=recog_args['batch'],
+                collate_fn=recogBatch,
+                num_workers=4,
+            )
+
         elif (task == 'test'):
-            scoring_loader = test_loader
-        
+            dataloader = DataLoader(
+                dataset=test_set,
+                batch_size=recog_args['batch'],
+                collate_fn=recogBatch,
+                num_workers=4,
+            )
+
         recog_dict = dict()
-        recog_dict['utts'] = dict()
+        hyp_cal = []
+        ref_cal = []
 
         with torch.no_grad():        
-            for i, data in enumerate(tqdm(scoring_loader)):
+            for i, data in enumerate(tqdm(dataloader)):
                 temp_dict = dict()
-                token, mask, ref = data
-                token = token.to(device)
-                mask = mask.to(device)
 
-                output = model.recognize(token, mask)
+                names = data['name']
+                input_ids = data['input_ids'].to(device)
+                attention_mask = data['attention_mask'].to(device)
+                labels = data['labels']
                 
-                output = output.squeeze(0).tolist()
+                output = model.generate(input_ids, attention_mask = attention_mask,num_beams = 3, min_length = 0 ,max_length = 50)
+                logging.warning(f'output:{output}')
 
-                hyp_token = model.tokenizer.convert_ids_to_tokens(output)
-                hyp_token = [str(h) for h in hyp_token if h not in ['[CLS]', '[SEP]', '[PAD]']]
+                labels = np.where(labels != -100, labels, tokenizer.pad_token)
+
+                hyps = tokenizer.batch_decode(output, skip_special_tokens = True)
+                refs = tokenizer.batch_decode(labels, skip_sprcial_tokens = True)
                 
-                ref = [t for t in ref[0]]
-                logging.warning(f'hyp:{hyp_token}')
-                logging.warning(f'ref:{ref}')
-
-                recog_dict['utts'][f'{task}_{i}'] = dict()
-                recog_dict['utts'][f'{task}_{i}'] = {
-                    'hyp': " ".join(hyp_token),
-                    'ref': " ".join(ref)
-                }
+                for name, hyp, ref in zip(names, hyps, refs):
+                    recog_dict[name] = {
+                        "hyp": hyp,
+                        "ref": ref
+                    }
+                    hyp_cal.append(hyp)
+                    ref_cal.append(ref)
+            print(f"WER: {wer(ref_cal, hyp_cal)}")
 
         if (not os.path.exists(
-            f"./data/{args['dataset']}/{setting}/{task}//{args['nbest']}best")
+            f"./data/{args['dataset']}/{setting}/{task}/{args['nbest']}best")
         ):
             os.makedirs(f"./data/{args['dataset']}/{setting}/{task}/{args['nbest']}best")
+
         with open(
             f"./data/{args['dataset']}/{setting}/{task}/{args['nbest']}best/correct_data.json",
             'w'
         ) as fw:
             json.dump(recog_dict, fw, ensure_ascii = False, indent = 4)
+
 print(f'Finish')
 
