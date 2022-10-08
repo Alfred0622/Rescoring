@@ -24,42 +24,33 @@ print(f'delimeter:{delimeter} = {delimeter_token}')
 for s in setting:
     for task in task_group:
         print(f'{s}:{task}')
-        with open(f'../data/{dataset}/{s}/{task}/token.json') as f:
+        with open(f'../../../data/{dataset}/{task}/data/data_{s}.json') as f:
             data = json.load(f)
 
-            gen_data = {
-                'token': list(),
-                'ref_token': list(),
-                'ref': list()
-            }
-
+            gen_data = list()
             for d in data:
+                name = d['name']
                 tokens = d['token']
-                ref_token = d['ref_token']
                 ref_text = d['ref']
 
-                concat_token = list()
+                concat_token = str()
 
                 for i, t in enumerate(tokens[:nbest]):
                     
-                    if (i == 0):
-                        t[-1] = delimeter_token # [CLS] A B C [SEP] -> [CLS] A B C #
+                    if (i == 0): # [CLS] A B C [SEP] -> [CLS] A B C #
                         concat_token += t # first adding
-                    elif i == nbest - 1:
-                        concat_token += t[1:] 
                     else:
-                        t[-1] = delimeter_token # [CLS] A B C [SEP] -> [CLS] A B C #
-                        concat_token += t[1:] # remove [CLS] and concat
+                        concat_token = concat_token + delimeter + t # [CLS] A B C [SEP] -> [CLS] A B C #
                 
                 gen_data.append(
                     {
+                        'name':name,
                         'token':concat_token,
                         'ref': ref_text,
-                        'ref_token': ref_token
                     }
                 )
         if (not os.path.exists(f"../data/{dataset}/{s}/{t}/{nbest}plain/")):
             os.makedirs(f'../data/{dataset}/{s}/{t}/{nbest}plain')
 
-        with open(f'../data/{dataset}/{s}/{t}/{nbest}plain/token.json', 'w') as fw:
+        with open(f'../data/{dataset}/{s}/{t}/{nbest}plain/data.json', 'w') as fw:
             json.dump(gen_data, fw, ensure_ascii=False, indent = 4)

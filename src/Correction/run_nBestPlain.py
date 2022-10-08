@@ -100,19 +100,20 @@ if __name__ == "__main__":
 
     logging.warning(f"device:{device}")
     device = torch.device(device)
-
-    model = RoBart(device, lr = float(train_args['lr']))
-
-    # model = nBestTransformer(
-    #     nBest=nBest,
-    #     train_batch=train_args["train_batch"],
-    #     test_batch=recog_args['batch'],
-    #     device=device,
-    #     lr=float(train_args["lr"]),
-    #     mode=training_mode,
-    #     model_name=model_name,
-    #     align_embedding=train_args["align_embedding"],
-    # )
+    if (training_mode in ['plain', 'align_concat']):
+        model = RoBart(device, lr = float(train_args['lr']))
+    
+    else:
+        model = nBestTransformer(
+            nBest=nBest,
+            train_batch=train_args["train_batch"],
+            test_batch=recog_args['batch'],
+            device=device,
+            lr=float(train_args["lr"]),
+            mode=training_mode,
+            model_name=model_name,
+            align_embedding=train_args["align_embedding"],
+        )
 
     if args['stage'] <= 1:
         if (train_args['start_epoch'] > 0):
@@ -140,15 +141,11 @@ if __name__ == "__main__":
             model.optimizer.zero_grad()
             for n, data in enumerate(tqdm(train_loader)):
                 token, _ ,mask, label = data
-                # logging.warning(f'token.shape:{token.shape}')
                 token = token.to(device)
-                # logging.warning(f'token:{token}')
                 mask = mask.to(device)
-                # logging.warning(f'mask:{mask}')
-                # seg = seg.to(device)
-                # logging.warning(f'seg:{seg}')
                 
                 label = label.to(device)
+
                 # logging.warning(f'label:{label}')
 
                 loss = model(
@@ -156,7 +153,6 @@ if __name__ == "__main__":
                     attention_masks = mask, 
                     labels = label
                 )
-                # logging.warning(f'loss:{loss}')
 
                 loss /= train_args["accumgrad"]
                 loss.backward()
@@ -255,6 +251,14 @@ if __name__ == "__main__":
                     ]
                     
                     ref_list = [x for x in ref_text[0]]
+
+                    ref_list = model.tokenizer.convert_ids_to_tokens(ref_list)
+                    ref_list = [
+                        x for x in ref_list if x not in ["[CLS]", "[SEP]", "[PAD]"]
+                    ]
+
+                    logging.warning(f'{hyp_token}')
+                    logging.warning(f'{ref_list}')
 
                     recog_dict["utts"][name] = {
                         "hyp": " ".join(hyp_token),

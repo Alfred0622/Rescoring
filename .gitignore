@@ -7,3 +7,6 @@ data/
 *.log
 align/
 tmp/
+wandb/
+tools/debug.ipynb
+*.swp

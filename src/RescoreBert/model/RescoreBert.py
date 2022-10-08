@@ -386,7 +386,6 @@ class RescoreBert(torch.nn.Module):
             weight_sum = weight_sum.view(self.test_batch, -1)
             cers = cers.view(self.test_batch, -1, 4)
             best_hyp = torch.argmax(weight_sum)
-
             return total_loss, cers[0][best_hyp]
 
         return total_loss
