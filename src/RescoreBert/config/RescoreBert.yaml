@@ -1,5 +1,5 @@
 args:
-  stage: 3
+  stage: 4
   stop_stage: 100
   nbest: 50  # max: 50
   withLM: True
