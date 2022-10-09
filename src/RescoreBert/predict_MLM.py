@@ -10,13 +10,14 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 from torch.nn.functional import log_softmax
 from utils.Datasets import get_Dataset
-from utils.CollateFunc import recogBatch
+from utils.CollateFunc import recogMLMBatch
 from utils.PrepareModel import prepare_GPT2, prepare_MLM
 from utils.LoadConfig import load_config
 from utils.FindWeight import find_weight, find_weight_complex
 from utils.Datasets import get_mlm_dataset
 
 checkpoint_path = sys.argv[1]
+print(checkpoint_path)
 
 config = "./config/mlm.yaml"
 args, train_args, recog_args = load_config(config)
@@ -32,13 +33,14 @@ eos = tokenizer.sep_token
 pad = tokenizer.pad_token
 
 checkpoint = torch.load(checkpoint_path)
+print(f'loading state_dict')
 model.load_state_dict(checkpoint)
 model = model.to(device)
 model.eval()
 
-batch_size = 1
+batch_size = recog_args['batch_size']
 
-recog_set = get_mlm_dataset(args['dataset'])
+recog_set = ['dev', 'test']
 
 for task in recog_set:
     print(task)
@@ -46,13 +48,13 @@ for task in recog_set:
 
     with open(json_file) as f:
         data_json = json.load(f)
-
-    dataset = get_Dataset(data_json)
+    print(len(data_json))
+    dataset = get_mlm_dataset(data_json, tokenizer)
 
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
-        collate_fn=recogBatch,
+        collate_fn=recogMLMBatch,
         num_workers=4
     )
 
@@ -87,20 +89,36 @@ for task in recog_set:
             input_ids = input_ids,
             attention_mask = attention_mask,
             return_dict = True
-        ).logits()
+        ).logits
 
         score = log_softmax(score, dim = -1)
 
-        for i, (name, seq_index, masked_token ,nbest_index) in enumerate(zip(
-            data['names'], data['seq_index'], data['masked_token'], data['nBest_index']
-        )):
+        for i, (name, seq_index, masked_token ,nbest_index) in enumerate(
+            zip(
+                data['name'], data['seq_index'], data['masked_token'], data['nBest_index']
+            )
+        ):
             score_dict[name]["Rescore"][nbest_index] += score[i][seq_index][masked_token].item()
     
-    save_path = Path(f"./data/{args['dataset']}/{setting}/{args['nbest']}best/CLM")
+    save_dict = score_dict.copy()
+    print(id(save_dict))
+    print(id(score_dict))
+
+    save_path = Path(f"./data/{args['dataset']}/{setting}/{args['nbest']}best/MLM/{task}")
     save_path.mkdir(parents = True, exist_ok = True)
 
+    for key in save_dict.keys():
+        save_dict[key]['score'] = save_dict[key]['score'].tolist()
+        save_dict[key]['Rescore'] = save_dict[key]['Rescore'].tolist()
+        if ('am_score' in save_dict[key].keys()):
+            save_dict[key]['am_score'] = save_dict[key]['am_score'].tolist()
+        if ('ctc_score' in save_dict[key].keys()):
+            save_dict[key]['ctc_score'] = save_dict[key]['ctc_score'].tolist()
+        if ('lm_score' in save_dict[key].keys()):
+            save_dict[key]['lm_score'] = save_dict[key]['lm_score'].tolist()
+
     with open(f"{save_path}/rescore_data.json", 'w') as f:
-        json.dump(score_dict, f, ensure_ascii = False, indent = 4)
+        json.dump(save_dict, f, ensure_ascii = False, indent = 4)
     
     if (task == 'dev'):
         best_weight = find_weight(score_dict, bound = [1, 10])
@@ -111,6 +129,9 @@ for task in recog_set:
     i = 0
     result_dict = dict()
     for key in score_dict.keys():
+        if (not isinstance(score_dict[key]['score'], torch.Tensor)):
+            score_dict[key]['score'] = torch.tensor(score_dict[key]['score'], dtype = torch.float64)
+            score_dict[key]['Rescore'] = torch.tensor(score_dict[key]['Rescore'], dtype = torch.float64)
         score = score_dict[key]['score'] + best_weight * score_dict[key]['Rescore']
 
         best_index = torch.argmax(score)

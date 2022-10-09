@@ -4,6 +4,7 @@ checkpoint/
 *.pt
 log/
 data/
+data_old/
 *.log
 align/
 tmp/
