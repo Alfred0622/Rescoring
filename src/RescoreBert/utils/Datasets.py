@@ -1,5 +1,6 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
+from tqdm import tqdm
 
 class LM_Dataset(Dataset):
     def __init__(self, nbest_list):
@@ -56,28 +57,28 @@ def get_Dataset(data_json, tokenizer, dataset,for_train = True, topk = 20):
 
         return LM_Dataset(data_list)
 
-def get_mlm_dataset(data_list, tokenizer, topk = 20):
+def get_mlm_dataset(data_json, tokenizer, topk = 50):
     bos_id = tokenizer.bos_token_id
     eos_id = tokenizer.eos_token_id
     mask_id = tokenizer.mask_token_id
 
     data_list = list()
 
-    for data in data_list:
+    for data in tqdm(data_json):
         name = data['name']
         for i, hyp in enumerate(data['hyp'][:topk]):
-            input_ids, token_type_ids, attention_mask = tokenizer(hyp)
+            input_ids, token_type_ids, attention_mask = tokenizer(hyp).values()
             for j, ids in enumerate(input_ids):
                 temp_input = input_ids.copy()
                 if (ids in [bos_id, eos_id]):
                     continue
-                temp_input[i] = mask_id
+                temp_input[j] = mask_id
 
                 data_list.append(
                     {
                         "name": name,
-                        "input_ids": torch.tensor(temp_input),
-                        "attention_mask": torch.tensor(attention_mask),
+                        "input_ids": torch.tensor(temp_input, dtype = torch.long),
+                        "attention_mask": torch.tensor(attention_mask,dtype = torch.long),
                         "mask_token": ids, # the token that is masked
                         "nbest": i,   # Nbest index
                         "index": j    # In which position

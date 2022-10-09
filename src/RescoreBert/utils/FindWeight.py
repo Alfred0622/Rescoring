@@ -19,6 +19,9 @@ def find_weight(data, bound = [0, 1]):
         d = 0
         i = 0
         for key in data.keys():
+            if (not isinstance(data[key]['score'], torch.Tensor)):
+                data[key]['score'] = torch.tensor(data[key]['score'], dtype = torch.float64)
+                data[key]['Rescore'] = torch.tensor(data[key]['Rescore'], dtype = torch.float64)
             score = (1 - weight) * data[key]['score'] + weight * data[key]['Rescore']
 
             best_index = torch.argmax(score)

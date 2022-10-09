@@ -44,6 +44,9 @@ def recogMLMBatch(batch):
         masked_tokens.append(sample["mask_token"])
         nBest_index.append(sample['nbest'])
         seq_index.append(sample['index'])
+    
+    input_ids = pad_sequence(input_ids, batch_first = True)
+    attention_mask = pad_sequence(attention_mask, batch_first = True)
 
     return (
         {
