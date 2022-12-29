@@ -44,44 +44,45 @@ if (args['dataset'] == 'old_aishell'):
 print(f"Prepare data")
 print(f'Load json file')
 
-train_path = f"../../data/{args['dataset']}/data/train/{setting}/data.json"
-dev_path = f"../../data/{args['dataset']}/data/dev/{setting}/data.json"
-test_path = f"../../data/{args['dataset']}/data/test/{setting}/data.json"
+if (args['dataset'] in ['aishell2']):
+    dev = 'dev_ios'
+    test = ['test_ios', 'test_mic', 'test_android']
 
-with open(train_path) as f,\
-     open(dev_path) as d,\
-     open(test_path) as t:
-    train_json = json.load(f)
-    dev_json = json.load(d)
-    test_json = json.load(t)
+
+# test_path = f"../../data/{args['dataset']}/data/test/{setting}/data.json"
 
 model , tokenizer = prepare_model(args['dataset'])
 optimizer = AdamW(model.parameters(), lr = 1e-5)
-
-print(f'Create Dataset & DataLoader')
-train_set = get_dataset(train_json, tokenizer,topk = args['nbest'], for_train = True)
-valid_set = get_dataset(dev_json, tokenizer, topk = args['nbest'], for_train = True)
-dev_set = get_dataset(dev_json, tokenizer, topk = 1, for_train = False)
-test_set = get_dataset(test_json, tokenizer, topk = 1, for_train = False)
-
-train_loader = DataLoader(
-    dataset=train_set,
-    batch_size=train_args['train_batch'],
-    collate_fn=trainBatch,
-    num_workers=4,
-)
-
-valid_loader = DataLoader(
-    dataset=valid_set,
-    batch_size=train_args['valid_batch'],
-    collate_fn=trainBatch,
-    num_workers=4,
-)
 
 # model = RoBart(device, lr = float(train_args['lr']))
 
 if args['stage'] <= 0:
     print("training")
+    train_path = f"../../data/{args['dataset']}/data/{setting}/train/data.json"
+    dev_path = f"../../data/{args['dataset']}/data/{setting}/dev/data.json"
+
+    with open(train_path) as f,\
+     open(dev_path) as d:
+        train_json = json.load(f)
+        dev_json = json.load(d)
+
+    print(f'Create Dataset & DataLoader')
+    train_set = get_dataset(train_json, tokenizer,topk = args['nbest'], for_train = True)
+    valid_set = get_dataset(dev_json, tokenizer, topk = args['nbest'], for_train = True)
+
+    train_loader = DataLoader(
+        dataset=train_set,
+        batch_size=train_args['train_batch'],
+        collate_fn=trainBatch,
+        num_workers=4,
+    )
+
+    valid_loader = DataLoader(
+        dataset=valid_set,
+        batch_size=train_args['valid_batch'],
+        collate_fn=trainBatch,
+        num_workers=4,
+    )
 
     min_val = 1e8
     min_cer = 100
@@ -111,9 +112,6 @@ if args['stage'] <= 0:
                 train_loss.append(logging_loss)
                 logging_loss = 0.0
 
-        train_checkpoint = dict()
-        train_checkpoint["epoch"] = e + 1
-        train_checkpoint["state_dict"] = model.state_dict()
         train_checkpoint = dict()
         train_checkpoint["epoch"] = e + 1
         train_checkpoint["state_dict"] = model.state_dict()
@@ -176,6 +174,9 @@ if (args['stage'] <= 1):
     print(f'Recognizing')
     recog_task = ['dev', 'test']
 
+    if (args['dataset'] in ['aishell2']):
+        recog_task = ['dev_ios', 'test_mic', 'test_ios', 'test_android']
+
     best_checkpoint = torch.load(f"./checkpoint/{setting}/{args['nbest']}best/checkpoint_train_best.pt")
     
     print(f"using epoch:{best_checkpoint['epoch']}")
@@ -183,22 +184,18 @@ if (args['stage'] <= 1):
     model = model.to(device)
 
     for task in recog_task:
+        print(f'task:{task}')
         model.eval()
-        if (task == 'dev'):
-            dataloader = DataLoader(
-                dataset=dev_set,
-                batch_size=recog_args['batch'],
-                collate_fn=recogBatch,
-                num_workers=4,
-            )
-
-        elif (task == 'test'):
-            dataloader = DataLoader(
-                dataset=test_set,
-                batch_size=recog_args['batch'],
-                collate_fn=recogBatch,
-                num_workers=4,
-            )
+        with open(f"../../data/{args['dataset']}/data/{setting}/{task}/data.json") as f:
+            data_json = json.load(f)
+        
+        dataset = get_dataset(data_json, tokenizer, topk = 1, for_train = False)
+        dataloader = DataLoader(
+            dataset=dataset,
+            batch_size=recog_args['batch'],
+            collate_fn=recogBatch,
+            num_workers=4,
+        )
 
         recog_dict = dict()
         hyp_cal = []
@@ -210,6 +207,7 @@ if (args['stage'] <= 1):
 
                 names = data['name']
                 input_ids = data['input_ids'].to(device)
+                logging.warning(f'{input_ids}')
                 attention_mask = data['attention_mask'].to(device)
                 labels = data['labels']
                 
@@ -220,14 +218,20 @@ if (args['stage'] <= 1):
 
                 hyps = tokenizer.batch_decode(output, skip_special_tokens = True)
                 refs = tokenizer.batch_decode(labels, skip_sprcial_tokens = True)
-                
+
                 for name, hyp, ref in zip(names, hyps, refs):
+                    hyp= hyp.split()[1:-1]
+                    hyp = " ".join(hyp)
+
                     recog_dict[name] = {
                         "hyp": hyp,
                         "ref": ref
                     }
                     hyp_cal.append(hyp)
                     ref_cal.append(ref)
+
+            print(hyp_cal[-1])
+            print(ref_cal[-1])
             print(f"WER: {wer(ref_cal, hyp_cal)}")
 
         if (not os.path.exists(

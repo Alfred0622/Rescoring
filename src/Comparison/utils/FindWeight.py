@@ -23,10 +23,10 @@ def find_weight(data, bound = [0, 10]):
 
             best_index = torch.argmax(score)
 
-            c += data[key]['err'][best_index][0]
-            s += data[key]['err'][best_index][1]
-            d += data[key]['err'][best_index][2]
-            i += data[key]['err'][best_index][3]
+            c += data[key]['err'][best_index]['hit']
+            s += data[key]['err'][best_index]['sub']
+            d += data[key]['err'][best_index]['del']
+            i += data[key]['err'][best_index]['ins']
         
         cer = (s + d + i) / (c + s + d)
 

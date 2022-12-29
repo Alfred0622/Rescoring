@@ -8,9 +8,16 @@ from jiwer import wer
 
 choose_nbest = [50]
 
-dataset = 'old_aishell'
-file_name = ['dev', 'test']
-setting = [""]
+dataset = 'csj'
+if (dataset in ['aishell2']):
+    file_name = ['dev_ios', 'test_android', 'test_mic', 'test_ios']
+elif (dataset in ['aishell', 'tedlium2', 'tedlium2_conformer']):
+    file_name = ['dev', 'test']
+elif (dataset in ['csj']):
+    file_name = ['eval1', 'eval2', 'eval3']
+elif (dataset in ['librispeech']):
+    file_name = ['dev_clean', 'dev_other', 'test_clean', 'test_other'] 
+setting = ["noLM", "withLM"]
 
 for best in choose_nbest:
     print(f"{best} best: ")
@@ -27,7 +34,7 @@ for best in choose_nbest:
             with open(f"./data/{dataset}/data/{s}/{n}/data.json", "r") as f:
                 data = json.load(f)
                 for d in data:
-                    token = d["hyp"]
+                    token = d["hyps"]
                     err = d["err"]
                     ref = d["ref"]
 
@@ -39,14 +46,14 @@ for best in choose_nbest:
                     min_i = 0
 
                     for t, e in zip(token, err):
-                        cer = (e[1] + e[2] + e[3]) / (e[0] + e[1] + e[2])
+                        cer = e['err']
                         if cer < min_err:
                             min_err = cer
                             best_hyp = t
-                            min_c = e[0]
-                            min_s = e[1]
-                            min_d = e[2]
-                            min_i = e[3]
+                            min_c = e['hit']
+                            min_s = e['sub']
+                            min_d = e['del']
+                            min_i = e['ins']
 
                     total_c += min_c
                     total_d += min_d
@@ -75,6 +82,6 @@ for best in choose_nbest:
             print(f'insert:{total_i}')
             
             print(f'baseline:{wer(refs, top_1_hyp)}')
-            print(f'jiwer:{wer(refs, hyps)}')
+            print(f'oracle:{wer(refs, hyps)}')
 
             print('\n')

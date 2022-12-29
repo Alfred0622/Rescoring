@@ -8,7 +8,7 @@ args:
 
 train:
   epoch: 10
-  train_batch: 256
+  train_batch: 128
   valid_batch: 1
   accumgrad: 1
   print_loss: 200
@@ -16,6 +16,6 @@ train:
   mode: scoring
 
 recog:
-  batch_size: 256
+  batch_size: 32
   lower_bound: 0.0
-  upper_bound: 10.0
+  upper_bound: 1.0

@@ -1,0 +1,17 @@
+args:
+  nbest: 50 # max: 50
+  withLM: False
+  dataset: aishell
+
+train:
+  epoch: 10
+  train_batch: 256
+  valid_batch: 256
+  accumgrad: 1
+  print_loss: 200
+  mode: MD
+  lr: 1e-5
+
+recog:
+  batch: 256
+  find_weight: True

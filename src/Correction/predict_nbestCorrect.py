@@ -8,9 +8,6 @@ import logging
 from transformers import (
     AutoModelForSeq2SeqLM,
     BertTokenizer,
-    Seq2SeqTrainingArguments, 
-    Seq2SeqTrainer, 
-    DataCollatorForSeq2Seq
 )
 
 from torch.utils.data import DataLoader
@@ -28,19 +25,22 @@ if (len(sys.argv) != 3):
 task_name = sys.argv[1]
 checkpoint_path = sys.argv[2]
 
+use_train = False
 
 def predict(model, tokenizer, loader):
     result = {}
     model.eval()
 
     loop = tqdm(loader, total = len(loader))
-    count = 1
     for batch in loop:
         name = batch["name"]
         input_ids = batch["input_ids"]
+        # print(f'input_ids:{input_ids}')
         attention_mask = batch["attention_mask"]
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
+
+        # print(f'attention_mask:{attention_mask}')
 
         with torch.no_grad():
             output = model.generate(
@@ -50,9 +50,15 @@ def predict(model, tokenizer, loader):
                 num_beams = 5,
                 early_stopping = True
             )
+
+            # print(f'output:{output}')
+
             output = tokenizer.batch_decode(output, skip_special_tokens = True)
             ref_list = tokenizer.batch_decode(batch["labels"], skip_special_tokens = True)
-        
+
+            # for hyp, ref in zip(output, ref_list):
+            #     print(f'hyp:{hyp}\n ref:{ref}')
+
             for single_name, pred, ref in zip(name, output, ref_list):
                 if (single_name not in result.keys()):
                     result[single_name] = dict()
@@ -74,11 +80,17 @@ if __name__ == '__main__':
     setting =  'withLM' if args['withLM'] else 'noLM'
     if (args['dataset'] == 'old_aishell'):
         setting = ""
+    
+    print(f'setting:{setting}')
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-
-    if (args['dataset'] in ["csj"]):
+    
+    if (use_train):
+        scoring_set = ['train']
+    elif (args['dataset'] in ["csj"]):
         scoring_set = ['dev', 'eval1', 'eval2', 'eval3']
+    elif (args['dataset'] in ["aishell2"]):
+        scoring_set = ["dev_ios", 'test_ios', 'test_mic', 'test_android']
     else:
         scoring_set = ['test', 'dev']
 
@@ -115,10 +127,17 @@ if __name__ == '__main__':
         
         ref = []
         hyp = []
-        for data in output.keys():
-            ref.append(output[data]['ref'])
-            hyp.append(output[data]['hyp'])
+        top_1_hyp = []
+        for data in data_json:
+            top_1_hyp.append(data['hyps'][0])
+            ref.append(output[data['name']]['ref'])
+            hyp.append(output[data['name']]['hyp'])
         
-        print(f'wer:{wer(ref, hyp)}')
+        print(f'org_wer:{wer(ref, top_1_hyp)}')
+        print(f'Correction wer:{wer(ref, hyp)}')
+        
+        # for data in output.keys():
 
+        #     ref.append(output[data]['ref'])
+        #     hyp.append(output[data]['hyp'])
     

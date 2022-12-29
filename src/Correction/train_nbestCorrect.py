@@ -18,16 +18,17 @@ from utils.LoadConfig import load_config
 from utils.PrepareModel import prepare_model
 from jiwer import wer
 
-
 task_name = sys.argv[1]
 
 if (task_name == 'align_concat'):
+    config_name = './config/nBestAlign.yaml'
+    topk = 1
+elif (task_name == 'plain'):
     config_name = './config/nBestPlain.yaml'
     topk = 1
 else:
     config_name = './config/Bart.yaml'
     topk = -1
-
 
 def compute_metric(eval_pred):
     hyp, ref = eval_pred
@@ -47,13 +48,20 @@ setting = 'withLM' if args['withLM'] else 'noLM'
 if (args['dataset'] == 'old_aishell'):
     setting = ""
 
+if (args['dataset'] in ['aishell2']):
+    dev_set = 'dev_ios'
+elif (args['dataset'] in ['librispeech']):
+    dev_set = 'dev_clean'
+else:
+    dev_set = 'dev'
+
 if (not os.path.exists(f"./checkpoint/{args['dataset']}/{args['nbest']}_{task_name}/{setting}")):
     os.makedirs(f"./checkpoint/{args['dataset']}/{args['nbest']}_{task_name}/{setting}")
 if (not os.path.exists(f"./log/{args['dataset']}/{args['nbest']}_{task_name}/{setting}")):
     os.makedirs(f"./log/{args['dataset']}/{args['nbest']}_{task_name}/{setting}")
 
 train_path = f"../../data/{args['dataset']}/data/{setting}/train/data.json"
-valid_path = f"../../data/{args['dataset']}/data/{setting}/dev/data.json"
+valid_path = f"../../data/{args['dataset']}/data/{setting}/{dev_set}/data.json"
 
 with open(train_path) as train, open(valid_path) as valid:
     train_json = json.load(train)
@@ -62,9 +70,14 @@ with open(train_path) as train, open(valid_path) as valid:
 if (topk < 0):
     topk = args['nbest']
 
+if (train_args['data_type'] == 'single'):
+    valid_topk = 1
+else:
+    valid_topk = topk
+
 print(f'prepare data & tokenization')
-train_dataset = get_dataset(train_json, tokenizer, topk = topk, for_train = True)
-valid_dataset = get_dataset(valid_json, tokenizer, topk = 1, for_train = True)
+train_dataset = get_dataset(train_json, tokenizer, data_type = train_args['data_type'] ,topk = topk, for_train = True)
+valid_dataset = get_dataset(valid_json, tokenizer, data_type = train_args['data_type'], topk = valid_topk, for_train = True)
 
 training_args = Seq2SeqTrainingArguments(
             output_dir=f"./checkpoint/{args['dataset']}/{args['nbest']}_{task_name}/{setting}/result",
@@ -79,18 +92,17 @@ training_args = Seq2SeqTrainingArguments(
             weight_decay=0.1,
             num_train_epochs=train_args['epoch'],
             lr_scheduler_type="linear",
-            warmup_ratio = 0.1,
-            seed = 10,
+            warmup_ratio = 0.3,
 
             logging_dir=f"./log/{args['dataset']}/{args['nbest']}_{task_name}/{setting}",
             logging_strategy="steps",
-            logging_steps = 200,
+            logging_steps = 2000,
             logging_first_step=True,
             logging_nan_inf_filter=False,
             
             save_strategy='epoch',
             no_cuda=False,
-            dataloader_num_workers=1,
+            dataloader_num_workers=4,
             load_best_model_at_end=True,
             metric_for_best_model="wer",
             greater_is_better=False,

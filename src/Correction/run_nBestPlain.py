@@ -146,8 +146,6 @@ if __name__ == "__main__":
                 
                 label = label.to(device)
 
-                # logging.warning(f'label:{label}')
-
                 loss = model(
                     input_id = token,
                     attention_masks = mask, 

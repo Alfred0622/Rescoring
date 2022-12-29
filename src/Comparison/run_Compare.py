@@ -1,13 +1,15 @@
 import json
+from tkinter import ON
 import yaml
 import random
 import torch
 import glob
 import logging
 import os
+import sys
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
-from model.BertForComparison import BertForComparison
+from model.BertForComparison import Bert_Sem, Bert_Compare
 from utils.Datasets import(
     get_dataset,
     get_recogDataset    
@@ -19,21 +21,11 @@ from utils.CollateFunc import(
 from utils.Datasets import get_dataset
 from utils.PrepareModel import prepare_model
 from utils.LoadConfig import load_config
+from torch.optim.lr_scheduler import OneCycleLR
 
 random.seed(42)
 torch.manual_seed(42)
 torch.cuda.manual_seed(42)
-
-if (not os.path.exists("./log")):
-    os.makedirs("./log")
-FORMAT = "%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s"
-
-logging.basicConfig(
-    level=logging.INFO,
-    filename="./log/train.log",
-    filemode="w",
-    format=FORMAT,
-)
 
 """Basic setting"""
 # device = 'cpu'
@@ -44,103 +36,163 @@ args, train_args, recog_args = load_config(config)
 
 setting = 'withLM' if args['withLM'] else 'noLM'
 
-print(f"stage:{args['stage']}, stop_stage:{args['stop_stage']}")
+if (not os.path.exists(f"./log/{setting}/Bert_sem")):
+    os.makedirs(f"./log/{setting}/Bert_sem")
+
+FORMAT = "%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s"
+
+logging.basicConfig(
+    level=logging.INFO,
+    filename=f"./log/{setting}/Bert_sem/train.log",
+    filemode="w",
+    format=FORMAT,
+)
 
 # Prepare Data
 print('Data Prepare')
 print(f'setting:{setting}')
-print(f"nbest:{args['nbest']}") 
+print(f"nbest:{args['nbest']}")
 
-if (args['stage'] <= 0) and (args['stop_stage']>= 0):
-    model, tokenizer = prepare_model(args, train_args, device)
 
-    print(f'training')
-    min_loss = 1e8
-    loss_seq = []
-    train_path = f"./data/{args['dataset']}/train/{setting}/{args['nbest']}best/data.json"
-    valid_path = f"./data/{args['dataset']}/valid/{setting}/{args['nbest']}best/data.json"
+# if (args['stage'] <= 0) and (args['stop_stage']>= 0):
+model, tokenizer = prepare_model(args, train_args, device)
 
-    with open(train_path, 'r') as f ,\
-         open(valid_path, 'r') as v:
-        train_json = json.load(f)
-        valid_json = json.load(v)
-        print(f"# of train data:{len(train_json)}")
-        print(f"# of valid data:{len(valid_json)}")
+if (len(sys.argv) == 2):
+    checkpoint = sys.argv[1]
 
-        print(f'tokenizing data......')
-        train_dataset = get_dataset(train_json, tokenizer)
-        valid_dataset = get_dataset(valid_json, tokenizer)
+    start_epoch = int(checkpoint.split(".")[0][-1])
 
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size = train_args["train_batch"],
-            collate_fn=bertCompareBatch,
-            num_workers=4,
-            shuffle = True
-        )
+    load_checkpoint = torch.load(checkpoint)
 
-        valid_loader = DataLoader(
-            valid_dataset,
-            batch_size = train_args["train_batch"],
-            collate_fn=bertCompareBatch,
-            num_workers=4,
-        )
+    print(f"load checkpoint from: {checkpoint}")
 
-    for e in range(train_args["epoch"]):
-        for n, data in enumerate(tqdm(train_loader)):
+    model.bert.load_state_dict(load_checkpoint['state_dict'])
+    model.linear.load_state_dict(load_checkpoint['fc_checkpoint'])
+    model.optimizer.load_state_dict(load_checkpoint['optimizer'])
+    
+
+else: start_epoch = 0
+
+print(f'training')
+min_loss = 1e8
+loss_seq = []
+
+train_path = f"./data/{args['dataset']}/train/{setting}/{args['nbest']}best/data.json"
+valid_path = f"./data/{args['dataset']}/valid/{setting}/4best/data.json"
+
+with open(train_path, 'r') as f ,\
+    open(valid_path, 'r') as v:
+    train_json = json.load(f)   #[:train_args['train_batch'] * 512]
+    valid_json = json.load(v)
+print(f"# of train data:{len(train_json)}")
+print(f"# of valid data:{len(valid_json)}")
+
+print(f'tokenizing data......')
+valid_dataset, valid_json = get_dataset(valid_json, tokenizer)
+# with open(f"./data/{args['dataset']}/valid/{setting}/{args['nbest']}best/token.json", 'w') as valid:
+#     json.dump(valid_json, valid, ensure_ascii = False, indent = 4)
+
+train_dataset, train_json = get_dataset(train_json, tokenizer)
+# with open(f"./data/{args['dataset']}/train/{setting}/{args['nbest']}best/token.json", 'w') as train:
+#     json.dump(train_json, train, ensure_ascii = False, indent = 4)
+
+train_loader = DataLoader(
+    train_dataset,
+    batch_size = train_args["train_batch"],
+    collate_fn=bertCompareBatch,
+    num_workers=4,
+    shuffle = True
+)
+
+valid_loader = DataLoader(
+    valid_dataset,
+    batch_size = train_args["train_batch"],
+    collate_fn=bertCompareBatch,
+    num_workers=4,
+)
+
+# scheduler = OneCycleLR(
+#     model.optimizer, 
+#     max_lr = float(train_args['lr']), 
+#     steps_per_epoch = len(train_loader),
+#     epochs = train_args['epoch'],
+#     pct_start = 1 / train_args['epoch'],
+#     anneal_strategy = 'linear'
+# )
+
+for e in range(start_epoch, train_args["epoch"]):
+    model.train()
+    # if (e < 2):
+    #     print(f'freeze')
+    #     logging.warning(f'freeze')
+    #     for param in model.bert.parameters():
+    #         param.require_grad = False
+    # else:
+    #     for param in model.bert.parameters():
+    #         param.require_grad = True
+
+    for n, data in enumerate(tqdm(train_loader)):
+        model.optimizer.zero_grad()
+        logging_loss = 0.0
+        # logging.warning(data['labels'])
+
+        data = {k: v.to(device) for k, v in data.items()}
+    
+        loss = model(**data).loss
+        loss = loss / train_args["accumgrad"]
+        loss.backward()
+        
+        logging_loss += loss.item()
+
+        if ((n + 1) % train_args["accumgrad"] == 0) or ((n + 1) == len(train_loader)):
+            model.optimizer.step()
+            # lrs.append(model.optimizer.param_groups[0]["lr"])
+            # scheduler.step()
+            
+        if ((n + 1) % train_args["print_loss"] == 0) or ((n + 1) == len(train_loader)):
+            logging.warning(
+                f"Training epoch :{e + 1} step:{n + 1}, loss:{logging_loss}"
+            )
+            loss_seq.append(logging_loss)
             logging_loss = 0.0
-            model.train()
 
-            data = {k: v.to(device) for k, v in data.items()}
-            
+    
+    train_checkpoint = dict()
+    train_checkpoint["state_dict"] = model.bert.state_dict()
+    train_checkpoint["fc_checkpoint"] = model.linear.state_dict()
+    train_checkpoint["optimizer"] = model.optimizer.state_dict()
+    # train_checkpoint["scheduler"] = scheduler.state_dict()
+    if (not os.path.exists(f"./checkpoint/{args['dataset']}/{setting}/{args['nbest']}")):
+        os.makedirs(f"./checkpoint/{args['dataset']}/{setting}/{args['nbest']}")
+    
+    torch.save(
+        train_checkpoint,
+        f"./checkpoint/{args['dataset']}/{setting}/{args['nbest']}/checkpoint_train_{e + 1}.pt",
+    )
+
+    # eval
+    model.eval()
+    valid_loss = 0.0   
+    with torch.no_grad():
+        for n, data in enumerate(tqdm(valid_loader)):
+            data = {k: v.to(device) for k,v in data.items()}
             loss = model(**data).loss
-            loss = loss / train_args["accumgrad"]
-            loss.backward()
-            
-            logging_loss += loss.item()
 
-            if ((n + 1) % train_args["accumgrad"] == 0) or ((n + 1) == len(train_loader)):
-                model.optimizer.step()
-                model.optimizer.zero_grad()
+            valid_loss += loss.item()
 
-            if ((n + 1) % train_args["print_loss"] == 0) or ((n + 1) == len(train_loader)):
-                logging.warning(
-                    f"Training epoch :{e + 1} step:{n + 1}, loss:{logging_loss}"
-                )
-                loss_seq.append(logging_loss)
-                logging_loss = 0.0
-
-        
-        train_checkpoint = dict()
-        train_checkpoint["state_dict"] = model.model.state_dict()
-        train_checkpoint["fc_checkpoint"] = model.linear.state_dict()
-        train_checkpoint["optimizer"] = model.optimizer.state_dict()
-        if (not os.path.exists(f"./checkpoint/{setting}/{args['nbest']}")):
-            os.makedirs(f"./checkpoint/{setting}/{args['nbest']}")
-        
+    logging.warning(f'epoch:{e + 1} validation loss:{valid_loss}')
+    
+    if (valid_loss < min_loss):
         torch.save(
             train_checkpoint,
-            f"./checkpoint/{setting}/{args['nbest']}/checkpoint_train_{e + 1}.pt",
+            f"./checkpoint/{args['dataset']}/{setting}/{args['nbest']}/checkpoint_train_best.pt",
         )
 
-        # eval
-        model.eval()
-        valid_loss = 0.0   
-        with torch.no_grad():
-            for n, data in enumerate(tqdm(valid_loader)):
-                data = {k: v.to(device) for k,v in data.items()}
-                loss = model(**data).loss
+        min_loss = valid_loss
 
-                valid_loss += loss.item()
-        logging.warning(f'epoch:{e + 1} validation loss:{valid_loss}')
-        
-        if (valid_loss < min_loss):
-            torch.save(
-                train_checkpoint,
-                f"./checkpoint/{setting}/{args['nbest']}/checkpoint_train_best.pt",
-            )
-
-            min_loss = valid_loss
+    # logging.warning(f'lrs:')
+    # for i, lr in enumerate(lrs):
+    #     logging.warning(f'step:{i + 1}:{lr}')
 
 # recog_set = ['dev', 'test']  
 
@@ -178,7 +230,7 @@ if (args['stage'] <= 0) and (args['stop_stage']>= 0):
 #         f'./checkpoint/{setting}/checkpoint_train_best.pt'
 #     )
 
-#     model = BertForComparison(
+#     model = Bert_Sem(
 #         dataset = args['dataset'], device = device, lr = 1e-5
 #     ).to(device)
 #     model.model.load_state_dict(checkpoint['state_dict'])

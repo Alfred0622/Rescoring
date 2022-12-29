@@ -27,13 +27,12 @@ def bertCompareBatch(batch):
 
 def recogBatch(batch):
 
-    # for this function, recogBatch will be batch size = 1
+    # for this function, recogBatch will be always 1
     name = []
     input_ids = []
     token_type_ids = []
     attention_mask = []
     pairs = []
-
 
     for sample in batch:
         name.append(sample['name'])
@@ -41,6 +40,12 @@ def recogBatch(batch):
         token_type_ids.append(torch.tensor(sample['token_type_ids'], dtype = torch.int32))
         attention_mask.append(torch.tensor(sample['attention_mask'], dtype = torch.int32))
         pairs.append(sample['pair'])
+    
+    assert(len(name) == len(input_ids)), f"input_ids length {len(input_ids)} != name length {len(name)}"
+    assert(len(name) == len(attention_mask)), f"input_ids length {len(input_ids)} != name length {len(attention_mask)}"
+    assert(len(name) == len(token_type_ids)), f"input_ids length {len(input_ids)} != name length {len(token_type_ids)}"
+    assert(len(name) == len(pairs)), f"input_ids length {len(input_ids)} != name length {len(pairs)}"
+
 
     input_ids = pad_sequence(input_ids, batch_first = True)
     token_type_ids = pad_sequence(token_type_ids, batch_first = True, padding_value= 1)
@@ -53,85 +58,81 @@ def recogBatch(batch):
         "attention_mask": attention_mask,
         "pair": pairs,
     }
-        
-# def bertCompareBatch(sample):
-#     # For training set of Comparision
 
-#     tokens = []
-#     labels = []
-#     segs = []
-#     masks = []
+def bertAlsemBatch(batch):
+    input_ids = []
+    token_type_ids = []
+    attention_mask = []
+    labels = []
 
-#     for s in sample:
-#         tokens.append(torch.tensor(s[0]))
-#         labels.append(torch.tensor(s[1]))
+    am_scores = []
+    ctc_scores = []
+    lm_scores = []
 
-#         first_sep = s[0].index(102)
-#         seg = torch.zeros(len(s[0]))
-#         seg[first_sep + 1 :] = 1
-#         segs.append(seg)
-#         mask = torch.ones(len(s[0]))
-#         masks.append(mask)
+    for sample in batch:
+        input_ids.append(torch.tensor(sample["input_ids"], dtype = torch.long))
+        token_type_ids.append(torch.tensor(sample["token_type_ids"], dtype = torch.long))
+        attention_mask.append(torch.tensor(sample["attention_mask"], dtype = torch.long))
+        labels.append(sample['labels'])
 
-#     tokens = pad_sequence(tokens, batch_first = True)
-#     segs = pad_sequence(segs, batch_first = True, padding_value = 1)
-#     masks = pad_sequence(masks, batch_first = True)
-#     labels = torch.tensor(labels, dtype = torch.float32)
+        am_scores.append(sample['am_score'])
+        ctc_scores.append(sample['ctc_score'])
+        lm_scores.append(sample['lm_score'])
+    
+    input_ids = pad_sequence(input_ids, batch_first = True)
+    token_type_ids = pad_sequence(token_type_ids, batch_first = True, padding_value=1)
+    attention_mask = pad_sequence(attention_mask, batch_first = True)
+    labels = torch.tensor(labels, dtype = torch.float32)
 
-#     return tokens, segs, masks, labels
+    am_scores = torch.stack(am_scores)
+    ctc_scores = torch.stack(ctc_scores)
+    lm_scores = torch.stack(lm_scores)
+    return {
+        "input_ids": input_ids,
+        "token_type_ids": token_type_ids,
+        "attention_mask": attention_mask,
+        "labels": labels,
+        "am_score": am_scores,
+        "ctc_score": ctc_scores,
+        "lm_score": lm_scores,
+    }
 
-# def bertCompareRecogBatch(sample):
-#     # For valid, test set of Comparson
-#     # sample of dataset include:
-#     # [name, token, pair, text, score, err, ref]
+def recogAlsemBatch(batch):
+    
+    # for this function, recogBatch will be always 1
+    name = []
+    input_ids = []
+    token_type_ids = []
+    attention_mask = []
+    am_scores = []
+    ctc_scores = []
+    lm_scores = []
+    pairs = []
 
-#     tokens = []
-#     pairs = []
-#     segs = []
-#     masks = []
+    for sample in batch:
+        name.append(sample['name'])
+        input_ids.append(torch.tensor(sample['input_ids'], dtype=torch.int32))
+        token_type_ids.append(torch.tensor(sample['token_type_ids'], dtype = torch.int32))
+        attention_mask.append(torch.tensor(sample['attention_mask'], dtype = torch.int32))
+        pairs.append(sample['pair'])
+        am_scores.append(torch.tensor(sample['am_score']))
+        ctc_scores.append(torch.tensor(sample['ctc_score']))
+        lm_scores.append(torch.tensor(sample['lm_score']))
 
-#     texts = []
-#     first_score = []
-#     err = []
-#     ref = []
+    input_ids = pad_sequence(input_ids, batch_first = True)
+    token_type_ids = pad_sequence(token_type_ids, batch_first = True, padding_value= 1)
+    attention_mask = pad_sequence(attention_mask, batch_first = True)
+    am_scores = torch.stack(am_scores)
+    ctc_scores = torch.stack(ctc_scores)
+    lm_scores = torch.stack(lm_scores)
 
-#     for s in sample:
-#         name = s[0]
-
-#         for token in s[1]:
-#             tokens.append(torch.tensor(token))
-#             first_sep = token.index(102)
-#             seg = torch.zeros(len(token))
-#             seg[first_sep + 1 :] = 1
-#             segs.append(seg)
-#             mask = torch.ones(len(token))
-#             masks.append(mask)
-
-#         pairs += s[2]
-
-#         texts += s[3]
-#         first_score += s[4]
-
-#         err += s[5]
-#         ref += s[6]
-
-#     tokens = pad_sequence(tokens, batch_first = True)
-#     segs = pad_sequence(segs, batch_first = True, padding_value = 1)
-#     masks = pad_sequence(masks, batch_first = True)
-#     score = torch.zeros(20)
-
-#     return (
-#         name,
-#         tokens,
-#         segs,
-#         masks,
-#         pairs,
-#         texts,
-#         first_score,
-#         err,
-#         ref,
-#         score
-#     )
-
-
-  
+    return {
+        "name": name,
+        "input_ids": input_ids,
+        "token_type_ids": token_type_ids,
+        "attention_mask": attention_mask,
+        "pair": pairs,
+        "am_score": am_scores,
+        "ctc_score": ctc_scores,
+        "lm_score": lm_scores
+    }

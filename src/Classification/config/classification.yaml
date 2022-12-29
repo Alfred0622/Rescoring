@@ -1,0 +1,17 @@
+args:
+  stage: 0
+  stop_stage: 1
+  nbest: 4 # max: 50
+  withLM: False
+  dataset: aishell
+
+train:
+  epoch: 50
+  train_batch: 32
+  valid_batch: 16
+  accum_grad: 1
+  logging_step: 200
+  lr: 1e-4
+
+recog:
+  batch: 16

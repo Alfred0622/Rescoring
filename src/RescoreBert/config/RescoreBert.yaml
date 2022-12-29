@@ -3,7 +3,7 @@ args:
   stop_stage: 100
   nbest: 50 # max: 50
   withLM: True
-  dataset: tedlium2
+  dataset: aishell2
   free_memory: True
   sentence_per_process: 40 # Activated when free_memory = true
 

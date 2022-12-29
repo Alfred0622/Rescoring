@@ -10,6 +10,7 @@ config = "./config/comparison.yaml"
 args, train_args, recog_args = load_config(config)
 
 setting = 'withLM' if args['withLM'] else "noLM"
+print(setting)
 
 if (args['dataset'] in ['csj']):
     recog_set = ['dev', 'eval1', 'eval2', 'eval3']

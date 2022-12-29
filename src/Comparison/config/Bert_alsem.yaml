@@ -1,0 +1,18 @@
+args:
+  nBest: 20
+  withLM: True
+  model_name: alsem
+  dataset: tedlium2
+
+train: 
+  epoch: 4
+  train_batch: 4
+  valid_batch: 1
+  accum_grads: 1
+  print_loss: 200
+  lr: 1e-5
+  ctc_weight: 0.3
+
+recog:
+  batch: 32
+  find_weight: True

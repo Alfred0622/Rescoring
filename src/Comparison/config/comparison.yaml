@@ -12,8 +12,8 @@ train:
   valid_batch: 32
   accumgrad: 1
   print_loss: 200
-  lr: 1e-5
+  lr: 1e-6
 
 recog:
-  batch: 32
+  batch: 4
   find_weight: True

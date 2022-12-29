@@ -11,40 +11,76 @@ class LM_Dataset(Dataset):
     
     def __len__(self):
         return len(self.data)
-
-def get_Dataset(data_json, tokenizer, dataset,for_train = True, topk = 20):
+        
+def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk = 20):
     data_list = list()
 
     if (for_train):
-        for data in data_json:
-            if (dataset in ['aishell', 'aishell2', 'old_aishell']):
-                input_ids, _, attention_mask = tokenizer(data['ref']).values()
-            elif (dataset in ['tedlium2', 'librispeech']):
-                input_ids, attention_mask = tokenizer(data['ref']).values()
+        if (lm == "MLM"):
+            for data in data_json:
+                if (dataset in ['aishell', 'aishell2', 'old_aishell']):
+                    input_ids, _, attention_mask = tokenizer(data['ref']).values()
+                elif (dataset in ['tedlium2', 'librispeech']):
+                    output = tokenizer(data['ref'])
+                    if ('token_type_ids' in output.keys()):
+                        input_ids, _, attention_mask = output.values()
+                    else:
+                        input_ids, attention_mask = tokenizer(data['ref']).values()
+                elif (dataset in ['csj']):
+                    ref = "".join(data['ref'].split())
+                    input_ids, _ = tokenizer(ref).values()
 
-            input_ids = torch.tensor(input_ids, dtype = torch.int32)
-            attention_mask = torch.tensor(attention_mask, dtype = torch.int32)
-            data_list.append(
-                {
-                    "input_ids": input_ids,
-                    # "attention_mask": attention_mask,
-                    # "labels": input_ids.clone()
-                }
-            )
+                input_ids = torch.tensor(input_ids, dtype = torch.int32)
+                attention_mask = torch.tensor(attention_mask, dtype = torch.int32)
+                data_list.append(
+                    {
+                        "input_ids": input_ids,
+                        # "attention_mask": attention_mask,
+                        # "labels": input_ids.clone()
+                    }
+                )
+        elif (lm == "CLM"):
+            for data in tqdm(data_json):
+                if (len(data['ref'].split()) <= 1):
+                    continue
+                if (dataset in ['aishell', 'aishell2', 'old_aishell']):
+                    input_ids, _, attention_mask = tokenizer(data['ref']).values()
+                elif (dataset in ['tedlium2', 'librispeech']):
+                    output = tokenizer(data['ref'] + ".")
+                    if ('token_type_ids' in output.keys()):
+                        input_ids, _, attention_mask = output.values()
+                    else:
+                        input_ids, attention_mask = output.values()
+                elif (dataset in ['csj']):
+                    ref = "".join(data['ref'].split())
+                    input_ids, _= tokenizer(ref).values()
+                    if (len(input_ids) <= 1) : continue
+
+                input_ids = torch.tensor(input_ids, dtype = torch.int32)
+                # attention_mask = torch.tensor(attention_mask, dtype = torch.int32)
+                data_list.append(
+                    {
+                        "input_ids": input_ids,
+                        # "attention_mask": attention_mask,
+                        # "labels": input_ids.clone()
+                    }
+                )
+            print(f'# num of Dataset:{len(data_list)}')
 
         return LM_Dataset(data_list)
 
     else:
         for data in data_json:
-            if (topk > len(data["hyp"])):
-                nbest = len(data["hyp"])
+            if (topk > len(data["hyps"])):
+                nbest = len(data["hyps"])
             else: nbest = topk
             name = data['name']
-            for i, hyp in enumerate(data['hyp'][:nbest]):
-                if (dataset in ['aishell', 'aishell2']):
-                    input_ids, _, attention_mask = tokenizer(hyp).values()
-                elif (dataset in ['tedlium2', 'librispeech']):
-                    input_ids, attention_mask = tokenizer(hyp).values()
+            for i, hyp in enumerate(data['hyps'][:nbest]):
+                output = tokenizer(hyp)
+                if ('token_type_ids' in output.keys()):
+                    input_ids, _, attention_mask = output.values()
+                else:
+                    input_ids, attention_mask = output.values()
             
                 data_list.append(
                     {
@@ -57,34 +93,93 @@ def get_Dataset(data_json, tokenizer, dataset,for_train = True, topk = 20):
 
         return LM_Dataset(data_list)
 
-def get_mlm_dataset(data_json, tokenizer, topk = 50):
-    bos_id = tokenizer.bos_token_id
-    eos_id = tokenizer.eos_token_id
-    mask_id = tokenizer.mask_token_id
+def get_mlm_dataset(data_json, tokenizer,  dataset, topk = 50):
+    if (dataset in ['aishell', 'aishell2']):
+        bos_id = tokenizer.cls_token_id
+        eos_id = tokenizer.sep_token_id
+        mask_id = tokenizer.mask_token_id
+    else:
+        bos_id = tokenizer.bos_token_id
+        eos_id = tokenizer.eos_token_id
+        mask_id = tokenizer.mask_token_id
 
     data_list = list()
 
+    assert (bos_id is not None and eos_id is not None and mask_id is not None), f"{bos_id}, {eos_id}, {mask_id}"
+
     for data in tqdm(data_json):
         name = data['name']
-        for i, hyp in enumerate(data['hyp'][:topk]):
+        for i, hyp in enumerate(data['hyps'][:topk]):
             input_ids, token_type_ids, attention_mask = tokenizer(hyp).values()
-            for j, ids in enumerate(input_ids):
-                temp_input = input_ids.copy()
-                if (ids in [bos_id, eos_id]):
-                    continue
-                temp_input[j] = mask_id
+            data_list.append(
+                {
+                    "name": name,
+                    "input_ids": torch.tensor(input_ids, dtype = torch.long),
+                    "attention_mask": torch.tensor(attention_mask,dtype = torch.long),
+                    "bos_id": bos_id,
+                    "eos_id": eos_id,
+                    "mask_id": mask_id, # mask token id = 103
+                    "nbest": i,   # Nbest index
+                }
+            )
+    return LM_Dataset(data_list)
+    
+def getRescoreDataset(data_json, dataset, tokenizer, topk = 50):
+    data_list = list()
 
-                data_list.append(
-                    {
-                        "name": name,
-                        "input_ids": torch.tensor(temp_input, dtype = torch.long),
-                        "attention_mask": torch.tensor(attention_mask,dtype = torch.long),
-                        "mask_token": ids, # the token that is masked
-                        "nbest": i,   # Nbest index
-                        "index": j    # In which position
-                    }
-                )
-        
+    for i, key in enumerate(tqdm(data_json.keys())):
+        # if (dataset in ['aishell', 'aishell2', 'old_aishell']):
+        #     input_ids, _, attention_mask = tokenizer(data['ref']).values()
+        # elif (dataset in ['tedlium2', 'librispeech']):
+        #     input_ids, attention_mask = tokenizer(data['ref']).values()
+        # print(data_json[key].keys())
+        for hyp, score, rescore, err in zip(data_json[key]['hyps'], data_json[key]['score'], data_json[key]['Rescore'], data_json[key]['err']):
+            if (dataset in ['aishell', 'aishell2', 'old_aishell']):
+                input_ids, _, attention_mask = tokenizer(hyp).values()
+            elif (dataset in ['tedlium2', 'librispeech']):
+                input_ids, attention_mask = tokenizer(hyp).values()
+            
+            data_list.append(
+                {
+                    'name': key,
+                    "input_ids":input_ids,
+                    "attention_mask": attention_mask,
+                    "score": score,
+                    "mlm_score": rescore,
+                    "err": err,
+                    "wer": err['err']
+                }
+            )
+    
+    return LM_Dataset(data_list)
+
+def getRecogDataset(data_json, dataset, tokenizer, topk = 50):
+    data_list = list()
+
+    for i, key in enumerate(tqdm(data_json.keys())):
+        # if (dataset in ['aishell', 'aishell2', 'old_aishell']):
+        #     input_ids, _, attention_mask = tokenizer(data['ref']).values()
+        # elif (dataset in ['tedlium2', 'librispeech']):
+        #     input_ids, attention_mask = tokenizer(data['ref']).values()
+        # print(data_json[key].keys())
+        for i, (hyp, score, rescore, err) in enumerate(zip(data_json[key]['hyps'], data_json[key]['score'],data_json[key]['Rescore'], data_json[key]['err'])):
+            if (dataset in ['aishell', 'aishell2', 'old_aishell']):
+                input_ids, _, attention_mask = tokenizer(hyp).values()
+            elif (dataset in ['tedlium2', 'librispeech']):
+                input_ids, attention_mask = tokenizer(hyp).values()
+            
+            data_list.append(
+                {
+                    "name": key,
+                    "input_ids":input_ids,
+                    "attention_mask": attention_mask,
+                    "score": score,
+                    "mlm_score": rescore,
+                    "wer": err['err'],
+                    'index': i
+                }
+            )
+    
     return LM_Dataset(data_list)
 
 class adaptionDataset(Dataset):

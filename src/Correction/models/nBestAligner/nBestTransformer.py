@@ -14,10 +14,44 @@ from transformers import (
     EncoderDecoderConfig,
     BartTokenizer,
     BartForConditionalGeneration,
+    BartModel
 )
 from torch.nn.utils.rnn import pad_sequence
 from models.nBestAligner.nBestAlign import align, alignNbest
 
+class nBestAlignBart(nn.Module):
+    def __init__(
+        self,
+        device,
+        nBest,
+        pretrain_name
+    ):
+        nn.Module.__init__(self)
+        self.device = device
+        self.nBest = nBest
+        self.model = BartForConditionalGeneration.from_pretrained(
+            pretrain_name
+        ).to(self.device)
+
+        self.linear = nn.Linear(768 * self.nBest, 768).to(self.device)
+    
+    def forward(self, input_ids, attention_mask):
+        """
+        input_ids: [B, L ,nBest]
+        attention_mask: [B, L]
+        """
+        aligned_embedding = self.model.share(input_ids) # [B,L ,nBest, 768]
+        align_embedding = aligned_embedding.view(input_ids.shape[0], 768 * self.nBest, -1)
+        
+        aligned_embedding = self.linear(aligned_embedding) # [B, nBest * 768, L] -> [B, 768, L]
+
+        output = self.model(
+            inputs_embeds = align_embedding,
+            attention_mask = attention_mask,
+            return_dict = True
+        )
+
+        return output
 
 class nBestTransformer(nn.Module):
     def __init__(

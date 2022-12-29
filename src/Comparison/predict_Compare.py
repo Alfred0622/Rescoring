@@ -22,42 +22,52 @@ else:
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+checkpoint_path = sys.argv[1]
+
 model, tokenizer = prepare_model(args, train_args, device)
-checkpoint = torch.load(f'./checkpoint/withLM/20/checkpoint_train_4.pt')
-model.model.load_state_dict(checkpoint['state_dict'])
+checkpoint = torch.load(checkpoint_path)
+model.bert.load_state_dict(checkpoint['state_dict'])
 model.linear.load_state_dict(checkpoint['fc_checkpoint'])
 
 
 am_weight = 1.0
 lm_weight = 0.0
 rescore_weight = 0.0
+
+print(f'setting:{setting}')
+print(f"nBest:{args['nbest']}")
 for task in recog_set:
+    print(f'setting:{setting}')
     print(f'task:{task}')
     file_name = f"./data/{args['dataset']}/{task}/{setting}/{args['nbest']}best/data.json"
     with open(file_name ,'r') as f:
         data_json = json.load(f)
         
         score_dict = dict()
+        short_data = 0
         for data in data_json:
             if (data['name'] not in score_dict.keys()):
+                if (len(data['am_score']) < args['nbest']):
+                    print(f"short data:{data['name']} -- {len(data['am_score'])}")
+                    short_data += 1
+
                 score_dict[data['name']] = dict()
                 score_dict[data['name']]['am_score'] = torch.tensor(data['am_score'][:args["nbest"]], dtype = torch.float32)
                 score_dict[data['name']]['ctc_score'] = torch.tensor(data['ctc_score'][:args["nbest"]], dtype = torch.float32)
                 score_dict[data['name']]['lm_score'] = torch.tensor(
                     data['lm_score'][:args["nbest"]], dtype = torch.float32
-                ) if ("lm_score" in data.keys()) else torch.zeros(args["nbest"])
+                ) if (len(data['lm_score']) > 0) else torch.zeros(score_dict[data['name']]['am_score'].shape[0])
                 
-                score_dict[data['name']]['Rescore'] = torch.zeros(args['nbest'])
+                score_dict[data['name']]['Rescore'] = torch.zeros(score_dict[data['name']]['am_score'].shape[0])
                 score_dict[data['name']]['hyp'] = data['texts']
                 score_dict[data['name']]['ref'] = data['ref']
-                score_dict[data['name']]['err'] = torch.tensor(data['err'])
-
+                score_dict[data['name']]['err'] = data['err']
 
         dataset = get_recogDataset(data_json, tokenizer)
 
         dataloader = DataLoader(
             dataset = dataset,
-            batch_size = 4,
+            batch_size = recog_args['batch'],
             collate_fn = recogBatch,
             num_workers = 1
         )
@@ -77,13 +87,11 @@ for task in recog_set:
             # print(data['pair'])
             # print(output.shape)         
             # print(len(data['name']))
-            for n, name in enumerate(data['name']):
-                for i, pair in enumerate(data['pair']):
-                    first, second = pair
+            for i, (name, pair) in enumerate(zip(data['name'], data['pair'])):
+                first, second = pair
                     # print(f'{first}:{output[i].item()}, {second}:{1 - output[i].item()}')
-                    
-                    score_dict[name]['Rescore'][first] += output[i].item()
-                    score_dict[name]['Rescore'][second] += (1 - output[i].item())
+                score_dict[name]['Rescore'][first] += output[i].item()
+                score_dict[name]['Rescore'][second] += (1 - output[i].item())
 
                 # print(score_dict[name]['am_score'])
                 # print(score_dict[name]['Rescore'])
@@ -92,8 +100,8 @@ for task in recog_set:
             print(f'find_best_weight')
             min_cer = 1e8
             for a in range(0, 11): # alpha *  am + (1 - alpha) * ctc_score:
-                for b in range(0, 100): # lm_score
-                    for g in range(0, 100):
+                for b in range(0, 101): # lm_score
+                    for g in range(0, 200): # Rescore
                         print(f"\ralpha = {a}, beta = {b}, gamma = {g}", end="")
                         alpha = a * 0.1
                         beta = b * 0.1
@@ -115,11 +123,13 @@ for task in recog_set:
 
                             max_index = torch.argmax(score)
 
+                            assert(max_index < args['nbest']), f"best index {max_index} must < nbest {args['nbest']}"
+
                             best_err = score_dict[name]['err'][max_index]
-                            c += best_err[0]
-                            s += best_err[1]
-                            d += best_err[2]
-                            i += best_err[3]
+                            c += best_err['hit']
+                            s += best_err['sub']
+                            d += best_err['del']
+                            i += best_err['ins']
 
                         cer = (s + d + i) / (c + s + d)
                         if (cer < min_cer):
@@ -128,33 +138,33 @@ for task in recog_set:
                             rescore_weight = gamma
                             min_cer = cer
         
-                    for name in score_dict.keys():
-                        am_score = score_dict[name]['am_score']
-                        ctc_score = score_dict[name]['ctc_score']
-                        lm_score = score_dict[name]['lm_score']
-                        rescore = score_dict[name]['Rescore']
-                        score = (
-                                    alpha * am_score + (1 - alpha) * ctc_score + \
-                                    beta * lm_score + \
-                                    gamma * rescore
-                                )
+                    # for name in score_dict.keys():
+                    #     am_score = score_dict[name]['am_score']
+                    #     ctc_score = score_dict[name]['ctc_score']
+                    #     lm_score = score_dict[name]['lm_score']
+                    #     rescore = score_dict[name]['Rescore']
+                    #     score = (
+                    #                 alpha * am_score + (1 - alpha) * ctc_score + \
+                    #                 beta * lm_score + \
+                    #                 gamma * rescore
+                    #             )
 
-                        max_index = torch.argmax(score)
+                    #     max_index = torch.argmax(score)
 
-                        best_err = score_dict[name]['err'][max_index]
-                        c += best_err[0]
-                        s += best_err[1]
-                        d += best_err[2]
-                        i += best_err[3]
+                    #     best_err = score_dict[name]['err'][max_index]
+                    #     c += best_err[0]
+                    #     s += best_err[1]
+                    #     d += best_err[2]
+                    #     i += best_err[3]
 
-                        cer = (s + d + i) / (c + s + d)
-                        if (cer < min_cer):
-                            am_weight = alpha
-                            lm_weight = beta
-                            rescore_weight = gamma
-                            min_cer = cer
+                    # cer = (s + d + i) / (c + s + d)
+                    # if (cer < min_cer):
+                    #     am_weight = alpha
+                    #     lm_weight = beta
+                    #     rescore_weight = gamma
+                    #     min_cer = cer
 
-        print(f'{am_weight}, {lm_weight}, {rescore_weight}')
+        print(f'\nbest weight: {am_weight}, {lm_weight}, {rescore_weight}')
         result_dict = dict()
         for name in score_dict.keys():
             if (name not in result_dict.keys()):
@@ -174,6 +184,8 @@ for task in recog_set:
                     )
             
             best_idx = torch.argmax(score)
+
+            assert(best_idx < args['nbest'])
 
             result_dict[name]['hyp'] = score_dict[name]['hyp'][best_idx]
             result_dict[name]['ref'] = score_dict[name]['ref']

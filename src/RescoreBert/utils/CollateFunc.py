@@ -29,6 +29,73 @@ def recogBatch(batch):
         }
     )
 
+def RescoreBertBatch(batch):
+    input_ids = []
+    attention_masks = []
+    scores = []
+    labels = []
+    errs = []
+    wers = []
+    for sample in batch:
+        input_ids.append(torch.tensor(sample['input_ids'], dtype = torch.int64))
+        attention_masks.append(torch.tensor(sample['attention_mask'], dtype = torch.int64))
+        scores.append(sample['score'])
+        labels.append(sample['mlm_score'])
+        errs.append(sample['err'])
+        wers.append(sample['wer'])
+    
+    input_ids = pad_sequence(input_ids, batch_first=True)
+    attention_masks = pad_sequence(attention_masks, batch_first=True)
+    scores = torch.tensor(scores, dtype = torch.float64)
+    labels = torch.tensor(labels, dtype = torch.float64)
+    wers = torch.tensor(wers, dtype = torch.float64)
+
+    return {
+        "input_ids": input_ids,
+        "attention_mask": attention_masks,
+        "score": scores,
+        "labels": labels,
+        "err": errs,
+        "wer": wers
+    }
+
+def RescoreBertRecogBatch(batch):
+    names = []
+    input_ids = []
+    attention_masks = []
+    labels = []
+    wers = []
+    indexes = []
+    for sample in batch:
+        names.append(sample['name'])
+        input_ids.append(torch.tensor(sample['input_ids'], dtype = torch.int64))
+        attention_masks.append(torch.tensor(sample['attention_mask'], dtype = torch.int64))
+        labels.append(sample['score'])
+        wers.append(sample['wer'])
+        indexes.append(sample['index'])
+    
+    assert(len(names) == len(input_ids)), f"input_ids length {len(input_ids)} != name length {len(names)}"
+    assert(len(names) == len(attention_masks)), f"input_ids length {len(names)} != name length {len(attention_masks)}"
+    assert(len(names) == len(labels)), f"input_ids length {len(names)} != name length {len(labels)}"
+    assert(len(names) == len(wers)), f"input_ids length {len(names)} != name length {len(wers)}"
+    assert(len(names) == len(labels)), f"input_ids length {len(names)} != name length {len(labels)}"
+
+    
+    input_ids = pad_sequence(input_ids, batch_first=True)
+    attention_masks = pad_sequence(attention_masks, batch_first=True)
+    labels = torch.tensor(labels, dtype = torch.float64)
+    wers = torch.tensor(wers, dtype = torch.float64)
+
+    return {
+        "name": names,
+        "input_ids": input_ids,
+        "attention_mask": attention_masks,
+        "labels": labels,
+        "wer": wers,
+        "index": indexes
+    }
+
+
 def recogMLMBatch(batch):
     names = []
     input_ids = []
@@ -38,12 +105,31 @@ def recogMLMBatch(batch):
     seq_index = []
 
     for sample in batch:
-        names.append(sample['name'])
-        input_ids.append(sample['input_ids'])
-        attention_mask.append(sample['attention_mask'])
-        masked_tokens.append(sample["mask_token"])
-        nBest_index.append(sample['nbest'])
-        seq_index.append(sample['index'])
+
+        bos_id = sample['bos_id']
+        eos_id = sample['eos_id']
+        mask_id = sample['mask_id']
+
+        for i, token in enumerate(sample['input_ids']):
+            temp_ids = sample['input_ids'].clone()
+            if (token in [bos_id, eos_id]):
+                continue
+            names.append(sample['name'])
+            temp_ids[i] = mask_id
+
+            input_ids.append(temp_ids)
+            attention_mask.append(sample['attention_mask'])
+            seq_index.append(i) # append index of token
+            masked_tokens.append(token.item()) # append masked token
+            nBest_index.append(sample['nbest']) # append which nbest is
+    
+    data_num = len(names)
+
+    assert(len(input_ids) == data_num), f'data_num: {data_num} != len(input_ids): {len(input_ids)}'
+    assert(len(attention_mask) == data_num), f'data_num: {data_num} != len(input_ids): {len(attention_mask)}'
+    assert(len(seq_index) == data_num), f'data_num: {data_num} != len(input_ids): {len(seq_index)}'
+    assert(len(masked_tokens) == data_num), f'data_num: {data_num} != len(input_ids): {len(masked_tokens)}'
+    assert(len(nBest_index) == data_num), f'data_num: {data_num} != len(input_ids): {len(nBest_index)}'
     
     input_ids = pad_sequence(input_ids, batch_first = True)
     attention_mask = pad_sequence(attention_mask, batch_first = True)
@@ -58,8 +144,6 @@ def recogMLMBatch(batch):
             "nBest_index": nBest_index
         }
     )
-
-
 
 def adaptionBatch(sample):
     tokens = [torch.tensor(s) for s in sample]

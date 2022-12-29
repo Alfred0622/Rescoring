@@ -68,10 +68,11 @@ logging.basicConfig(
     format=FORMAT,
 )
 
+
 print(f"Prepare data")
-train_json_name = f"./data/{args['dataset']}/{setting}/train/token/token.json"
-dev_json_name = f"./data/{args['dataset']}/{setting}/dev/token/token.json"
-test_json_name = f"./data/{args['dataset']}/{setting}/test/token/token.json"
+train_json_name = f"./data/{args['dataset']}best/{setting}/50best/MLM/train/rescore_data.json"
+dev_json_name = f"./data/{args['dataset']}best/{setting}/50best/MLM/dev/rescore_data.json"
+test_json_name = f"./data/{args['dataset']}best/{setting}/50best/MLM/test/rescore_data.json"
 
 
 

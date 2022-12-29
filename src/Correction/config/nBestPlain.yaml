@@ -1,8 +1,8 @@
 args:
   stage: 2
   stop_stage: 2
-  withLM: False
-  dataset: aishell
+  withLM: True
+  dataset: aishell2
 
 train: 
   start_epoch: 0
@@ -11,8 +11,8 @@ train:
   valid_batch: 1
   accumgrad: 1
   print_loss: 200
-  nbest: 3
-  mode: align_concat
+  nbest: 2
+  mode: concat
   lr: 1e-5
   model_name: bart
   checkpoint: # /work/jason90255/rescoring/checkpoint/nBestTransformer/align/bart/checkpoint_train_10.pt
