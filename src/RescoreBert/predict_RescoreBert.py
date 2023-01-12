@@ -23,60 +23,6 @@ print(f"{args['dataset']} : {setting}")
 
 dev = "dev"
 
-@jit()
-def get_result_simp(scores, rescores, wers, alpha, beta):
-    c = np.int64(0.0)
-    s = np.int64(0.0)
-    d = np.int64(0.0)
-    i = np.int64(0.0)
-    for score, rescore, wer in zip(scores, rescores, wers):
-        total_score = (
-            alpha * score + beta * rescore
-        )
-
-        max_index = np.argmax(total_score)
-
-        c += wer[max_index][1]
-        s += wer[max_index][2]
-        d += wer[max_index][3]
-        i += wer[max_index][4]
-
-    cer = (s + d + i) / (c + s + d)
-
-    return cer
-
-@jit()
-def calculate_cer_simp(scores, rescores, wers):
-    min_cer = np.float64(100.0)
-
-    for alpha in np.arange(0, 1 , 0.01):
-        for beta in np.arange(0, 10, 0.01):
-            c = np.int64(0.0)
-            s = np.int64(0.0)
-            d = np.int64(0.0)
-            i = np.int64(0.0)
-            for score, rescore, wer in zip(scores, rescores, wers):
-                total_score = (
-                    alpha * score + beta * rescore
-                )
-
-                max_index = np.argmax(total_score)
-
-                c += wer[max_index][1]
-                s += wer[max_index][2]
-                d += wer[max_index][3]
-                i += wer[max_index][4]
-            cer = (s + d + i) / (c + s + d)
-
-            if (min_cer > cer):
-                best_alpha = alpha
-                best_beta = beta
-
-                min_cer = cer
-    
-    return best_alpha, best_beta, min_cer
-
-
 # @njit()
 # def calculate_cer(am_scores, ctc_scores, lm_scores, rescores):
 #     c = 0
@@ -101,7 +47,6 @@ def calculate_cer_simp(scores, rescores, wers):
 #     cer = (s + d + i) / (c + s + d)
 
 #     return cer
-
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model, tokenizer = prepare_RescoreBert(args['dataset'], device)
@@ -211,15 +156,10 @@ for task in recog_set:
             input_ids = input_ids,
             attention_mask = attention_mask
             )['score']
-        
-        print(output)
-        
 
         for n, (name, index, score) in enumerate(zip(data['name'], data['index'], output)):
                 rescores[score_dict[name]][index] += score.item()
     
-
-
     if task in ['dev', 'dev_ios', 'dev_clean']:
         print(f'find weight')
 

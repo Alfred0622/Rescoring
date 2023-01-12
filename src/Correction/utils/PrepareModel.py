@@ -23,7 +23,9 @@ class nBestAlignTrainer(Trainer):
         return loss
 
 def prepare_model(dataset):
+    print(f'dataset:{dataset}')
     if (dataset in ['aishell', 'aishell2', 'old_aishell']):
+        print(f'bart-base-chinese')
         model = AutoModelForSeq2SeqLM.from_pretrained(f'fnlp/bart-base-chinese')
         tokenizer = BertTokenizer.from_pretrained(f'fnlp/bart-base-chinese')
     elif (dataset in ['tedlium2', 'librispeech']): # english

@@ -25,7 +25,7 @@ if (task_name == 'align_concat'):
     topk = 1
 elif (task_name == 'plain'):
     config_name = './config/nBestPlain.yaml'
-    topk = 1
+    topk = -1
 else:
     config_name = './config/Bart.yaml'
     topk = -1

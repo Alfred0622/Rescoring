@@ -14,6 +14,14 @@ from utils.PrepareModel import prepare_GPT2, prepare_MLM
 from utils.LoadConfig import load_config
 from utils.FindWeight import find_weight, find_weight_simp
 from utils.Datasets import get_mlm_dataset
+from utils.PrepareScoring import (
+    prepare_score_dict_simp,
+    prepare_score_dict,
+    calculate_cer_simp,
+    calculate_cer,
+    get_result_simp,
+    get_result
+)
 
 from jiwer import wer
 
@@ -51,11 +59,11 @@ model.eval()
 
 batch_size = recog_args['batch_size']
 
-for_train = True
+for_train = False
 
 if (for_train):
     recog_set = ['train']
-elif (args['dataset'] in ['aishell']):
+elif (args['dataset'] in ['aishell', 'tedlium2_conformer']):
     recog_set = ['dev', 'test']
 elif (args['dataset'] in ['tedlium2']):
     recog_set = ['dev', 'test', 'dev_trim']
@@ -65,6 +73,15 @@ elif (args['dataset'] in ['aishell2']):
     recog_set = ['dev_ios', 'test_ios','test_mic', 'test_android']
 elif (args['dataset'] in ['librispeech']):
     recog_set = ['dev_clean', 'dev_other','test_clean', 'test_other']
+
+best_alpha = 0.0
+best_beta = 0.0
+
+best_am_weight = 0.0
+best_ctc_weight = 0.0
+best_lm_weight = 0.0
+best_rescore_weight = 0.0
+
 
 for task in recog_set:
     print(task)
@@ -81,6 +98,14 @@ for task in recog_set:
         batch_size=batch_size,
         collate_fn=recogMLMBatch,
     )
+
+    if (args['dataset'] in ['aishell']):
+        index_dict, scores, rescores, wers = prepare_score_dict_simp(data_json, nbest = args['nbest'])
+    else:
+        index_dict, am_scores, ctc_scores, lm_scores, rescores, wers = prepare_score_dict(
+            data_json, nbest = args['nbest']
+        )
+    
 
     # set score dictionary
     score_dict = dict()
@@ -107,7 +132,8 @@ for task in recog_set:
                 score_dict[data['name']]['score'] = data['score'][:topk]
 
     with torch.no_grad():
-        for data in tqdm(dataloader):
+        for data in tqdm(dataloader, ncols = 100):
+            # print(data['input_ids'].shape)
             input_ids = data['input_ids'].to(device)
             attention_mask = data['attention_mask'].to(device)
 
@@ -121,12 +147,17 @@ for task in recog_set:
 
             score = log_softmax(score, dim = -1)
 
-            for i, (name, seq_index, masked_token ,nbest_index) in enumerate(
+            for i, (name, seq_index, masked_token ,nbest_index, length) in enumerate(
                 zip(
-                    data['name'], data['seq_index'], data['masked_token'], data['nBest_index']
+                    data['name'], data['seq_index'], data['masked_token'], data['nBest_index'], data['length']
                 )
             ):
-                score_dict[name]["Rescore"][nbest_index] += score[i][seq_index][masked_token].item()
+                if (seq_index == -1):
+                    rescores[index_dict[name]][nbest_index] += -10000
+                    score_dict[name]["Rescore"][nbest_index] += -10000
+                else:
+                    rescores[index_dict[name]][nbest_index] += score[i][seq_index][masked_token].item() / (length if recog_args['length_norm'] else 1)
+                    score_dict[name]["Rescore"][nbest_index] += score[i][seq_index][masked_token].item() / (length if recog_args['length_norm'] else 1)
         
     save_path = Path(f"./data/{args['dataset']}/{setting}/{args['nbest']}best/MLM/{task}")
     save_path.mkdir(parents = True, exist_ok = True)
@@ -135,88 +166,60 @@ for task in recog_set:
         json.dump(score_dict, f, ensure_ascii = False, indent = 4)
 
     if (task != 'train'):
-        for key in score_dict.keys():
-            
-            score_dict[key]['Rescore'] = score_dict[key]['Rescore'][:topk]
-            if ('am_score' in score_dict[key].keys() and score_dict[key]['am_score'] is not None and len(score_dict[key]['am_score']) > 0):
-                score_dict[key]['am_score'] = score_dict[key]['am_score'][:topk]
-            if ('ctc_score' in score_dict[key].keys() and score_dict[key]['ctc_score'] is not None and len(score_dict[key]['ctc_score']) > 0):
-                score_dict[key]['ctc_score'] = score_dict[key]['ctc_score'][:topk]
-            if ('lm_score' in score_dict[key].keys() and score_dict[key]['lm_score'] and len(score_dict[key]['lm_score']) > 0):
-                score_dict[key]['lm_score'] = score_dict[key]['lm_score'][:topk]
-            if ('score' in score_dict[key].keys() and score_dict[key]['score'] and len(score_dict[key]['score']) > 0):
-                score_dict[key]['score'] = score_dict[key]['score'][:topk]
 
         if (task in ['dev', 'dev_trim', 'dev_ios', 'dev_clean', 'dev_other']):
             print(f'Find Weight')
-            if ('score' in score_dict[key].keys()):
-                print(f'simp')
-                best_weight = find_weight_simp(score_dict, bound = [0, 1])
+
+            if (args['dataset'] in ['aishell']):
+                print('simp')
+                best_alpha, best_beta, cer = calculate_cer_simp(
+                    scores,
+                    rescores, 
+                    wers, 
+                    alpha_range = [0, 10], 
+                    beta_range = [0, 10]
+                )
             else:
                 print(f'complex')
-                best_lm_weight, best_weight = find_weight(
-                    score_dict, 
-                    bound = [0, 1], 
-                    ctc_weight = ctc_weight
+                best_am_weight, best_ctc_weight, best_lm_weight, best_rescore_weight,cer = calculate_cer(
+                    am_scores,
+                    ctc_scores,
+                    lm_scores,
+                    rescores,
+                    wers,
+                    am_range = [0, 1],
+                    ctc_range = [0, 1],
+                    lm_range = [0, 1],
+                    rescore_range = [0, 1]
                 )
         
-        c = 0
-        s = 0
-        d = 0
-        i = 0
-        result_dict = dict()
-
-        hyps = list()
-        refs = list()
-
-        for key in score_dict.keys():
-            if ('score' in  score_dict[key].keys()):
-                if (not isinstance(score_dict[key]['score'], torch.Tensor)):
-                    score_dict[key]['score'] = torch.tensor(score_dict[key]['score'], dtype = torch.float64)
-                    score_dict[key]['Rescore'] = torch.tensor(score_dict[key]['Rescore'], dtype = torch.float64)
-                score = (1 - best_weight) * score_dict[key]['score'] + best_weight * score_dict[key]['Rescore']
-                # print(f'score:{score}')
-            else:
-                if (not isinstance(score_dict[key]['am_score'], torch.Tensor)):
-                    score_dict[key]['am_score'] = torch.tensor(score_dict[key]['am_score'], dtype = torch.float64)
-                if (not isinstance(score_dict[key]['ctc_score'], torch.Tensor)):
-                    score_dict[key]['ctc_score'] = torch.tensor(score_dict[key]['ctc_score'], dtype = torch.float64)
-                if (len(score_dict[key]['lm_score'] )> 0):
-                    if (not isinstance(score_dict[key]['lm_score'], torch.Tensor)):
-                        score_dict[key]['lm_score'] = torch.tensor(score_dict[key]['lm_score'], dtype = torch.float64)
-                
-                score_dict[key]['Rescore'] = torch.tensor(score_dict[key]['Rescore'], dtype = torch.float64)
-
-                if (len(score_dict[key]['lm_score']) > 0):
-                    score = ((1 - ctc_weight) * score_dict[key]['am_score'] + \
-                            ctc_weight * score_dict[key]['ctc_score'] ) + \
-                            best_lm_weight * score_dict[key]['lm_score'] + \
-                            best_weight * score_dict[key]['Rescore']
-                else:
-                    score = (1 - ctc_weight) * score_dict[key]['am_score'] + \
-                            ctc_weight * score_dict[key]['ctc_score']  + \
-                            best_weight * score_dict[key]['Rescore']
-
-            best_index = torch.argmax(score)
-
-            result_dict[key] = {
-                "hyp": score_dict[key]['hyps'][best_index],
-                "ref": score_dict[key]['ref']
-            }
-
-            hyps.append(score_dict[key]['hyps'][best_index])
-            refs.append(score_dict[key]['ref'])
-
-            c += score_dict[key]['err'][best_index]['hit']
-            s += score_dict[key]['err'][best_index]['sub']
-            d += score_dict[key]['err'][best_index]['del']
-            i += score_dict[key]['err'][best_index]['ins']
         
-        cer = (s + d + i) / (c + s + d)
+        if (args['dataset'] in ['aishell']):
+            cer = get_result_simp(
+                scores, 
+                rescores, 
+                wers, 
+                alpha = best_alpha, 
+                beta = best_beta
+            )
+        else:
+            cer = get_result(
+                am_scores,
+                ctc_scores,
+                lm_scores,
+                rescores,
+                wers,
+                am_weight = best_am_weight,
+                ctc_weight = best_ctc_weight,
+                lm_weight = best_lm_weight,
+                rescore_weight = best_rescore_weight
+            )
 
-
+        print(f"Dataset:{args['dataset']}")
+        print(f'setting:{setting}')
+        print(f"length_norm:{recog_args['length_norm']}")
         print(f'CER : {cer}')
-        print(f'JICER:{wer(refs, hyps)}')
+        # print(f'JICER:{wer(refs, hyps)}')
 
 
 

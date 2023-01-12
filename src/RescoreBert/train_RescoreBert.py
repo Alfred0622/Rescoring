@@ -86,6 +86,7 @@ valid_loader = DataLoader(
 )
 
 weight = 1e-4
+weight = torch.tensor(weight, dtype = torch.float32).to(device)
 
 optimizer.zero_grad()
 for e in range(train_args['epoch']):
@@ -113,11 +114,11 @@ for e in range(train_args['epoch']):
 
         # MWER
         if (mode == 'MWER'):
-            data['score'] = data['score'].to(device)
-            combined_score = data['score'] + weight * output['score']
-            combined_score = torch.softmax(combined_score)
+            first_score = data['score'].to(device)
+            combined_score = first_score + weight * output['score']
+            combined_score = torch.softmax(combined_score, dim = -1)
 
-            avg_error = torch.mean(data['wer'],dim = -1)
+            avg_error = torch.mean(data['wer'],dim = -1).to(device)
             avg_error = avg_error.repeat(combined_score.shape)
 
             loss_MWER = combined_score * (data['wer'] - avg_error)
@@ -126,9 +127,9 @@ for e in range(train_args['epoch']):
             loss = loss_MWER + 1e-4 * loss
         
         elif (mode == 'MWED'):
-            data['score'] = data['score'].to(device)
-            wer = data['wer']
-            combined_score = data['score'] + weight * output['score']
+            first_score = data['score'].to(device)
+            wer = data['wer'].to(device)
+            combined_score = first_score + weight * output['score']
 
             # wer = wer.reshape(batch_size, -1)
             # weight_sum = weight_sum.reshape(batch_size, -1)
@@ -179,7 +180,7 @@ for e in range(train_args['epoch']):
             data['labels'] = data['labels'].to(device)
             data['wer'] = data['wer'].to(device)
 
-            output = output = model(
+            output = model(
                     input_ids = data['input_ids'],
                     attention_mask = data['attention_mask'],
                     labels = data['labels']
@@ -188,19 +189,26 @@ for e in range(train_args['epoch']):
             
 
             if (mode == 'MWER'):
-                combined_score = data['score'] + weight * output['score']
-                combined_score = torch.softmax(combined_score)
-
-                avg_error = torch.mean(data['wer'],dim = -1)
+                first_score = data['score'].to(device)
+                combined_score = first_score + weight * output['score']
+                combined_score = torch.softmax(combined_score, dim = -1)
+                
+                print(f"wer:{data['wer']}")
+                avg_error = torch.mean(data['wer'],dim = -1).to(device)
+                
                 avg_error = avg_error.repeat(combined_score.shape)
+                print(f"avg_error:{avg_error}")
 
-                loss_MWER = combined_score * (data['err'] - avg_error)
+                wer = data['wer'].to(device)
+
+                loss_MWER = combined_score * (wer - avg_error)
                 loss_MWER = torch.sum(loss_MWER) / int(train_args['accumgrad'])
 
                 loss = loss_MWER + 1e-4 * loss
             
             elif (mode == 'MWED'):
-                wer = data['wer']
+                first_score = data['score'].to(device)
+                wer = data['wer'].to(device)
                 combined_score = data['score'] + weight * output['score']
 
                 # wer = wer.reshape(batch_size, -1)

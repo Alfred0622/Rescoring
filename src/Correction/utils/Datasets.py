@@ -29,7 +29,7 @@ def get_dataset(data_json, tokenizer, topk, sep_token = '[SEP]', data_type = 'si
 
     if (for_train):
         if (data_type == 'single'):
-            for data in tqdm(data_json):
+            for data in tqdm(data_json, ncols = 80):
                 label = tokenizer(data['ref'])["input_ids"]
 
                 for hyp in data['hyps'][:topk]:
@@ -49,21 +49,25 @@ def get_dataset(data_json, tokenizer, topk, sep_token = '[SEP]', data_type = 'si
         elif (data_type == 'concat'):
             if (sep_token == '[SEP]'):
                 sep_token = tokenizer.sep_token
-            for data in tqdm(data_json):
+            for data in tqdm(data_json,ncols = 80):
                 label = tokenizer(data['ref'])["input_ids"]
                 concat_str = str()
                 for i in range(topk):
+                    # print(f"hyp - {i}:{data['hyps'][i]}")
                     if (i == topk - 1):
-                        concat_str += data['hyps'][i] + tokenizer.sep_token
+                        concat_str = concat_str + data['hyps'][i] + tokenizer.sep_token
                     else:
-                        concat_str += data['hyps'][i] + sep_token
+                        concat_str = concat_str +  data['hyps'][i] + sep_token
                 
                 output = tokenizer(concat_str)
 
-                if ('token_type_id' in output.keys() ):
-                    input_ids, _ , attention_mask = output.values
+                # print(f'concat_str:{concat_str}')
+                # print(f"concat_ids:{output['input_ids']}")
+
+                if ('token_type_ids' in output.keys() ):
+                    input_ids, _ , attention_mask = output.values()
                 else:
-                    input_ids, attention_mask = output.values
+                    input_ids, attention_mask = output.values()
                 
                 data_list.append(
                     {
@@ -74,7 +78,7 @@ def get_dataset(data_json, tokenizer, topk, sep_token = '[SEP]', data_type = 'si
                 )
             
         elif (data_type == 'align'):
-            for data in tqdm(data_json):
+            for data in tqdm(data_json, ncols = 80):
                 label = tokenizer(data['ref'])["input_ids"]
 
         return correctTrainerDataset(data_list)
@@ -103,7 +107,7 @@ def get_dataset(data_json, tokenizer, topk, sep_token = '[SEP]', data_type = 'si
             if (sep_token == '[SEP]'):
                 sep_token = tokenizer.sep_token
 
-            for data in tqdm(data_json):
+            for data in tqdm(data_json, ncols = 80):
                 name = data['name']
                 concat_str = str()
                 for i in range(topk):
@@ -119,13 +123,15 @@ def get_dataset(data_json, tokenizer, topk, sep_token = '[SEP]', data_type = 'si
                 else:
                     input_ids, attention_mask = output.values()
                 
-            data_list.append(
-                {
-                    "name": name,
-                    "input_ids":input_ids,
-                    "attention_mask": attention_mask,
-                    "labels": label
-                }
-            )
+                label = tokenizer(data['ref'])["input_ids"]
+                
+                data_list.append(
+                    {
+                        "name": name,
+                        "input_ids":input_ids,
+                        "attention_mask": attention_mask,
+                        "labels": label
+                    }
+                )
                     
         return correctTrainerDataset(data_list)

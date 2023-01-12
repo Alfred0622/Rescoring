@@ -8,7 +8,7 @@ from jiwer import wer
 
 choose_nbest = [50]
 
-dataset = 'csj'
+dataset = 'tedlium2_conformer'
 if (dataset in ['aishell2']):
     file_name = ['dev_ios', 'test_android', 'test_mic', 'test_ios']
 elif (dataset in ['aishell', 'tedlium2', 'tedlium2_conformer']):

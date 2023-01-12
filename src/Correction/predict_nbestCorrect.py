@@ -31,7 +31,9 @@ def predict(model, tokenizer, loader):
     result = {}
     model.eval()
 
-    loop = tqdm(loader, total = len(loader))
+    print('predict')
+
+    loop = tqdm(loader, total = len(loader), ncols=100)
     for batch in loop:
         name = batch["name"]
         input_ids = batch["input_ids"]
@@ -69,17 +71,21 @@ def predict(model, tokenizer, loader):
 
 # Predict
 if __name__ == '__main__':
-    if (task_name == 'align_concat'):
+    if (task_name == 'plain'):
         config_name = './config/nBestPlain.yaml'
-        topk = 1
     else:
         config_name = './config/Bart.yaml'
         topk = 1
+    
+    print(f'config:{config_name}')
 
     args, train_args, recog_args = load_config(config_name)
     setting =  'withLM' if args['withLM'] else 'noLM'
     if (args['dataset'] == 'old_aishell'):
         setting = ""
+    
+    if (task_name == 'plain'):
+        topk = args['nbest']
     
     print(f'setting:{setting}')
 
@@ -105,8 +111,8 @@ if __name__ == '__main__':
         print(f"recognizing:{data_name}")
         with open(f"../../data/{args['dataset']}/data/{setting}/{data_name}/data.json") as f:
             data_json = json.load(f)
-        
-        dataset = get_dataset(data_json, tokenizer, topk = topk, for_train = False)
+
+        dataset = get_dataset(data_json, tokenizer, data_type = train_args['data_type'], sep_token='#' ,topk = topk, for_train = False)
 
         dataloader = DataLoader(
             dataset,
@@ -135,9 +141,3 @@ if __name__ == '__main__':
         
         print(f'org_wer:{wer(ref, top_1_hyp)}')
         print(f'Correction wer:{wer(ref, hyp)}')
-        
-        # for data in output.keys():
-
-        #     ref.append(output[data]['ref'])
-        #     hyp.append(output[data]['hyp'])
-    

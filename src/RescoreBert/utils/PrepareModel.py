@@ -7,7 +7,8 @@ from transformers import (
     BertTokenizer,
     BertTokenizerFast,
     AutoTokenizer,
-    GPT2Tokenizer
+    GPT2Tokenizer,
+    BertJapaneseTokenizer
 )
 from torch.optim import AdamW
 
@@ -33,18 +34,11 @@ class RescoreBert(torch.nn.Module):
         if (labels is not None):
             labels = labels.to(dtype = torch.float32)
 
-            # print(f'labels:{labels}')
-
-            # print(f'score in forward:{score.dtype}')
-            # print(f'labels in forward:{labels.dtype}')
-
             loss = self.l2_loss(
                 score, labels
             )
         else:
             loss = None
-
-        # loss = loss.to(dtype = torch.float32)
 
         return {"score": score, "loss": loss}
 
@@ -55,7 +49,7 @@ def prepare_GPT2(dataset, device):
     if (dataset in ['aishell', 'aishell2']):
         model = AutoModelForCausalLM.from_pretrained('ckiplab/gpt2-base-chinese').to(device)
         tokenizer = BertTokenizerFast.from_pretrained('bert-base-chinese')
-    if (dataset in ['tedlium2', 'librispeech']):
+    if (dataset in ['tedlium2', 'librispeech', 'tedlium2_conformer']):
         model = AutoModelForCausalLM.from_pretrained('gpt2').to(device)
         tokenizer = AutoTokenizer.from_pretrained('gpt2')
     if (dataset in ['csj']):
@@ -68,12 +62,12 @@ def prepare_MLM(dataset, device):
     if (dataset in ['aishell', 'aishell2']):
         model = BertForMaskedLM.from_pretrained('bert-base-chinese').to(device)
         tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
-    if (dataset in ['tedlium2', 'librispeech']):
+    if (dataset in ['tedlium2', 'librispeech', 'tedlium2_conformer']):
         model = BertForMaskedLM.from_pretrained('bert-base-uncased').to(device)
         tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
     if (dataset in ['csj']):
         model = BertForMaskedLM.from_pretrained('cl-tohoku/bert-base-japanese').to(device)
-        tokenizer = BertTokenizer.from_pretrained('cl-tohoku/bert-base-japanese')
+        tokenizer = BertJapaneseTokenizer.from_pretrained('cl-tohoku/bert-base-japanese')
 
     return model, tokenizer
 

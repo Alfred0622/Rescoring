@@ -11,7 +11,7 @@ def find_weight_simp(data, bound = [0, 1]):
     best_weight = 0.0
     lower_bound = bound[0]
     upper_bound = bound[1]
-    print(f'(lower, upper) = ({lower_bound, upper_bound})')
+    print(f'(lower, upper) = ({lower_bound}, {upper_bound})')
 
     for weight in tqdm(np.arange(lower_bound, upper_bound, step = 0.01)):
         c = 0
@@ -24,8 +24,6 @@ def find_weight_simp(data, bound = [0, 1]):
                 data[key]['score'] = torch.tensor(data[key]['score'], dtype = torch.float64)
                 data[key]['Rescore'] = torch.tensor(data[key]['Rescore'], dtype = torch.float64)
             score = (1 - weight) * data[key]['score'] + weight * data[key]['Rescore']
-
-            # print(f'score:{score}')
 
             best_index = torch.argmax(score)
             
@@ -43,6 +41,7 @@ def find_weight_simp(data, bound = [0, 1]):
         if (cer < min_cer):
             best_weight = weight
             min_cer = cer
+
     print(f'best weight:{best_weight},Min CER:{min_cer}')
     return best_weight
 
@@ -69,7 +68,7 @@ def find_weight(data, bound = [0, 1], ctc_weight = 0.5):
             i = 0
 
             for key in data.keys():
-                
+
                 if ('am_score' in data[key].keys() and not isinstance(data[key]['am_score'], torch.Tensor)):
                     data[key]['am_score'] = torch.tensor(data[key]['am_score'], dtype = torch.float64)
 
@@ -96,7 +95,7 @@ def find_weight(data, bound = [0, 1], ctc_weight = 0.5):
                 s += data[key]['err'][best_index]['sub']
                 d += data[key]['err'][best_index]['del']
                 i += data[key]['err'][best_index]['ins']
-    
+
             cer = (s + d + i) / (c + s + d)
 
             if (cer < min_cer):

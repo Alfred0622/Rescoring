@@ -2,13 +2,14 @@ args:
   stage: 0
   stop_stage: 100
   nbest: 50
-  withLM: False
+  withLM: True
   dataset: csj
-  MLM: False
+  MLM: True
+  jp_split: True
 
 train:
   epoch: 30
-  train_batch: 64
+  train_batch: 128
   valid_batch: 64
   accumgrad: 1
   print_loss: 200

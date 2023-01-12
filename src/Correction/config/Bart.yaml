@@ -3,7 +3,7 @@ args:
   stop_stage: 1
   nbest: 10
   withLM: True
-  dataset: aishell2
+  dataset: tedlium2
 
 train:
   start_epoch: 0

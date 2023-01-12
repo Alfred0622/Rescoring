@@ -14,12 +14,31 @@ from transformers import (
     Trainer
 )
 
-config = f'./config/clm.yaml'
+
+
+assert (len(sys.argv) == 2), f'Usage: python ./train_LM.py <CLM or MLM>'
+
+lm_name = sys.argv[1].strip().upper()
+
+if (lm_name == 'CLM'):
+    config = f'./config/clm.yaml'
+elif (lm_name == 'MLM'):
+    config =  f'./config/mlm.yaml'
+else:
+    assert (lm_name in ["CLM", "MLM"]), f'Usage: python ./train_LM.py <CLM or MLM>'
 
 args, train_args, recog_args = load_config(config)
 setting = "withLM" if args['withLM'] else "noLM"
-lm_name = "MLM" if (args['MLM']) else "CLM"
+lm_name = "MLM" if (lm_name == 'MLM') else "CLM"
 print(f'LM:{lm_name}')
+
+if (args['dataset'] in ['csj']):
+    if (args['jp_split']):
+        lm_name = f'{lm_name}_char'
+    else:
+        lm_name = f"{lm_name}"
+else:
+    lm_name = f"{lm_name}"
 
 checkpoint_name = f"./checkpoint/{args['dataset']}/{lm_name}"
 output_dir = Path(checkpoint_name)
@@ -42,6 +61,8 @@ else:
 if (tokenizer.pad_token is None):
         tokenizer.pad_token_id = 0
 
+
+
 print(f'pad_id:{tokenizer.pad_token_id}')
 
 if (args['dataset'] in ['aishell2']):
@@ -56,10 +77,16 @@ with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json", "r") a
      open(f"../../data/{args['dataset']}/data/{setting}/{valid_path}/data.json", "r") as valid:
      train_json = json.load(train)
      valid_json = json.load(valid)
+    
+print(type(train_json))
+print(len(train_json))
 
 print(f'prepare dataset')
 train_dataset = get_Dataset(train_json, tokenizer, lm = lm_name, dataset = args['dataset'])
 valid_dataset = get_Dataset(valid_json, tokenizer, lm = lm_name, dataset = args['dataset'])
+
+print(len(train_dataset))
+print(len(valid_dataset))
 
 training_args = TrainingArguments(
     output_dir = checkpoint_name,

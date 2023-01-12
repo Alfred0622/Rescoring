@@ -122,14 +122,14 @@ valid_loader = DataLoader(
 
 for e in range(start_epoch, train_args["epoch"]):
     model.train()
-    # if (e < 2):
-    #     print(f'freeze')
-    #     logging.warning(f'freeze')
-    #     for param in model.bert.parameters():
-    #         param.require_grad = False
-    # else:
-    #     for param in model.bert.parameters():
-    #         param.require_grad = True
+    if (e < 2):
+        print(f'freeze')
+        logging.warning(f'freeze')
+        for param in model.bert.parameters():
+            param.require_grad = False
+    else:
+        for param in model.bert.parameters():
+            param.require_grad = True
 
     for n, data in enumerate(tqdm(train_loader)):
         model.optimizer.zero_grad()

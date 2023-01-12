@@ -12,23 +12,31 @@ class LM_Dataset(Dataset):
     def __len__(self):
         return len(self.data)
         
-def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk = 20):
+def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk = 20, jp_split = True):
+    # jp_split: remove space from hyps or refs of jp dataset
     data_list = list()
+    
+    print(f'dataset:{dataset}')
+    print(f'lm:{lm}')
 
     if (for_train):
         if (lm == "MLM"):
-            for data in data_json:
-                if (dataset in ['aishell', 'aishell2', 'old_aishell']):
-                    input_ids, _, attention_mask = tokenizer(data['ref']).values()
-                elif (dataset in ['tedlium2', 'librispeech']):
-                    output = tokenizer(data['ref'])
-                    if ('token_type_ids' in output.keys()):
-                        input_ids, _, attention_mask = output.values()
+            for data in tqdm(data_json, ncols = 80):
+
+                if (dataset in ['csj']):
+                    if (jp_split):
+                        ref = "".join(data['ref'].split())
                     else:
-                        input_ids, attention_mask = tokenizer(data['ref']).values()
-                elif (dataset in ['csj']):
-                    ref = "".join(data['ref'].split())
-                    input_ids, _ = tokenizer(ref).values()
+                        ref = data['ref']
+                        
+                else:
+                    ref = data['ref']
+                output = tokenizer(ref)
+
+                if ('token_type_ids' in output.keys()):
+                    input_ids, _, attention_mask = output.values()
+                else:
+                    input_ids, attention_mask = output.values()
 
                 input_ids = torch.tensor(input_ids, dtype = torch.int32)
                 attention_mask = torch.tensor(attention_mask, dtype = torch.int32)
@@ -39,30 +47,36 @@ def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk
                         # "labels": input_ids.clone()
                     }
                 )
-        elif (lm == "CLM"):
-            for data in tqdm(data_json):
-                if (len(data['ref'].split()) <= 1):
-                    continue
-                if (dataset in ['aishell', 'aishell2', 'old_aishell']):
-                    input_ids, _, attention_mask = tokenizer(data['ref']).values()
-                elif (dataset in ['tedlium2', 'librispeech']):
-                    output = tokenizer(data['ref'] + ".")
-                    if ('token_type_ids' in output.keys()):
-                        input_ids, _, attention_mask = output.values()
-                    else:
-                        input_ids, attention_mask = output.values()
-                elif (dataset in ['csj']):
-                    ref = "".join(data['ref'].split())
-                    input_ids, _= tokenizer(ref).values()
-                    if (len(input_ids) <= 1) : continue
 
+        elif (lm in ["CLM", "CLM_char"]):
+            tokenizer.bos_token = tokenizer.cls_token if tokenizer.bos_token is None else tokenizer.bos_token
+            tokenizer.eos_token = tokenizer.sep_token if tokenizer.eos_token is None else tokenizer.eos_token
+            for data in tqdm(data_json, ncols = 80):
+                
+                if (dataset in ['csj'] and jp_split):
+                    ref = "".join(data['ref'].split())
+                elif (dataset in ['tedlium2', 'tedlium2_conformer', 'librispeech']):
+                    ref = data['ref'] + "."
+                else:
+                    ref = data['ref']
+
+                if (dataset in ['aishell', 'aishell2']):
+                    pass
+                else:
+                    ref = f'{tokenizer.bos_token} {ref} {tokenizer.eos_token}'
+
+                output = tokenizer(ref)
+
+                if ('token_type_ids' in output.keys()):
+                    input_ids, _ , attention_mask = output.values()
+                else:
+                    input_ids, attention_mask = output.values()
+        
+                if (len (input_ids) <= 1): continue
                 input_ids = torch.tensor(input_ids, dtype = torch.int32)
-                # attention_mask = torch.tensor(attention_mask, dtype = torch.int32)
                 data_list.append(
                     {
                         "input_ids": input_ids,
-                        # "attention_mask": attention_mask,
-                        # "labels": input_ids.clone()
                     }
                 )
             print(f'# num of Dataset:{len(data_list)}')
@@ -70,12 +84,14 @@ def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk
         return LM_Dataset(data_list)
 
     else:
-        for data in data_json:
+        for data in tqdm(data_json, ncols = 80):
             if (topk > len(data["hyps"])):
                 nbest = len(data["hyps"])
             else: nbest = topk
             name = data['name']
             for i, hyp in enumerate(data['hyps'][:nbest]):
+                if (dataset in ['csj'] and jp_split):
+                    hyp = "".join(hyp.split())
                 output = tokenizer(hyp)
                 if ('token_type_ids' in output.keys()):
                     input_ids, _, attention_mask = output.values()
@@ -93,35 +109,68 @@ def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk
 
         return LM_Dataset(data_list)
 
-def get_mlm_dataset(data_json, tokenizer,  dataset, topk = 50):
-    if (dataset in ['aishell', 'aishell2']):
-        bos_id = tokenizer.cls_token_id
-        eos_id = tokenizer.sep_token_id
-        mask_id = tokenizer.mask_token_id
-    else:
-        bos_id = tokenizer.bos_token_id
-        eos_id = tokenizer.eos_token_id
-        mask_id = tokenizer.mask_token_id
+def get_mlm_dataset(data_json, tokenizer,  dataset, topk = 50, jp_split = True):
 
+    bos_id = tokenizer.cls_token_id if tokenizer.bos_token_id is None else tokenizer.bos_token_id
+    eos_id = tokenizer.sep_token_id if tokenizer.eos_token_id is None else tokenizer.eos_token_id
+    mask_id = tokenizer.mask_token_id
     data_list = list()
 
     assert (bos_id is not None and eos_id is not None and mask_id is not None), f"{bos_id}, {eos_id}, {mask_id}"
 
-    for data in tqdm(data_json):
+    for data in tqdm(data_json, ncols = 80):
+        if (topk > len(data["hyps"])):
+            nbest = len(data["hyps"])
+        else: nbest = topk
         name = data['name']
-        for i, hyp in enumerate(data['hyps'][:topk]):
-            input_ids, token_type_ids, attention_mask = tokenizer(hyp).values()
-            data_list.append(
-                {
-                    "name": name,
-                    "input_ids": torch.tensor(input_ids, dtype = torch.long),
-                    "attention_mask": torch.tensor(attention_mask,dtype = torch.long),
-                    "bos_id": bos_id,
-                    "eos_id": eos_id,
-                    "mask_id": mask_id, # mask token id = 103
-                    "nbest": i,   # Nbest index
-                }
-            )
+
+        for i, hyp in enumerate(data['hyps'][:nbest]):
+            if (dataset in ['csj'] and jp_split):
+                hyp = "".join(hyp.split())
+            output = tokenizer(hyp)
+            if ('token_type_ids' in output.keys()):
+                input_ids, _, attention_mask = output.values()
+            else:
+                input_ids, attention_mask = output.values()
+
+            if (len(input_ids) == 2):
+                for j, ids in enumerate(input_ids):
+                    temp_ids = output['input_ids'].copy()
+                    masked_token = temp_ids[j]
+                    temp_ids[j] = tokenizer.mask_token_id
+                    data_list.append(
+                        {
+                            "name": name,
+                            "input_ids": torch.tensor(input_ids, dtype = torch.int32),
+                            "attention_mask": torch.tensor(attention_mask, dtype = torch.int32),
+                            "index": i,
+                            "seq_index": j,
+                            "masked_token": masked_token,
+                            "length": 2
+                        }
+                    )
+            
+            for j, ids in enumerate(input_ids):
+                temp_ids = output['input_ids'].copy()
+                if (ids in [tokenizer.cls_token_id, tokenizer.sep_token_id]):
+                    continue
+                masked_token = temp_ids[j]
+                temp_ids[j] = tokenizer.mask_token_id
+                # print(f'masked_id:{masked_token}')
+
+                # print(f'after_mask:{temp_ids}')
+                
+                data_list.append(
+                    {
+                        "name": name,
+                        "input_ids": torch.tensor(temp_ids, dtype = torch.int32),
+                        "attention_mask": torch.tensor(attention_mask, dtype = torch.int32),
+                        "index": i,
+                        "seq_index": j,
+                        "masked_token": masked_token,
+                        "length": len(input_ids) - 2
+                    }
+                )
     return LM_Dataset(data_list)
     
 def getRescoreDataset(data_json, dataset, tokenizer, topk = 50):
@@ -133,6 +182,8 @@ def getRescoreDataset(data_json, dataset, tokenizer, topk = 50):
         # elif (dataset in ['tedlium2', 'librispeech']):
         #     input_ids, attention_mask = tokenizer(data['ref']).values()
         # print(data_json[key].keys())
+
+        # if (i >= 64): break
         for hyp, score, rescore, err in zip(data_json[key]['hyps'], data_json[key]['score'], data_json[key]['Rescore'], data_json[key]['err']):
             if (dataset in ['aishell', 'aishell2', 'old_aishell']):
                 input_ids, _, attention_mask = tokenizer(hyp).values()

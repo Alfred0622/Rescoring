@@ -4,12 +4,13 @@ from tqdm import tqdm
 from pathlib import Path
 import os
 import random
+import torch
 from transformers import BertTokenizer
 
 random.seed(42)
 nbest = 5
 
-name = 'tedlium2'
+name = 'aishell'
 setting = ['noLM', 'withLM']
 
 if (name in ['tedlium2', 'librispeech']):
@@ -38,7 +39,7 @@ if (concat_train):
 
             if (task in ['dev', 'dev_trim']):
                 save_file = 'valid'
-                concat_nbest = 4
+                concat_nbest = 5
             else: 
                 save_file = task
                 concat_nbest = nbest
@@ -123,10 +124,18 @@ if (concat_train):
                                     if (err_1 == err_2):
                                         same_cer += 1
                                         continue
+                                
+                                if ('am_score' in data.keys() and isinstance(data['am_score'], list) and len(data['am_score']) > 0):
+                                    am_score = [data['am_score'][i], data['am_score'][j]]
+                                else: 
+                                    am_score = [0.0, 0.0]
 
-                                am_score = [data['am_score'][i], data['am_score'][j]]
-                                ctc_score = [data['ctc_score'][i], data['ctc_score'][j]]
-                                if (len(data['lm_score']) > 0):
+                                if ('ctc_score' in data.keys() and isinstance(data['ctc_score'], list) and len(data['ctc_score']) > 0):
+                                    ctc_score = [data['ctc_score'][i], data['ctc_score'][j]]
+                                else:
+                                    ctc_score = [0.0, 0.0]
+
+                                if ('lm_score' in data.keys() and isinstance(data['lm_score'], list) and len(data['lm_score']) > 0):
                                     lm_score = [data['lm_score'][i], data['lm_score'][j]]
                                 else:
                                     lm_score = [0.0, 0.0]
@@ -208,9 +217,17 @@ if (concat_test):
                             first_seq = data['hyps'][i]
                             second_seq = data['hyps'][j]
 
-                            am_score = [data['am_score'][i], data['am_score'][j]]
-                            ctc_score = [data['ctc_score'][i], data['ctc_score'][j]]
-                            if (len(data['lm_score']) > 0):
+                            if ('am_score' in data.keys() and isinstance(data['am_score'], list) and len(data['am_score']) > 0):
+                                am_score = [data['am_score'][i], data['am_score'][j]]
+                            else: 
+                                am_score = [0.0, 0.0]
+
+                            if ('ctc_score' in data.keys() and isinstance(data['ctc_score'], list) and len(data['ctc_score']) > 0):
+                                ctc_score = [data['ctc_score'][i], data['ctc_score'][j]]
+                            else:
+                                ctc_score = [0.0, 0.0]
+
+                            if ('lm_score' in data.keys() and isinstance(data['lm_score'], list) and len(data['lm_score']) > 0):
                                 lm_score = [data['lm_score'][i], data['lm_score'][j]]
                             else:
                                 lm_score = [0.0, 0.0]

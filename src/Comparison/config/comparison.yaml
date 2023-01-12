@@ -1,10 +1,10 @@
 args:
   stage: 0
   stop_stage: 0
-  nbest: 20 # max: 50
+  nbest: 5 # max: 50
   withLM: True
   model_name: sem
-  dataset: tedlium2
+  dataset: aishell
 
 train:
   epoch: 4

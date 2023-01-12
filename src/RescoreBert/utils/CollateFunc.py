@@ -103,25 +103,57 @@ def recogMLMBatch(batch):
     masked_tokens = []
     nBest_index = []
     seq_index = []
+    lengths = []
 
     for sample in batch:
+        names.append(sample['name'])
+        input_ids.append(sample['input_ids'])
+        attention_mask.append(sample['attention_mask'])
 
-        bos_id = sample['bos_id']
-        eos_id = sample['eos_id']
-        mask_id = sample['mask_id']
+        masked_tokens.append(sample['masked_token'])
+        nBest_index.append(sample['index'])
+        seq_index.append(sample['seq_index'])
 
-        for i, token in enumerate(sample['input_ids']):
-            temp_ids = sample['input_ids'].clone()
-            if (token in [bos_id, eos_id]):
-                continue
-            names.append(sample['name'])
-            temp_ids[i] = mask_id
+        lengths.append(sample['length'])
+        # bos_id = sample['bos_id']
+        # eos_id = sample['eos_id']
+        # mask_id = sample['mask_id']
 
-            input_ids.append(temp_ids)
-            attention_mask.append(sample['attention_mask'])
-            seq_index.append(i) # append index of token
-            masked_tokens.append(token.item()) # append masked token
-            nBest_index.append(sample['nbest']) # append which nbest is
+        # if (len(sample['input_ids']) == 2):
+
+        #     names.append(sample['name'])
+        #     input_ids.append(sample['input_ids'])
+        #     attention_mask.append(sample['attention_mask'])
+        #     seq_index.append(-1)
+        #     masked_tokens.append(-1)
+        #     nBest_index.append(sample['nbest'])
+
+            # if (len(batch) == 1):
+            #     return {
+            #         "name": [sample['name']],
+            #         "input_ids": None,
+            #         "attention_mask": None, 
+            #         "seq_index": None,
+            #         "masked_token": None,
+            #         "nBest_index": None,
+            #         "penalty_score": -10000
+            #     }
+
+            # continue
+
+    #     else:
+    #         for i, token in enumerate(sample['input_ids']):
+    #             temp_ids = sample['input_ids'].clone()
+    #             if (token in [bos_id, eos_id]):
+    #                 continue
+    #             names.append(sample['name'])
+    #             temp_ids[i] = mask_id
+
+    #             input_ids.append(temp_ids)
+    #             attention_mask.append(sample['attention_mask'])
+    #             seq_index.append(i) # append index of token
+    #             masked_tokens.append(token.item()) # append masked token
+    #             nBest_index.append(sample['nbest']) # append which nbest is
     
     data_num = len(names)
 
@@ -130,6 +162,8 @@ def recogMLMBatch(batch):
     assert(len(seq_index) == data_num), f'data_num: {data_num} != len(input_ids): {len(seq_index)}'
     assert(len(masked_tokens) == data_num), f'data_num: {data_num} != len(input_ids): {len(masked_tokens)}'
     assert(len(nBest_index) == data_num), f'data_num: {data_num} != len(input_ids): {len(nBest_index)}'
+
+    # assert(len(input_ids) > 0), f'{input_ids}'
     
     input_ids = pad_sequence(input_ids, batch_first = True)
     attention_mask = pad_sequence(attention_mask, batch_first = True)
@@ -141,7 +175,8 @@ def recogMLMBatch(batch):
             "attention_mask": attention_mask,
             "seq_index": seq_index,
             "masked_token": masked_tokens,
-            "nBest_index": nBest_index
+            "nBest_index": nBest_index,
+            "length": lengths
         }
     )
 
