@@ -149,6 +149,7 @@ def align(nbest, nBest, placeholder="-"):
             while l1 >= 0:
                 align_result = [[a[0][l1], placeholder]] + align_result
                 l1 -= 1
+        
         first_align.append(align_result)
 
     return first_align
@@ -171,7 +172,8 @@ def alignNbest(nbestAlign, placeholder="-"):
         [a,a,-],[b,b,b],[c,c,c],[d,-,d],[-,e,-]
     ]
     """
-
+    
+    # print(f"placeholder:{placeholder}")
     alignResult = nbestAlign[0]
     for a in nbestAlign[1:]:
         ali = [alignResult, a]
@@ -220,6 +222,7 @@ def alignNbest(nbestAlign, placeholder="-"):
     return alignResult
 
 if __name__ == '__main__':
+    placeholder = '-'
     hyp = [
         ['a','b','c','e'],
         ['a','c','e'],
@@ -232,14 +235,14 @@ if __name__ == '__main__':
     align_pair = align(
                     hyp,
                     nBest=4,
-                    placeholder= '*',
+                    placeholder= placeholder,
                 )
     print("align_pair")
     for p in align_pair:
         print(p)
     align_result = alignNbest(
         align_pair,
-        placeholder='*'
+        placeholder= placeholder
     )
     print(f'align_result')
     for r in align_result:

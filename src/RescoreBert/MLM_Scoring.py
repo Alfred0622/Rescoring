@@ -9,7 +9,7 @@ from mlm.models import get_pretrained
 import mxnet as mx
 
 from utils.Datasets import get_Dataset
-from utils.LoadConfig import load_config
+from src_utils.LoadConfig import load_config
 from utils.FindWeight import find_weight_simp
 
 ctxs = [mx.gpu(0)]

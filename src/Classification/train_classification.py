@@ -7,7 +7,7 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from utils.Datasets import get_dataset
-from utils.LoadConfig import load_config
+from src_utils.LoadConfig import load_config
 from utils.CollateFunc import trainBatch
 from utils.PrepareModel import prepare_model
 from torch.optim import AdamW

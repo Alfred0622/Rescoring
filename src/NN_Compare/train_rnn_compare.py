@@ -5,8 +5,8 @@ import json
 import torch
 import logging
 from model.RNN_Rerank import RNN_Reranker
-from utils.LoadConfig import load_config
-from utils.get_dict import get_vocab
+from src_utils.LoadConfig import load_config
+from src_utils.get_dict import get_vocab
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from model.utils.Datasets import get_Dataset

@@ -8,10 +8,10 @@ import torch
 from transformers import BertTokenizer
 
 random.seed(42)
-nbest = 5
+nbest = 20
 
 name = 'aishell'
-setting = ['noLM', 'withLM']
+setting = ['noLM',]
 
 if (name in ['tedlium2', 'librispeech']):
     tokenizer = BertTokenizer.from_pretrained(f'bert-base-uncased')
@@ -28,6 +28,10 @@ if (concat_train):
 
     if (name in ['tedlium2']):
         dataset = ['train', 'dev_trim']
+    elif (name in ['aishell2']):
+        dataset = ["train", "dev_ios"]
+    elif (name in ['librispeech']):
+        dataset = ["train", 'dev_clean', 'dev_other']
     else:
         dataset = ['train', 'dev']
     for s in setting:
@@ -37,7 +41,7 @@ if (concat_train):
             else:
                 sample_num = -1
 
-            if (task in ['dev', 'dev_trim']):
+            if (task in ['dev', 'dev_trim', 'dev_ios', 'dev_clean', 'dev_other']):
                 save_file = 'valid'
                 concat_nbest = 5
             else: 
@@ -50,7 +54,11 @@ if (concat_train):
                 total_data = len(token_file)
                 print(f"total_data:{total_data}")
 
-                concat_dict = list()
+                if (name in ['librispeech'] and task in ['dev_other']):
+                    with open(f"../data/{name}/valid/{s}/{concat_nbest}best/data.json") as f:
+                        concat_dict = json.load(f)
+                else:
+                    concat_dict = list()
 
                 if (sample_num > 0): # random choose
                     for n, data in enumerate(tqdm(token_file)):
@@ -90,6 +98,7 @@ if (concat_train):
                                 lm_score = [0.0, 0.0]
 
                             temp_dict = {
+                                "name" : data['name'],
                                 "hyp1" : first_seq,
                                 "hyp2" : second_seq,
                                 "am_score": am_score,
@@ -141,6 +150,7 @@ if (concat_train):
                                     lm_score = [0.0, 0.0]
 
                                 temp_dict = {
+                                    "name" : data['name'],
                                     "hyp1" : first_seq,
                                     "hyp2" : second_seq,
                                     "am_score": am_score,
@@ -174,6 +184,12 @@ if (concat_train):
 if (concat_test):
     if (name in ['tedlium2']):
         recog_set = ['dev', 'dev_trim', 'test']
+    elif (name in ["aishell2"]):
+        recog_set = ['dev_ios', 'test_ios', 'test_mic', 'test_android']
+    elif (name in ['librispeech']):
+        recog_set = ['dev_clean', 'dev_other', 'test_clean', 'test_other']
+    elif (name in ['csj']):
+        recog_set = ['dev', 'eval1', 'eval2', 'eval3']
     else:
         recog_set = ['dev', 'test']
     # recog_set = ['dev', 'test']
@@ -252,3 +268,13 @@ if (concat_test):
                 f'{save_path}/data.json', 'w'
             ) as fw:
                 json.dump(save_list, fw, ensure_ascii = False, indent = 4)
+    
+    if (name == 'librispeech'):
+        with open(f"../data/{name}/dev_clean/{s}/{nbest}best/data.json") as clean , \
+             open(f"../data/{name}/dev_other/{s}/{nbest}best/data.json") as other :
+            
+            valid_json = json.load(clean)
+            valid_json = valid_json + json.load(other)
+
+            with open(f"../data/{name}/valid/{s}/{nbest}best/rescore_data.json", 'w') as valid:
+                json.dump(valid_json, valid, ensure_ascii = False, indent = 1)

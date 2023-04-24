@@ -5,8 +5,11 @@ import torch
 import logging
 from transformers import (
     AutoModelForSeq2SeqLM,
+    BartForConditionalGeneration,
     BertTokenizer,
     BartTokenizer,
+    AutoConfig,
+    AutoTokenizer
 )
 from transformers import Trainer
 
@@ -22,17 +25,35 @@ class nBestAlignTrainer(Trainer):
 
         return loss
 
-def prepare_model(dataset):
+def prepare_model(dataset, from_pretrain = True):
     print(f'dataset:{dataset}')
-    if (dataset in ['aishell', 'aishell2', 'old_aishell']):
-        print(f'bart-base-chinese')
-        model = AutoModelForSeq2SeqLM.from_pretrained(f'fnlp/bart-base-chinese')
-        tokenizer = BertTokenizer.from_pretrained(f'fnlp/bart-base-chinese')
-    elif (dataset in ['tedlium2', 'librispeech']): # english
-        model = AutoModelForSeq2SeqLM.from_pretrained(f'facebook/bart-base')
-        tokenizer = BartTokenizer.from_pretrained(f'facebook/bart-base')
+    if (from_pretrain):
+        if (dataset in ['aishell', 'aishell2', 'old_aishell', 'aishell_nbest']):
+            print(f'bart-base-chinese')
+            model = AutoModelForSeq2SeqLM.from_pretrained(f'fnlp/bart-base-chinese')
+            tokenizer = BertTokenizer.from_pretrained(f'fnlp/bart-base-chinese')
+        elif (dataset in ['tedlium2', 'librispeech']): # english
+            model = AutoModelForSeq2SeqLM.from_pretrained(f'facebook/bart-base')
+            tokenizer = BartTokenizer.from_pretrained(f'facebook/bart-base')
 
-    elif (dataset in ['csj']): # japanese
-        pass
+        elif (dataset in ['csj']): # japanese
+            model = AutoModelForSeq2SeqLM.from_pretrained('stockmark/bart-base-japanese-news')
+            tokenizer = AutoTokenizer.from_pretrained('stockmark/bart-base-japanese-news', trust_remote_code=True)
+    else:
+        print(f'Not From Pretrain')
+        if (dataset in ['aishell', 'aishell2', 'old_aishell']):
+            print(f'bart-base-chinese')
+            pretrain_name = f'fnlp/bart-base-chinese'
+            tokenizer = BertTokenizer.from_pretrained(pretrain_name)
+        elif (dataset in ['tedlium2', 'librispeech']): # english
+            pretrain_name = f'facebook/bart-base'
+            tokenizer = BartTokenizer.from_pretrained(f'facebook/bart-base')
+
+        elif (dataset in ['csj']): # japanese
+            tokenizer = BartTokenizer.from_pretrained('ClassCat/gpt2-base-japanese-v2')
+        config = AutoConfig.from_pretrained(pretrain_name)
+        model = BartForConditionalGeneration(config)
+
+        print(f'config:{config}')
 
     return model, tokenizer

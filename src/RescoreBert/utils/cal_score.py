@@ -31,3 +31,4 @@ def get_sentence_score(logits, input_ids, bos = 101, eos = 102, pad = 0):
     # print(f'result:{result.shape}')
     
     return result
+

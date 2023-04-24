@@ -15,7 +15,7 @@ from utils.CollateFunc import(
     bertCompareBatch,
     bertCompareRecogBatch,
 )
-from utils.LoadConfig import load_config
+from src_utils.LoadConfig import load_config
 from utils.PrepareModel import prepare_model
 
 from transformers import Trainer, TrainingArguments, DataCollator

@@ -1,6 +1,8 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
+from torch.nn import Softmax
+
 
 class LM_Dataset(Dataset):
     def __init__(self, nbest_list):
@@ -18,17 +20,17 @@ def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk
     
     print(f'dataset:{dataset}')
     print(f'lm:{lm}')
+    max_len = 0.0
 
     if (for_train):
         if (lm == "MLM"):
-            for data in tqdm(data_json, ncols = 80):
+            for data in tqdm(data_json, ncols = 100):
 
                 if (dataset in ['csj']):
-                    if (jp_split):
-                        ref = "".join(data['ref'].split())
-                    else:
+                    if (jp_split): 
                         ref = data['ref']
-                        
+                    else:
+                        ref = "".join(data['ref'].split())
                 else:
                     ref = data['ref']
                 output = tokenizer(ref)
@@ -37,6 +39,9 @@ def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk
                     input_ids, _, attention_mask = output.values()
                 else:
                     input_ids, attention_mask = output.values()
+                
+                if (len(input_ids) > max_len):
+                    max_len = len(input_ids)
 
                 input_ids = torch.tensor(input_ids, dtype = torch.int32)
                 attention_mask = torch.tensor(attention_mask, dtype = torch.int32)
@@ -49,12 +54,16 @@ def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk
                 )
 
         elif (lm in ["CLM", "CLM_char"]):
-            tokenizer.bos_token = tokenizer.cls_token if tokenizer.bos_token is None else tokenizer.bos_token
-            tokenizer.eos_token = tokenizer.sep_token if tokenizer.eos_token is None else tokenizer.eos_token
-            for data in tqdm(data_json, ncols = 80):
+            bos_token = tokenizer.cls_token if tokenizer.bos_token is None else tokenizer.bos_token
+            eos_token = tokenizer.sep_token if tokenizer.eos_token is None else tokenizer.eos_token
+            for i, data in enumerate(tqdm(data_json, ncols = 100)):
                 
-                if (dataset in ['csj'] and jp_split):
-                    ref = "".join(data['ref'].split())
+                if (dataset in ['csj']):
+                    if (jp_split): 
+                        ref = data['ref']
+                    else:
+                        ref = "".join(data['ref'].split())
+
                 elif (dataset in ['tedlium2', 'tedlium2_conformer', 'librispeech']):
                     ref = data['ref'] + "."
                 else:
@@ -63,7 +72,7 @@ def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk
                 if (dataset in ['aishell', 'aishell2']):
                     pass
                 else:
-                    ref = f'{tokenizer.bos_token} {ref} {tokenizer.eos_token}'
+                    ref = f'{bos_token} {ref} {eos_token}'
 
                 output = tokenizer(ref)
 
@@ -71,7 +80,9 @@ def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk
                     input_ids, _ , attention_mask = output.values()
                 else:
                     input_ids, attention_mask = output.values()
-        
+
+                if (len(input_ids) > max_len):
+                    max_len = len(input_ids)
                 if (len (input_ids) <= 1): continue
                 input_ids = torch.tensor(input_ids, dtype = torch.int32)
                 data_list.append(
@@ -81,17 +92,28 @@ def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk
                 )
             print(f'# num of Dataset:{len(data_list)}')
 
+        print(f'max_len:{max_len}')
+
+
         return LM_Dataset(data_list)
 
     else:
-        for data in tqdm(data_json, ncols = 80):
+        for k, data in enumerate(tqdm(data_json, ncols = 100)):
             if (topk > len(data["hyps"])):
                 nbest = len(data["hyps"])
             else: nbest = topk
+
             name = data['name']
             for i, hyp in enumerate(data['hyps'][:nbest]):
-                if (dataset in ['csj'] and jp_split):
-                    hyp = "".join(hyp.split())
+                if ("<eos>" in hyp):
+                    hyp = hyp[:-5]
+                
+                if (dataset in ['csj']):
+                    if (jp_split): 
+                        hyp = hyp
+                    else:
+                        hyp = "".join(hyp.split())
+
                 output = tokenizer(hyp)
                 if ('token_type_ids' in output.keys()):
                     input_ids, _, attention_mask = output.values()
@@ -106,7 +128,9 @@ def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk
                         "index": i
                     }
                 )
-
+            
+            # if (k > 50):
+            #     break
         return LM_Dataset(data_list)
 
 def get_mlm_dataset(data_json, tokenizer,  dataset, topk = 50, jp_split = True):
@@ -118,15 +142,21 @@ def get_mlm_dataset(data_json, tokenizer,  dataset, topk = 50, jp_split = True):
 
     assert (bos_id is not None and eos_id is not None and mask_id is not None), f"{bos_id}, {eos_id}, {mask_id}"
 
-    for data in tqdm(data_json, ncols = 80):
+    for k, data in enumerate(tqdm(data_json, ncols = 100)):
         if (topk > len(data["hyps"])):
             nbest = len(data["hyps"])
         else: nbest = topk
         name = data['name']
 
         for i, hyp in enumerate(data['hyps'][:nbest]):
-            if (dataset in ['csj'] and jp_split):
-                hyp = "".join(hyp.split())
+            if ("<eos>" in hyp):
+                hyp = hyp[:hyp.find('<eos>')]
+            if (dataset in ['csj']):
+                if (jp_split): 
+                    hyp = hyp
+                else:
+                    hyp = "".join(hyp.split())
+
             output = tokenizer(hyp)
             if ('token_type_ids' in output.keys()):
                 input_ids, _, attention_mask = output.values()
@@ -171,205 +201,506 @@ def get_mlm_dataset(data_json, tokenizer,  dataset, topk = 50, jp_split = True):
                         "length": len(input_ids) - 2
                     }
                 )
+
+        # if (k > 120):
+        #     break    
     return LM_Dataset(data_list)
     
-def getRescoreDataset(data_json, dataset, tokenizer, topk = 50):
+def getRescoreDataset(data_json, dataset, tokenizer, mode,topk = 50):
     data_list = list()
+    assert (mode in ['MD', 'MWER', 'MWED']), "Modes should be MD, MWER or MWED"
+     
+    if (mode == 'MD'):
+        if (isinstance(data_json, dict)):
+            for i, key in enumerate(tqdm(data_json.keys(), ncols = 100)):
+                wers = []
 
-    for i, key in enumerate(tqdm(data_json.keys())):
-        # if (dataset in ['aishell', 'aishell2', 'old_aishell']):
-        #     input_ids, _, attention_mask = tokenizer(data['ref']).values()
-        # elif (dataset in ['tedlium2', 'librispeech']):
-        #     input_ids, attention_mask = tokenizer(data['ref']).values()
-        # print(data_json[key].keys())
+                for err in data_json[key]['err']:
+                    wers.append(err['err'])
+                
+                wers = torch.tensor(wers, dtype = torch.float32)
 
-        # if (i >= 64): break
-        for hyp, score, rescore, err in zip(data_json[key]['hyps'], data_json[key]['score'], data_json[key]['Rescore'], data_json[key]['err']):
-            if (dataset in ['aishell', 'aishell2', 'old_aishell']):
-                input_ids, _, attention_mask = tokenizer(hyp).values()
-            elif (dataset in ['tedlium2', 'librispeech']):
-                input_ids, attention_mask = tokenizer(hyp).values()
+                avg_err = torch.mean(wers).item()
+                for hyp, score, rescore, err in zip(data_json[key]['hyps'], data_json[key]['score'] ,data_json[key]['rescore'], data_json[key]['err']):
+                    output = tokenizer(hyp)
+                    if ('token_type_ids' in output.keys()):
+                        input_ids, _, attention_mask = tokenizer(hyp).values()
+                    else:
+                        input_ids, attention_mask = tokenizer(hyp).values()
+                
+                    
+                    data_list.append(
+                        {
+                            'name': key,
+                            "input_ids":input_ids,
+                            "attention_mask": attention_mask,
+                            "score": score,
+                            "mlm_score": rescore,
+                            "err": err,
+                            "wer": err['err'],
+                            "avg_err": avg_err
+                        }
+                    )
+                # if (i > 550):
+                #     break
             
-            data_list.append(
-                {
-                    'name': key,
-                    "input_ids":input_ids,
-                    "attention_mask": attention_mask,
-                    "score": score,
-                    "mlm_score": rescore,
-                    "err": err,
-                    "wer": err['err']
-                }
-            )
-    
+        elif (isinstance(data_json, list)):
+            for i, data in enumerate(tqdm(data_json, ncols = 100)):
+                wers = []
+
+                for err in data['err']:
+                    wers.append(err['err'])
+                
+                wers = torch.tensor(wers, dtype = torch.float32)
+                avg_err = wers.mean().item()
+                
+                for hyp, score, rescore, err in zip(data['hyps'], data['score'] ,data['rescore'], data['err']):
+                    output = tokenizer(hyp)
+                    if ('token_type_ids' in output.keys()):
+                        input_ids, _, attention_mask = tokenizer(hyp).values()
+                    else:
+                        input_ids, attention_mask = tokenizer(hyp).values()
+                
+                    
+                    data_list.append(
+                        {
+                            'name': data['name'],
+                            "input_ids":input_ids,
+                            "attention_mask": attention_mask,
+                            "score": score,
+                            "mlm_score": rescore,
+                            "err": err,
+                            "wer": err['err'],
+                            "avg_err": avg_err
+                        }
+                    )
+                # if (i > 550):
+                #     break
+            
+    elif (mode in ['MWER', 'MWED']):
+        if (isinstance(data_json, dict)):
+            for i, key in enumerate(tqdm(data_json.keys(), ncols = 100)):
+                wers = []
+                for err in data_json[key]['err']:
+                    wers.append(err['err'])
+                
+                wers_tensor = torch.tensor(wers, dtype = torch.float32)
+                avg_err = torch.mean(wers_tensor).item()
+
+                scores = torch.tensor(data_json[key]['score'])
+
+                input_ids = []
+                attention_masks = []
+                avg_errs = []
+
+                for hyp in data_json[key]['hyps']:
+                    output = tokenizer(hyp)
+                    input_ids.append(output['input_ids'])
+                    attention_masks.append(output['attention_mask'])
+                    avg_errs.append(avg_err)
+                
+                nbest = len(data_json[key]['hyps'])
+
+                data_list.append(
+                    {
+                        "hyps":data_json[key]['hyps'], 
+                        "name":key,
+                        "input_ids": input_ids,
+                        "attention_mask": attention_masks,
+                        "score": data_json[key]['score'],
+                        "rescore": data_json[key]['rescore'],
+                        'errs':data_json[key]['err'],
+                        "wer": wers,
+                        "avg_err": avg_errs,
+                        "nbest": nbest
+                    }
+                )
+                # if (i > 32):
+                #     break
+            
+        elif (isinstance(data_json, list)):
+            for i, data in enumerate(tqdm(data_json, ncols = 100)):
+                wers = []
+                for err in data['err']:
+                    wers.append(err['err'])
+                
+                wers_tensor = torch.tensor(wers, dtype = torch.float32)
+                avg_err = torch.mean(wers_tensor).item()
+
+                scores = torch.tensor(data['score'])
+
+                input_ids = []
+                attention_masks = []
+                avg_errs = []
+                for hyp in data['hyps']:
+                    output = tokenizer(hyp)
+                    input_ids.append(output['input_ids'])
+                    attention_masks.append(output['attention_mask'])
+                    avg_errs.append(avg_err)
+                
+                nbest = len(data['hyps'])
+
+                data_list.append(
+                    {
+                        "hyps":data['hyps'], 
+                        "name":data['name'],
+                        "input_ids": input_ids,
+                        "attention_mask": attention_masks,
+                        "score": data['score'],
+                        "rescore": data['rescore'],
+                        'errs':data['err'],
+                        "wer": wers,
+                        "avg_err": avg_errs,
+                        "nbest": nbest
+                    }
+                )
+                # if (i > 32):
+                #     break
+
     return LM_Dataset(data_list)
 
 def getRecogDataset(data_json, dataset, tokenizer, topk = 50):
     data_list = list()
 
-    for i, key in enumerate(tqdm(data_json.keys())):
-        # if (dataset in ['aishell', 'aishell2', 'old_aishell']):
-        #     input_ids, _, attention_mask = tokenizer(data['ref']).values()
-        # elif (dataset in ['tedlium2', 'librispeech']):
-        #     input_ids, attention_mask = tokenizer(data['ref']).values()
-        # print(data_json[key].keys())
-        for i, (hyp, score, rescore, err) in enumerate(zip(data_json[key]['hyps'], data_json[key]['score'],data_json[key]['Rescore'], data_json[key]['err'])):
-            if (dataset in ['aishell', 'aishell2', 'old_aishell']):
-                input_ids, _, attention_mask = tokenizer(hyp).values()
-            elif (dataset in ['tedlium2', 'librispeech']):
-                input_ids, attention_mask = tokenizer(hyp).values()
-            
-            data_list.append(
-                {
-                    "name": key,
-                    "input_ids":input_ids,
-                    "attention_mask": attention_mask,
-                    "score": score,
-                    "mlm_score": rescore,
-                    "wer": err['err'],
-                    'index': i
-                }
-            )
+    if (isinstance(data_json, dict)):
+        for i, key in enumerate(tqdm(data_json.keys(), ncols = 100)):
+            # if (dataset in ['aishell', 'aishell2', 'old_aishell']):
+            #     input_ids, _, attention_mask = tokenizer(data['ref']).values()
+            # elif (dataset in ['tedlium2', 'librispeech']):
+            #     input_ids, attention_mask = tokenizer(data['ref']).values()
+            for j, (hyp, score, rescore, err) in enumerate(zip(data_json[key]['hyps'], data_json[key]['score'],data_json[key]['rescore'], data_json[key]['err'])):
+                output = tokenizer(hyp)
+                
+                if ('token_type_ids' in output.keys()):
+                    input_ids, _, attention_mask = output.values()
+                else:
+                    input_ids, attention_mask = output.values()
+                
+                data_list.append(
+                    {
+                        "name": key,
+                        "input_ids":input_ids,
+                        "attention_mask": attention_mask,
+                        "score": score,
+                        "mlm_score": rescore,
+                        "wer": err['err'],
+                        'index': j,
+                        "top_hyp": data_json[key]['hyps'][0]
+                    }
+                )
+    elif (isinstance(data_json, list)):
+        for i, data in enumerate(tqdm(data_json, ncols = 100)):
+            # if (dataset in ['aishell', 'aishell2', 'old_aishell']):
+            #     input_ids, _, attention_mask = tokenizer(data['ref']).values()
+            # elif (dataset in ['tedlium2', 'librispeech']):
+            #     input_ids, attention_mask = tokenizer(data['ref']).values()
+            # print(data_json[key].keys())
+            for j, (hyp, score, rescore, err) in enumerate(zip(data['hyps'], data['score'],data['rescore'], data['err'])):
+                output = tokenizer(hyp)
+                
+                if ('token_type_ids' in output.keys()):
+                    input_ids, _, attention_mask = output.values()
+                else:
+                    input_ids, attention_mask = output.values()
+                
+                data_list.append(
+                    {
+                        "name": data['name'],
+                        "input_ids":input_ids,
+                        "attention_mask": attention_mask,
+                        "score": score,
+                        "mlm_score": rescore,
+                        "wer": err['err'],
+                        'index': j,
+                        "top_hyp": data['hyps'][0]
+                    }
+                )
+        
     
     return LM_Dataset(data_list)
 
-class adaptionDataset(Dataset):
-    # Use only for domain adaption in MLM bert
-    # Only use groundtruth
-    def __init__(self, nbest_list):
-        self.data = nbest_list
+def prepare_myDataset(data_json, bert_tokenizer, gpt_tokenizer, topk = 50):
+    data_list = list()
+    print(f'prepare_MyDataset')
+    if (isinstance(data_json, list)):
+        for i, data in enumerate(tqdm(data_json, ncols = 100)):
+            assert(isinstance(data['hyps'], list)), f"Hyps is not list:{data['hyps']}"
+            assert(isinstance(data['am_score'], list)), f"{data['name']} -- Am_score is not list:{data['am_score']}, hyps = {data['hyps']}, ctc_score = {data['ctc_score']}"
+            assert(isinstance(data['ctc_score'], list)), f"CTC_score is not list:{data['ctc_score']}"
+            assert(isinstance(data['err'], list)), f"WER is not list:{data['err']}"
 
-    def __getitem__(self, idx):
-        return self.data[idx]["ref_token"]
 
-    def __len__(self):
-        return len(self.data)
+            for j, (hyp, am_score, ctc_score, err) in enumerate(zip(data['hyps'], data['am_score'],data['ctc_score'], data['err'])):
+                bert_output = bert_tokenizer(hyp)
 
-class pllDataset(Dataset):
-    # Training dataset
-    def __init__(self, nbest_list, nbest = 50):
-        """
-        nbest_list: list()
-        """
-        self.data = nbest_list
-        self.nbest = nbest
+                gpt_output = gpt_tokenizer(hyp)
 
-    def __getitem__(self, idx):
-        if (self.nbest <= len(self.data[idx]["token"])):
-            return (
+                if ('token_type_ids' in bert_output.keys()):
+                    input_ids, _ , attention_mask = bert_output.values()
+                
+                else:
+                    input_ids, attention_mask = bert_output.values()
+
+                
+                if ('token_type_ids' in gpt_output.keys()):
+                    gpt_input_ids, _, gpt_attention_mask = gpt_output.values()
+                
+                else:
+                    gpt_input_ids, gpt_attention_mask = gpt_output.values()
+
+                
+                
+                data_list.append(
+                    {
+                        'name': data['name'],
+                        'bert_input_ids': input_ids,
+                        "bert_mask": attention_mask,
+                        "gpt_input_ids": gpt_input_ids,
+                        "gpt_mask": gpt_attention_mask,
+                        "am_score": am_score,
+                        "ctc_score": ctc_score,
+                        "wer": err['err'],
+                        'index': j
+                    }
+                )
+            # if (i > 256):
+            #     break        
+
+    elif (isinstance(data_json, dict)):
+        for i, key in enumerate(tqdm(data_json.keys(), ncols = 100)):
+            for j, (hyp, score, rescore, err) in enumerate(zip(data[key]['hyps'], data[key]['score'],data[key]['rescore'], data[key]['err'])):
+                bert_output = bert_tokenizer(hyp)
+
+                gpt_output = gpt_tokenizer()
+
+                if ('token_type_ids' in bert_output.keys()):
+                    input_ids, _ , attention_mask = bert_output.values()
+                
+                else:
+                    input_ids, attention_mask = bert_output.values()
+
+                
+                if ('token_type_ids' in gpt_output.keys()):
+                    gpt_input_ids, _, gpt_attention_mask = gpt_output.values()
+                
+                else:
+                    gpt_input_ids, gpt_attention_mask = gpt_output.values()
+
+                
+                
+                data_list.append(
+                    {
+                        'name': data['name'],
+                        'bert_input_ids': input_ids,
+                        "bert_mask": attention_mask,
+                        "gpt_input": gpt_input_ids,
+                        "gpt_mask": gpt_attention_mask,
+                        "score": score,
+                        "mlm_score": rescore,
+                        "wer": err['err'],
+                        'index': j
+
+                    }
+                )
+            # if (i > 256):
+            #     break
+    
+    return LM_Dataset(data_list)
+
+
+def prepare_myRecogDataset(data_json, bert_tokenizer, topk = 50):
+    data_list = list()
+    print(f'prepare_MyDataset')
+    if (isinstance(data_json, list)):
+        for i, data in enumerate(tqdm(data_json, ncols = 100)):
+            assert(isinstance(data['hyps'], list)), f"Hyps is not list:{data['hyps']}"
+            assert(isinstance(data['am_score'], list)), f"{data['name']} -- Am_score is not list:{data['am_score']}, hyps = {data['hyps']}, ctc_score = {data['ctc_score']}"
+            assert(isinstance(data['ctc_score'], list)), f"CTC_score is not list:{data['ctc_score']}"
+            assert(isinstance(data['err'], list)), f"WER is not list:{data['err']}"
+
+
+            for j, (hyp, am_score, ctc_score, err) in enumerate(zip(data['hyps'], data['am_score'],data['ctc_score'], data['err'])):
+                bert_output = bert_tokenizer(hyp)
+
+
+                if ('token_type_ids' in bert_output.keys()):
+                    input_ids, _ , attention_mask = bert_output.values()
+                
+                else:
+                    input_ids, attention_mask = bert_output.values()
+                
+                data_list.append(
+                    {
+                        'name': data['name'],
+                        'bert_input_ids': input_ids,
+                        "bert_mask": attention_mask,
+                        "am_score": am_score,
+                        "ctc_score": ctc_score,
+                        "wer": err['err'],
+                        'index': j
+                    }
+                )
+            # if (i > 256):
+            #     break        
+
+    elif (isinstance(data_json, dict)):
+        for i, key in enumerate(tqdm(data_json.keys(), ncols = 100)):
+            for j, (hyp, score, rescore, err) in enumerate(zip(data[key]['hyps'], data[key]['score'],data[key]['rescore'], data[key]['err'])):
+                bert_output = bert_tokenizer(hyp)
+
+
+                if ('token_type_ids' in bert_output.keys()):
+                    input_ids, _ , attention_mask = bert_output.values()
+                
+                else:
+                    input_ids, attention_mask = bert_output.values()
+                
+                data_list.append(
+                    {
+                        'name': data['name'],
+                        'bert_input_ids': input_ids,
+                        "bert_mask": attention_mask,
+                        "score": score,
+                        "mlm_score": rescore,
+                        "wer": err['err'],
+                        'index': j
+                    }
+                )
+            # if (i > 256):
+            #     break
+    
+    return LM_Dataset(data_list)
+
+
+def prepareListwiseDataset(data_json, tokenizer, topk = 50, sort_by_len = False):
+    """
+    The purpose of the function is to get the complete dataset. Includes:
+
+    - utt name
+    - hyps (tokenized)
+    - refs
+    - am_score
+    - ctc_score
+    - WER (Include correct, sub, ins, del error number)
+    - WER only
+    - average WER
+    - len of hyps
+
+    In this function, we will NOT split the N-best List
+    """
+
+    data_list = list()
+    if (isinstance(data_json, dict)):
+        for i, key in enumerate(tqdm(data_json.keys(), ncols = 100)):
+            wers = []
+            for err in data_json[key]['err']:
+                wers.append(err['err'])
             
-                self.data[idx]["token"][: self.nbest],
-                self.data[idx]["text"][: self.nbest],
-                self.data[idx]["score"][: self.nbest],
-                self.data[idx]["err"][: self.nbest],
-                self.data[idx]["pll"][: self.nbest],
-                self.data[idx]["name"]
-            )
-        else:
-            return (
+            wers_tensor = torch.as_tensor(wers, dtype = torch.float32)
+            avg_err = torch.mean(wers_tensor).item()
+
+            scores = torch.as_tensor(data_json[key]['score'], dtype = torch.float32)
+            am_scores = torch.as_tensor(data_json[key]['am_score'], dtype = torch.float32)
+            ctc_scores = torch.as_tensor(data_json[key]['ctc_score'], dtype = torch.float32)
+            # lm_scores = torch.as_tensor(data_json[key]['lm_score'])
+
+            input_ids = []
+            attention_masks = []
+            avg_errs = []
+
+            min_len = 10000
+            max_len = -1
+
+            for hyp in data_json[key]['hyps']:
+                output = tokenizer(hyp)
+                input_ids.append(output['input_ids'])
+                attention_masks.append(output['attention_mask'])
+                avg_errs.append(avg_err)
+
+                if (len(hyp) > max_len):
+                    max_len = len(hyp)
+                if (len(hyp) < min_len):
+                    min_len = len(hyp)
             
-                self.data[idx]["token"],
-                self.data[idx]["text"],
-                self.data[idx]["score"],
-                self.data[idx]["err"],
-                self.data[idx]["pll"],
+            nbest = len(data_json[key]['hyps'])
+
+
+            data_list.append(
+                {
+                    "name":key,
+                    "hyps":data_json[key]['hyps'], 
+                    "input_ids": input_ids,
+                    "attention_mask": attention_masks,
+                    "score": scores,
+                    "am_score": am_scores,
+                    "ctc_score": ctc_scores,
+                    'errs':data_json[key]['err'],
+                    "wer": wers_tensor,
+                    "avg_err": avg_errs,
+                    "nbest": nbest,
+                    "max_len": max_len,
+                    "min_len": min_len
+                }
             )
-        #    self.data[idx]['name'],\
+            # if (i > 18):
+            #     break
+        
+    elif (isinstance(data_json, list)):
+        for i, data in enumerate(tqdm(data_json, ncols = 100)):
+            wers = []
+            for err in data['err']:
+                wers.append(err['err'])
+            
+            wers_tensor = torch.tensor(wers, dtype = torch.float32)
+            avg_err = torch.mean(wers_tensor).item()
 
-    def __len__(self):
-        return len(self.data)
+            scores = torch.as_tensor(data['score'], dtype = torch.float32)
+            am_scores = torch.as_tensor(data['am_score'], dtype = torch.float32)
+            ctc_scores = torch.as_tensor(data['ctc_score'], dtype = torch.float32)
 
-class nBestDataset(Dataset):
-    def __init__(self, nbest_list, nbest = 50):
-        """
-        nbest_list: list()
-        """
-        self.data = nbest_list
-        self.nbest = nbest
+            input_ids = []
+            attention_masks = []
+            avg_errs = []
 
-    def __getitem__(self, idx):
-        if (self.nbest <= len(self.data[idx]["token"])):
-            return (
-                self.data[idx]["token"][: self.nbest],
-                self.data[idx]["text"][: self.nbest],
-                self.data[idx]["score"][: self.nbest],
-                self.data[idx]["err"][: self.nbest],
+            min_len = 10000
+            max_len = -1
+            
+            for hyp in data['hyps']:
+                output = tokenizer(hyp)
+                input_ids.append(output['input_ids'])
+                attention_masks.append(output['attention_mask'])
+                avg_errs.append(avg_err)
+
+                if (len(output['input_ids']) > max_len):
+                    max_len = len(output['input_ids'])
+                if (len(output['input_ids']) < min_len):
+                    min_len = len(output['input_ids'])
+            
+            nbest = len(data['hyps'])
+            # print(f'nbest:{nbest}')
+
+
+
+            data_list.append(
+                {
+                    "hyps":data['hyps'], 
+                    "name":data['name'],
+                    "input_ids": input_ids,
+                    "attention_mask": attention_masks,
+                    "score": scores,
+                    "am_score": am_scores,
+                    "ctc_score": ctc_scores,
+                    'errs':data['err'],
+                    "wer": wers_tensor,
+                    "avg_err": avg_errs,
+                    "nbest": nbest,
+                    "max_len": max_len,
+                    "min_len": min_len
+                }
             )
-        else:
-            return (
-                self.data[idx]["token"],
-                self.data[idx]["text"],
-                self.data[idx]["score"],
-                self.data[idx]["err"],
-            )
-        #    self.data[idx]['name'],\
-    def __len__(self):
-        return len(self.data)
-
-class rescoreDataset(Dataset):
-    def __init__(self, nbest_list, nbest=10):
-        """
-        nbest_list: list() of dict()
-        """
-        self.data = nbest_list
-        self.nbest = nbest
-
-    def __getitem__(self, idx):
-       if (self.nbest <= len(self.data[idx]["token"])):
-            return (
-                self.data[idx]["name"],
-                self.data[idx]["token"][: self.nbest],
-                self.data[idx]["text"][: self.nbest],
-                self.data[idx]["score"][: self.nbest],
-                self.data[idx]["ref"],
-                self.data[idx]["err"][: self.nbest],
-            )
-       else:
-            return (
-                self.data[idx]["name"],
-                self.data[idx]["token"],
-                self.data[idx]["text"],
-                self.data[idx]["score"],
-                self.data[idx]["ref"],
-                self.data[idx]["err"],
-            )
-
-    def __len__(self):
-        return len(self.data)
-
-
-class rescoreComplexDataset(Dataset):
-    # return with am, lm and ctc score seperately 
-    def __init__(self, nbest_list, nbest=10):
-        """
-        nbest_list: list() of dict()
-        """
-        self.data = nbest_list
-        self.nbest = nbest
-
-    def __getitem__(self, idx):
-       if (self.nbest <= len(self.data[idx]["token"])):
-            return (
-                self.data[idx]["name"],
-                self.data[idx]["token"][: self.nbest],
-                self.data[idx]["text"][: self.nbest],
-                self.data[idx]["am_score"][: self.nbest],
-                self.data[idx]["ctc_score"][: self.nbest],
-                self.data[idx]["lm_score"][: self.nbest],
-                self.data[idx]["ref"],
-                self.data[idx]["err"][: self.nbest],
-            )
-       else:
-            return (
-                self.data[idx]["name"],
-                self.data[idx]["token"],
-                self.data[idx]["text"],
-                self.data[idx]["am_score"],
-                self.data[idx]["lm_score"],
-                self.data[idx]["ctc_score"],
-                self.data[idx]["ref"],
-                self.data[idx]["err"],
-            )
-
-    def __len__(self):
-        return len(self.data)
+            # if (i > 2560):
+            #     break
+    
+    if (sort_by_len):
+        data_list = sorted(data_list, key = lambda x: x['max_len'])
+    return LM_Dataset(data_list)

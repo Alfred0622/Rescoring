@@ -6,11 +6,11 @@ import json
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 
-from utils.LoadConfig import load_config
+from src_utils.LoadConfig import load_config
 from utils.PrepareModel import prepare_model
 from utils.CollateFunc import trainBatch
 from utils.Datasets import get_dataset
-from utils.LoadConfig import load_config
+from src_utils.LoadConfig import load_config
 
 from transformers import Trainer, TrainingArguments, DataCollator
 

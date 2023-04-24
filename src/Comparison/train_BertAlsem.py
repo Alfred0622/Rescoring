@@ -1,10 +1,10 @@
 import json
-import yaml
 import random
 import torch
-import glob
 import logging
 import os
+import sys
+sys.path.append("../")
 from tqdm import tqdm
 from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
@@ -15,7 +15,7 @@ from utils.Datasets import(
 from utils.CollateFunc import(
     bertAlsemBatch,
 )
-from utils.LoadConfig import load_config
+from src_utils.LoadConfig import load_config
 from utils.PrepareModel import prepare_model
 
 from transformers import Trainer, TrainingArguments, DataCollator
@@ -30,14 +30,15 @@ dataset = args['dataset']
 setting = 'withLM' if args['withLM'] else "noLM"
 topk = args['nBest']
 
-if (not os.path.exists(f"./log/{setting}/Bert_alsem")):
-    os.makedirs(f"./log/{setting}/Bert_alsem")
+
+log_path = Path(f"./log/{args['dataset']}/{setting}/Bert_alsem")
+log_path.mkdir(exist_ok = True, parents = True)
 
 FORMAT = "%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s"
 
 logging.basicConfig(
     level=logging.INFO,
-    filename=f"./log/{setting}/Bert_alsem/Bert_alsem_train.log",
+    filename=f"{log_path}/Bert_alsem_train_batch{train_args['train_batch']}_lr{train_args['lr']}.log",
     filemode="w",
     format=FORMAT,
 )
@@ -47,7 +48,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 with open(f"./data/{dataset}/train/{setting}/{args['nBest']}best/data.json") as f:
     train_json = json.load(f)
-with open(f"./data/{dataset}/valid/{setting}/{args['nBest']}best/data.json") as v:
+with open(f"./data/{dataset}/valid/{setting}/5best/data.json") as v:
     valid_json = json.load(v)
 
 model, tokenizer = prepare_model(args, train_args, device)
@@ -76,7 +77,7 @@ for e in range(train_args['epoch']):
             param.require_grads = False
     accum_loss = 0.0
     model.optimizer.zero_grad()
-    for i, data in enumerate(tqdm(train_loader)):
+    for i, data in enumerate(tqdm(train_loader, ncols = 100)):
         data = {k: v.to(device) for k, v in data.items()}
         loss = model(**data).loss
         accum_loss += loss.item()
@@ -89,7 +90,7 @@ for e in range(train_args['epoch']):
 
         if ((i + 1) % train_args['print_loss'] == 0):
             logging.warning(
-                f"train_epoch:{e}, step:{i + 1}, loss:{accum_loss / train_args['print_loss']}")
+                f"train_epoch:{e + 1}, step:{i + 1}, loss:{accum_loss / train_args['print_loss']}")
             accum_loss = 0.0
 
     checkpoint = {
@@ -101,7 +102,7 @@ for e in range(train_args['epoch']):
         "optimizer": model.optimizer.state_dict()
     }
 
-    savePath = Path(f"./checkpoint/{setting}/Bert_alsem/")
+    savePath = Path(f"./checkpoint/{args['dataset']}/{setting}/Bert_alsem_batch{train_args['train_batch']}_lr{train_args['lr']}/")
     savePath.mkdir(parents=True, exist_ok=True)
 
     torch.save(checkpoint, f"{savePath}/checkpoint_train_{e + 1}.pt")
@@ -109,10 +110,12 @@ for e in range(train_args['epoch']):
     accum_loss = 0.0
     model.eval()
     with torch.no_grad():
-        for i, data in enumerate(tqdm(valid_loader)):
+        for i, data in enumerate(tqdm(valid_loader, ncols = 100)):
             data = {k: v.to(device) for k, v in data.items()}
             loss = model(**data).loss
             accum_loss += loss.item()
 
         if (accum_loss < min_val):
             torch.save(checkpoint, f"{savePath}/chechpoint_train_best.pt")
+        
+        logging.warning(f"epoch:{e + 1}, validation loss:{accum_loss}")

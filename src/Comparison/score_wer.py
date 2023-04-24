@@ -4,7 +4,7 @@ from yaml import load
 from jiwer import wer, cer
 import json
 from pathlib import Path
-from utils.LoadConfig import load_config
+from src_utils.LoadConfig import load_config
 
 config = "./config/comparison.yaml"
 args, train_args, recog_args = load_config(config)

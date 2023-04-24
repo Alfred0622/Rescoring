@@ -13,6 +13,7 @@ from transformers import (
 from model.BertForComparison import Bert_Sem, Bert_Alsem
 
 def prepare_model(args, train_args, device):
+    print(f"{args['model_name']}")
     if (args["dataset"] in {'aishell', 'aishell2'}):
         pretrain_name = 'bert-base-chinese'
     elif (args["dataset"] in {'tedlium2', 'librispeech', 'tedlium2_conformer'}):
@@ -21,7 +22,8 @@ def prepare_model(args, train_args, device):
         pass
 
     if (args["model_name"] == 'sem'):
-        model = Bert_Sem(args['dataset'], device, lr = float(train_args['lr']))
+        print(f"sem")
+        model = Bert_Sem(args['dataset'], device)
     elif (args["model_name"] == 'alsem'):
         model = Bert_Alsem(pretrain_name, device,ctc_weight = train_args['ctc_weight'])
     

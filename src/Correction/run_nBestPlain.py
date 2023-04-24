@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from models.nBestAligner.nBestTransformer import nBestTransformer
 from models.BartForCorrection.RoBart import RoBart
 from transformers import BertTokenizer
-from utils.LoadConfig import load_config
+from src_utils.LoadConfig import load_config
 from utils.Datasets import correctDataset, correctRecogDataset
 from utils.CollateFunc import PlainBatch, PlainRecogBatch
 

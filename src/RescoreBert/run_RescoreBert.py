@@ -19,7 +19,7 @@ from utils.CollateFunc import(
     rescoreBertBatch,
     RescoreBertRecog
 )
-from utils.LoadConfig import load_config
+from src_utils.LoadConfig import load_config
 
 random.seed(42)
 torch.manual_seed(42)
@@ -94,7 +94,7 @@ elif (args['dataset'] in ['csj']):
     pass  #japanese
 
 print(f'pretrain_name:{pretrain_name}')
-
+ 
 if args['stage'] <= 2:
     model = MLMBert(
         train_batch=adapt_batch,

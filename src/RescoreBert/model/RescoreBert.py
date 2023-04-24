@@ -1,15 +1,20 @@
 import torch
 import logging
 from torch.nn.functional import log_softmax
+from torch.optim import AdamW
 from transformers import (
     BertForMaskedLM,
     BertModel,
     BertTokenizer,
     DistilBertModel,
     DistilBertConfig,
+    AutoModelForCausalLM
 )
-from torch.optim import AdamW
+from transformers.modeling_outputs import SequenceClassifierOutput
 # from sentence_transformers import SentenceTransformer
+from torch.nn.functional import log_softmax
+from utils.cal_score import get_sentence_score
+from torch.nn import AvgPool1d, MaxPool1d
 
 class MLMBert(torch.nn.Module):
     def __init__(self, train_batch, test_batch, nBest, device, lr=1e-5, mode="random", pretrain_name = 'bert-base-chinese'):
@@ -411,3 +416,157 @@ class RescoreBert(torch.nn.Module):
             best_hyp_tokens.append(self.tokenizer.convert_ids_to_tokens(hyp[1:sep]))
 
         return rescore, weighted_score, best_hyp_tokens, max_sentence
+    
+
+class RescoreBertAlsem(torch.nn.Module):
+    def __init__(self, dataset, lstm_dim, device):
+        super().__init__()
+
+        bert_pretrain_name = 'None'
+        gpt_pretrain_name = 'None'
+
+        if (dataset in ['aishell', 'aishell2']):
+            bert_pretrain_name = 'bert-base-chinese'
+            gpt_pretrain_name = 'ckiplab/gpt2-base-chinese'
+        elif (dataset in ['tedlium2', 'librispeech']):
+            bert_pretrain_name = 'bert-base-uncased'
+            gpt_pretrain_name = 'gpt2'
+        elif (dataset in ['csj']):
+            bert_pretrain_name = "cl-tohoku/bert-base-japanese"
+            gpt_pretrain_name = 'ClassCat/gpt2-base-japanese-v2'
+
+        self.device = device
+        
+        self.bert = BertModel.from_pretrained(bert_pretrain_name).to(device)
+        # self.gpt = AutoModelForCausalLM.from_pretrained(gpt_pretrain_name)
+
+        self.biLSTM = torch.nn.LSTM(
+            input_size = 768,
+            hidden_size = lstm_dim,
+            num_layers = 2,
+            dropout = 0.1,
+            batch_first = True,
+            bidirectional = True
+        ).to(device)
+
+        self.concatLinear = torch.nn.Linear(4 * lstm_dim, lstm_dim).to(device)
+        self.scoreLinear = torch.nn.Sequential(
+            torch.nn.Linear(768 + lstm_dim + 2, 768), # bert dim + lastm_dim + [am_score, ctc_score]
+            torch.nn.ReLU(),
+            torch.nn.Linear(768, 1)
+        ).to(device)
+
+        self.l2_loss = torch.nn.MSELoss()
+        self.NllLoss = torch.nn.NLLLoss()
+
+
+    def forward(
+            self, 
+            bert_ids,
+            bert_mask, 
+            gpt_scores,
+            am_scores,
+            ctc_scores,
+        ):
+        
+        # gpt_states = self.gpt(gpt_ids, gpt_mask).logits
+
+        # gpt_score = log_softmax(gpt_states, dim = -1)
+        # gpt_score = get_sentence_score(gpt_score, gpt_ids, gpt_bos, gpt_eos, gpt_pad)
+
+        cls = self.bert(bert_ids, bert_mask).pooler_output
+        last_hidden_state = self.bert(bert_ids, bert_mask).last_hidden_state[:, :, :]
+
+        LSTM_state, (h, c) = self.biLSTM(last_hidden_state)
+        
+        # print(f"LSTM:{LSTM_state.shape}")
+
+        avg_pool = AvgPool1d(LSTM_state.shape[1]).to(self.device)
+        max_pool = MaxPool1d(LSTM_state.shape[1]).to(self.device)
+
+        # print(f"LSTM:{LSTM_state.shape}")
+        
+        avg_state = torch.transpose(
+            avg_pool(torch.transpose(LSTM_state,1,2)), 1,2
+        )
+
+
+        max_state = torch.transpose(
+            max_pool(torch.transpose(LSTM_state,1,2)), 1,2
+        )
+
+        concatStates = torch.cat([avg_state, max_state], dim = -1).squeeze(1)
+        # print(concatStates.shape)
+        projStates = self.concatLinear(concatStates)
+
+        # print(f'cls:{cls.shape}')
+        # print(f'projState:{projStates.shape}')
+
+        concatCLS = torch.cat([cls, projStates], dim = -1)
+        # print(f"concatCLS.shape:{concatCLS.shape}")
+        # print(f"am_scores.shape:{am_scores.shape}")
+        # print(f"ctc_scores.shape:{ctc_scores.shape}")
+        scores = torch.cat([am_scores.unsqueeze(-1), ctc_scores.unsqueeze(-1)] ,dim = -1).to(cls.device)
+        # print(scores.shape)
+        concatCLS = torch.cat([concatCLS, scores], dim = -1)
+        scores = self.scoreLinear(concatCLS).squeeze(-1)
+
+        # print(f"score:{scores.shape}")
+        # print(f"gpt_score:{gpt_scores.shape}")
+
+        l2_loss = self.l2_loss(scores, gpt_scores)
+
+        return SequenceClassifierOutput(
+            loss = l2_loss,
+            logits = scores,
+        )
+    
+    
+    def recognize(
+            self,
+            bert_ids,
+            bert_mask,
+            am_scores,
+            ctc_scores,
+    ):
+        cls = self.bert(bert_ids, bert_mask).pooler_output
+        last_hidden_state = self.bert(bert_ids, bert_mask).last_hidden_state
+
+        LSTM_state, (h, c) = self.biLSTM(last_hidden_state)
+
+        avg_pool = AvgPool1d(LSTM_state.shape[1]).to(self.device)
+        max_pool = MaxPool1d(LSTM_state.shape[1]).to(self.device)
+        
+        avg_state = torch.transpose(
+            avg_pool(torch.transpose(LSTM_state,1,2)), 1,2
+        )
+        max_state = torch.transpose(
+            max_pool(torch.transpose(LSTM_state,1,2)), 1,2
+        )
+
+        concatStates = torch.cat([avg_state, max_state])
+        projStates = self.concatLinear(concatStates)
+
+        scores = torch.cat([am_scores.unsqueeze(-1), ctc_scores.unsqueeze(-1)] ,dim = -1).to(cls.device)
+        concatCLS = torch.cat([cls, projStates])
+        concatCLS = torch.cat([concatCLS, scores])
+        scores = torch.scoreLinear(concatCLS)
+
+        return scores
+
+    def parameters(self):
+        return list(self.bert.parameters()) + list(self.biLSTM.parameters()) + list(self.concatLinear.parameters()) + list(self.scoreLinear.parameters())
+
+    def checkpoint(self):
+        return{
+            "BERT":self.bert.state_dict(),
+            "LSTM":self.biLSTM.state_dict(),
+            "concatLinear":self.concatLinear.state_dict(),
+            "scoreLinear":self.scoreLinear.state_dict()
+        }
+    
+    def load_state_dict(self, state_dict):
+        self.bert.load_state_dict(state_dict["BERT"])
+        self.biLSTM.load_state_dict(state_dict["LSTM"])
+        self.concatLinear.load_state_dict(state_dict["concatLinear"])
+        self.scoreLinear.load_state_dict(state_dict["scoreLinear"])

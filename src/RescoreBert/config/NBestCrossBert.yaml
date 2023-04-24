@@ -1,0 +1,29 @@
+args:
+  nbest: 50 # max: 50
+  withLM: False
+  dataset: aishell
+
+train:
+  epoch: 30
+  AttLayer: 1
+  freeze_gpt_epoch: -1
+  batch_size: 256
+  valid_batch: 1
+  accumgrad: 1
+  print_loss: 5000
+  lr: 1e-5
+  maxlr: 1e-3
+  fuseType: none # lstm , attn or None
+  lstm_embedding: 1024
+  useNBestCross: False
+  trainAttendWeight: False
+  addRes: True
+  freeze_epoch: 30
+  hardLabel: False
+  logSoftmax: False
+  lossType: 'KL'
+  sortByLen: True
+  
+recog:
+  batch: 1
+  find_weight: True 

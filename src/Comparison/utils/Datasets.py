@@ -31,9 +31,9 @@ def get_dataset(data_json, tokenizer, is_token = False):
             )
         return concatTrainerDataset(data_list), data_list
 
-def get_alsemDataset(data_json, tokenizer):
+def get_alsemDataset(data_json, tokenizer, for_train = True):
     data_list = list()
-    for data in tqdm(data_json):
+    for i, data in enumerate(tqdm(data_json, ncols = 100)):
         input_ids, token_type_ids, attention_mask = tokenizer(data['hyp1'], data['hyp2']).values()
         label = data['label']
         am_score = torch.tensor(data['am_score'])
@@ -44,17 +44,19 @@ def get_alsemDataset(data_json, tokenizer):
                 "input_ids":input_ids,
                 "token_type_ids": token_type_ids,
                 "attention_mask": attention_mask,
-                "labels": label,
+                "labels": label if for_train else None,
                 "am_score": am_score,
                 "ctc_score": ctc_score,
                 "lm_score": lm_score
             }
         )
+
     return concatTrainerDataset(data_list)
 
 def get_recogDataset(data_json, tokenizer):
     data_list = list()
-    for data in tqdm(data_json):    
+    for i, data in enumerate(tqdm(data_json, ncols = 100)):
+
         name  = data['name']
         # print(f"{len(data['hyp'])}")
         for hyps in data['hyps']:
@@ -71,15 +73,17 @@ def get_recogDataset(data_json, tokenizer):
                     "pair": pair,
                 }
             )
+    
+        
 
     return concatTrainerDataset(data_list)
 
 def get_BertAlsemrecogDataset(data_json, tokenizer):
     data_list = list()
-    for data in tqdm(data_json):    
+    for data in tqdm(data_json, ncols = 100):    
         name  = data['name']
         # print(f"{len(data['hyp'])}")
-        for hyps in data['hyp']:
+        for hyps in data['hyps']:
             input_id, token_type_id, mask = tokenizer(
                 hyps['hyp1'], hyps['hyp2']
             ).values() 

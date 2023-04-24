@@ -2,21 +2,23 @@ args:
   stage: 0
   stop_stage: 100
   nbest: 50
-  withLM: False
-  dataset: aishell
+  withLM: True
+  dataset: csj
   MLM: True
+  jp_split: False # if True, training data will be split by char
+  for_train: True
 
 train:
   epoch: 10
-  train_batch: 64
-  valid_batch: 1
+  train_batch: 128
+  valid_batch: 128
   accumgrad: 1
   print_loss: 200
   lr: 1e-5
   mode: scoring
 
 recog:
-  batch_size: 128
+  batch_size: 320
   lower_bound: 0.0
   upper_bound: 1.0
   length_norm: False

@@ -10,13 +10,17 @@ from transformers import (
     Seq2SeqTrainer, 
     DataCollatorForSeq2Seq
 )
+from functools import partial
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from utils.Datasets import get_dataset
 from utils.CollateFunc import trainBatch
-from utils.LoadConfig import load_config
+from src_utils.LoadConfig import load_config
 from utils.PrepareModel import prepare_model
 from jiwer import wer
+import gc
+
+tqdm = partial(tqdm, ncols=100)
 
 task_name = sys.argv[1]
 
@@ -32,28 +36,61 @@ else:
 
 def compute_metric(eval_pred):
     hyp, ref = eval_pred
-    # logging.warning(hyp.shape, type(hyp))
+
+    # print(f'hyp type:{type(hyp)}')
+    # print(hyp.shape)
+    # print(f'ref type:{type(ref)}')
+    # print(ref.shape)
+
     decoded_preds = tokenizer.batch_decode(hyp, skip_special_tokens=True)
     # Replace -100 in the labels as we can't decode them.
     # labels[ref == -100] = tokenizer.pad_token_id
     labels = np.where(ref != -100, ref, tokenizer.pad_token_id)
     decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
 
+    print(f"hyp:{len(decoded_preds)}")
+    print(f"ref:{len(decoded_labels)}")
+
+    print(f"decoded_preds:{type(decoded_preds)} -- {decoded_preds[-3:]}")
+    print(f"labels:{type(decoded_labels)} -- {decoded_labels[-3:]}")
+
+    print(f'wer:{wer(decoded_labels, decoded_preds)}')
+
     return {"wer": wer(decoded_labels, decoded_preds)}
 
 args, train_args, recog_args = load_config(config_name)
-model, tokenizer = prepare_model(args['dataset'])
+print(f"from_pretrain:{train_args['from_pretrain']}")
+model, tokenizer = prepare_model(args['dataset'], from_pretrain = train_args['from_pretrain'])
 setting = 'withLM' if args['withLM'] else 'noLM'
 
 if (args['dataset'] == 'old_aishell'):
     setting = ""
 
+sep_token = train_args['sep_token'] if train_args['sep_token'] is not None else tokenizer.eos_token
+print(f'sep_token:{sep_token}')
+
 if (args['dataset'] in ['aishell2']):
     dev_set = 'dev_ios'
 elif (args['dataset'] in ['librispeech']):
-    dev_set = 'dev_clean'
+    dev_set = 'valid'
 else:
     dev_set = 'dev'
+
+if (train_args['from_pretrain']):
+    pretrain_name = ""
+else:
+    pretrain_name = "noPretrain"
+
+if (task_name == 'plain'):
+    if (sep_token == '[SEP]'):
+        sep_token_name = 'sep'
+    else:
+        sep_token_name = sep_token
+    
+    task_name = f'{task_name}_{sep_token_name}_{pretrain_name}'
+
+else:
+    task_name = f'{task_name}_{pretrain_name}'
 
 if (not os.path.exists(f"./checkpoint/{args['dataset']}/{args['nbest']}_{task_name}/{setting}")):
     os.makedirs(f"./checkpoint/{args['dataset']}/{args['nbest']}_{task_name}/{setting}")
@@ -76,8 +113,12 @@ else:
     valid_topk = topk
 
 print(f'prepare data & tokenization')
-train_dataset = get_dataset(train_json, tokenizer, data_type = train_args['data_type'] ,topk = topk, for_train = True)
+train_dataset = get_dataset(train_json, tokenizer, data_type = train_args['data_type'], sep_token = sep_token, topk = topk, for_train = True)
 valid_dataset = get_dataset(valid_json, tokenizer, data_type = train_args['data_type'], topk = valid_topk, for_train = True)
+
+del train_json
+del valid_json
+gc.collect()
 
 training_args = Seq2SeqTrainingArguments(
             output_dir=f"./checkpoint/{args['dataset']}/{args['nbest']}_{task_name}/{setting}/result",
@@ -87,12 +128,12 @@ training_args = Seq2SeqTrainingArguments(
             per_device_train_batch_size=train_args['train_batch'],
             per_device_eval_batch_size=train_args['valid_batch'],
             gradient_accumulation_steps=train_args['accumgrad'],
-            eval_accumulation_steps=1,
+            # eval_accumulation_steps=1,
             learning_rate=float(train_args['lr']),
-            weight_decay=0.1,
+            weight_decay=0.02,
             num_train_epochs=train_args['epoch'],
             lr_scheduler_type="linear",
-            warmup_ratio = 0.3,
+            warmup_ratio = 0.02,
 
             logging_dir=f"./log/{args['dataset']}/{args['nbest']}_{task_name}/{setting}",
             logging_strategy="steps",
@@ -106,7 +147,10 @@ training_args = Seq2SeqTrainingArguments(
             load_best_model_at_end=True,
             metric_for_best_model="wer",
             greater_is_better=False,
-            predict_with_generate=True
+            predict_with_generate=True,
+            generation_num_beams = 5,
+            generation_max_length = 150,
+            run_name = f"{args['dataset']}/{args['nbest']}_{task_name}/{setting}"
 )
 
 data_collator = DataCollatorForSeq2Seq(tokenizer, model = model)

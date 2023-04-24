@@ -66,7 +66,7 @@ class Bert_Compare(torch.nn.Module): # Bert_sem
         return score
 
 class Bert_Sem(torch.nn.Module): # Bert_sem
-    def __init__(self, dataset, device, lr = 1e-5):
+    def __init__(self, dataset, device):
         torch.nn.Module.__init__(self)
         self.dataset = dataset
         
@@ -92,12 +92,9 @@ class Bert_Sem(torch.nn.Module): # Bert_sem
         self.loss = BCELoss()
         self.sigmoid = Sigmoid()
 
-        parameters = list(self.bert.parameters()) + list(self.linear.parameters())
+        
 
         # logging.warning(f'{self.bert}\n {self.linear}')
-
-        self.optimizer = AdamW(parameters, lr = lr)
-
     def forward(self, input_ids, token_type_ids, attention_mask, labels = None):
         cls = self.bert(
             input_ids=input_ids, 
@@ -132,6 +129,9 @@ class Bert_Sem(torch.nn.Module): # Bert_sem
         score = self.linear(cls).squeeze(1)# [B, 768] -> [B, 1] -> [B]
         score = self.sigmoid(score)
         return score
+
+    def parameters(self):
+        return list(self.bert.parameters()) + list(self.linear.parameters())
 
 class Bert_Alsem(torch.nn.Module): # Bert Alsem
     def __init__(
@@ -229,4 +229,22 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
             loss = loss,
             logits = logits
         )
+    
+    def recognize(
+        self,
+        input_ids,
+        token_type_ids, 
+        attention_mask,
+        am_scores,
+        ctc_scores,
+        lm_scores
+    ):
+        return self.forward(
+            input_ids = input_ids,
+            token_type_ids = token_type_ids,
+            attention_mask = attention_mask,
+            am_score = am_scores,
+            ctc_score = ctc_scores,
+            lm_score = lm_scores
+        ).logits
 

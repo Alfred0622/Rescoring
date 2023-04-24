@@ -1,12 +1,13 @@
 import os
 import sys
+sys.path.append("../")
 import json
 import torch
 import random
 from pathlib import Path
 from utils.Datasets import get_Dataset
 from utils.PrepareModel import prepare_GPT2, prepare_MLM
-from utils.LoadConfig import load_config
+from src_utils.LoadConfig import load_config
 from transformers import (
     TrainingArguments,
     DataCollatorWithPadding,
@@ -61,14 +62,14 @@ else:
 if (tokenizer.pad_token is None):
         tokenizer.pad_token_id = 0
 
-
-
 print(f'pad_id:{tokenizer.pad_token_id}')
 
 if (args['dataset'] in ['aishell2']):
     valid_path = 'dev_ios'
 elif (args['dataset'] in ['tedlium2']):
     valid_path = 'dev_trim'
+elif (args['dataset'] in ['librispeech']):
+    valid_path = 'valid'
 else:
     valid_path = 'dev'
 
@@ -82,8 +83,10 @@ print(type(train_json))
 print(len(train_json))
 
 print(f'prepare dataset')
-train_dataset = get_Dataset(train_json, tokenizer, lm = lm_name, dataset = args['dataset'])
-valid_dataset = get_Dataset(valid_json, tokenizer, lm = lm_name, dataset = args['dataset'])
+train_dataset = get_Dataset(train_json, tokenizer, lm = lm_name, dataset = args['dataset'], jp_split=args['jp_split'])
+valid_dataset = get_Dataset(valid_json, tokenizer, lm = lm_name, dataset = args['dataset'], jp_split=args['jp_split'])
+
+# exit()
 
 print(len(train_dataset))
 print(len(valid_dataset))
@@ -105,11 +108,13 @@ training_args = TrainingArguments(
     logging_steps = 500,
     logging_first_step=True,
     logging_nan_inf_filter=True,
+    group_by_length = True,
     
     save_strategy = 'epoch',
     no_cuda = False,
     dataloader_num_workers = 1,
     greater_is_better=False,
+    gradient_accumulation_steps = int(train_args['accumgrad'])
 )
 
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm = args["MLM"])

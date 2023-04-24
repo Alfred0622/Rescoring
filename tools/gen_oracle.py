@@ -8,7 +8,7 @@ from jiwer import wer
 
 choose_nbest = [50]
 
-dataset = 'tedlium2_conformer'
+dataset = 'librispeech'
 if (dataset in ['aishell2']):
     file_name = ['dev_ios', 'test_android', 'test_mic', 'test_ios']
 elif (dataset in ['aishell', 'tedlium2', 'tedlium2_conformer']):
@@ -31,7 +31,7 @@ for best in choose_nbest:
             total_s = 0
             total_d = 0
             total_i = 0
-            with open(f"./data/{dataset}/data/{s}/{n}/data.json", "r") as f:
+            with open(f"../data/{dataset}/data/{s}/{n}/data.json", "r") as f:
                 data = json.load(f)
                 for d in data:
                     token = d["hyps"]

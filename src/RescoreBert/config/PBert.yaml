@@ -1,0 +1,19 @@
+args:
+  nbest: 50 # max: 50
+  withLM: False
+  dataset: aishell
+
+train:
+  epoch: 30
+  batch_size: 256
+  accumgrad: 1
+  print_loss: 5000
+  lr: 1e-5
+  lstm_embedding: 1024
+  freeze_epoch: 30
+  hard_label: True
+  warmup_step: 10000
+
+recog:
+  batch: 64
+  find_weight: True 

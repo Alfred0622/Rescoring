@@ -7,9 +7,9 @@ import json
 from torch.data.utils import DataLoader
 from jiwer import wer
 from pathlib import Path
-from utils import load_config, get_dict
+from src_utils import load_config, get_dict
 from utils.load_config import load_config
-from utils.get_recog_set import get_recog_set
+from src_utils.get_recog_set import get_recog_set
 from utils.Datasets import getRecogDataset
 from model.utils.CollateFunc import recogBatch
 from model.RNN_Rerank import RNN_Reranker

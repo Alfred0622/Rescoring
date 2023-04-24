@@ -1,4 +1,9 @@
+import os
+import sys
+sys.path.append("../")
 import torch
+from model.RescoreBert import RescoreBertAlsem
+from model.NBestCrossBert import nBestCrossBert, pBert
 from transformers import (
     AutoModelForCausalLM,
     AutoModelForMaskedLM,
@@ -11,6 +16,16 @@ from transformers import (
     BertJapaneseTokenizer
 )
 from torch.optim import AdamW
+from src_utils.getPretrainName import getBertPretrainName
+
+support_dataset = [
+    "aishell",
+    "aishell2",
+    "tedlium2",
+    'librispeech',
+    'csj'
+]
+
 
 class RescoreBert(torch.nn.Module):
     def __init__(self, pretrain_name,device):
@@ -19,8 +34,16 @@ class RescoreBert(torch.nn.Module):
         self.linear = torch.nn.Linear(768, 1)
 
         self.l2_loss = torch.nn.MSELoss()
+        self.nll_loss = torch.nn.NLLLoss()
     
-    def forward(self, input_ids, attention_mask, labels = None):
+    def forward(self, 
+            input_ids, 
+            attention_mask, 
+            labels = None, 
+            wers = None,
+            avg_error = None,
+            mode = None
+    ):
         output = self.bert(
             input_ids = input_ids,
             attention_mask = attention_mask
@@ -32,7 +55,10 @@ class RescoreBert(torch.nn.Module):
         
         score = score.squeeze(-1)
         if (labels is not None):
+            # print(f'labels.shape:{labels.shape}')
             labels = labels.to(dtype = torch.float32)
+
+            score[labels == -10000] = -10000
 
             loss = self.l2_loss(
                 score, labels
@@ -42,7 +68,7 @@ class RescoreBert(torch.nn.Module):
 
         return {"score": score, "loss": loss}
 
-    def parameters(self):
+    def parameters(self, recurse = True):
         return list(self.bert.parameters()) + list(self.linear.parameters())
 
 def prepare_GPT2(dataset, device):
@@ -78,6 +104,61 @@ def prepare_RescoreBert(dataset, device):
     elif (dataset in ['tedlium2', 'librispeech']):
         model = RescoreBert('bert-base-uncased', device)
         tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    elif (dataset in ['csj']):
+        model = RescoreBert('cl-tohoku/bert-base-japanese', device)
+        tokenizer = BertJapaneseTokenizer.from_pretrained('cl-tohoku/bert-base-japanese')
     
     return model, tokenizer
+
+def prepare_myModel(dataset, lstm_dim ,device):
+    model = RescoreBertAlsem(dataset, lstm_dim, device)
+    gpt2 = None
+    if (dataset in ['aishell', 'aishell2']):
+        bert_tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
+        gpt2 = AutoModelForCausalLM.from_pretrained('ckiplab/gpt2-base-chinese').to(device)
+        gpt_tokenizer = AutoTokenizer.from_pretrained('ckiplab/gpt2-base-chinese')
+    elif (dataset in ['tedlium2', 'librispeech']):
+        bert_tokenizer = BertTokenizer.from_pretrained('bert_base_uncased')
+        gpt2 = AutoModelForCausalLM.from_pretrained('gpt2').to(device)
+        gpt_tokenizer= AutoTokenizer.from_pretrained('gpt2')
+    elif (dataset in ['csj']):
+        bert_tokenizer = BertTokenizer.from_pretrained('cl-tohoku/bert-base-japanese')
+        gpt2 = AutoModelForCausalLM.from_pretrained('ClassCat/gpt2-base-japanese-v2').to(device)
+        gpt_tokenizer = AutoTokenizer.from_pretrained('ClassCat/gpt2-base-japanese-v2')
     
+    
+    assert(gpt2 is not None),  f'{dataset} is not in support dataset:[{support_dataset}]'
+
+    return model, bert_tokenizer, gpt2, gpt_tokenizer
+
+def prepareNBestCrossBert(dataset, device ,lstm_dim = 512, useNbestCross = False, trainAttendWeight = False, addRes = False, fuseType = 'lstm',logSoftmax = False, lossType = 'KL'):
+    pretrain_name = getBertPretrainName(dataset)
+    
+    model = nBestCrossBert(
+        dataset, 
+        device, 
+        lstm_dim = lstm_dim, 
+        use_fuseAttention = useNbestCross,
+        use_learnAttnWeight = trainAttendWeight,
+        addRes=addRes,
+        fuseType=fuseType,
+        logSoftmax = logSoftmax,
+        lossType=lossType
+    )
+
+    tokenizer = BertTokenizer.from_pretrained(pretrain_name)
+
+    return model, tokenizer
+
+def preparePBert(dataset, device, hardLabel = False):
+    pretrain_name = getBertPretrainName(dataset)
+
+    model = pBert(
+        dataset,
+        device,
+        hardLabel
+    )
+
+    tokenizer = BertTokenizer.from_pretrained(pretrain_name)
+
+    return model, tokenizer

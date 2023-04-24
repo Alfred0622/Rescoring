@@ -13,7 +13,7 @@ from utils.Datasets import get_dataset
 from utils.CollateFunc import trainBatch, recogBatch
 from utils.PrepareModel import prepare_model
 from transformers import BertTokenizer
-from utils.LoadConfig import load_config
+from src_utils.LoadConfig import load_config
 from jiwer import wer
 from torch.optim import AdamW
 
@@ -47,7 +47,6 @@ print(f'Load json file')
 if (args['dataset'] in ['aishell2']):
     dev = 'dev_ios'
     test = ['test_ios', 'test_mic', 'test_android']
-
 
 # test_path = f"../../data/{args['dataset']}/data/test/{setting}/data.json"
 
