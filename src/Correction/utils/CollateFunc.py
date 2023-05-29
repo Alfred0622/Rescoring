@@ -27,12 +27,17 @@ def recogBatch(batch):
     input_ids = []
     attention_mask = []
     refs = []
+    ref_texts = []
+
+    top_hyp_tokens = []
 
     for sample in batch:
         names.append(sample["name"])
         input_ids.append(torch.tensor(sample["input_ids"], dtype = torch.long))
         attention_mask.append(torch.tensor(sample["attention_mask"], dtype = torch.long))
         refs.append(sample["labels"])
+        ref_texts.append(sample['ref_text'])
+        top_hyp_tokens.append(sample['top_hyp'])
     
     input_ids = pad_sequence(input_ids, batch_first=True, padding_value = 0)
     attention_mask = pad_sequence(attention_mask, batch_first=True, padding_value=0)
@@ -41,7 +46,9 @@ def recogBatch(batch):
         "name": names,
         "input_ids": input_ids,
         "attention_mask": attention_mask,
-        "labels": refs
+        "labels": refs,
+        "ref_text": ref_texts,
+        "top_hyp": top_hyp_tokens
     }
 
 def nBestAlignBatch(batch):
@@ -53,6 +60,7 @@ def nBestAlignBatch(batch):
     attention_mask = pad_sequence(attention_mask, batch_first=True, padding_value = 0)
 
     refs = [torch.tensor(sample['labels']) for sample in batch]
+    ref_texts = [sample['ref_text'] for sample in batch]
 
     top_hyps = [sample['top_hyp'] for sample in batch]
 
@@ -63,5 +71,6 @@ def nBestAlignBatch(batch):
         "attention_mask": attention_mask,
         "labels": labels,
         "top_hyp": top_hyps,
-        "refs": refs
+        "refs": refs,
+        "ref_text": ref_texts
     }

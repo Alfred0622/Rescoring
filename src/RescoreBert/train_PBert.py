@@ -44,14 +44,29 @@ args, train_args, recog_args = load_config(config_path)
 mode = "PBERT"
 
 setting = 'withLM' if (args['withLM']) else 'noLM'
-  
+
+log_path = f"./log/P_BERT/{args['dataset']}/{setting}/{mode}"
+run_name = f"RescoreBert_{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_Freeze{train_args['freeze_epoch']}"
+if (train_args['hard_label']):
+    collate_func = PBertBatchWithHardLabel
+    run_name = run_name + "_HardLabel_Entropy"
+else:
+    run_name = run_name + train_args['loss_type']
+
+if (train_args['weightByWER']):
+    run_name = run_name + "weightByWER"
+    log_path = log_path + "/weightByWER"
+else:
+    log_path = log_path + "/normal"
+
+
 log_path = Path(f"./log/P_BERT/{args['dataset']}/{setting}/{mode}")
 log_path.mkdir(parents = True, exist_ok = True)
 
 FORMAT = "%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s"
 logging.basicConfig(
     level=logging.INFO,
-    filename=f"{log_path}/train_batch{train_args['batch_size']}_{train_args['lr']}.log",
+    filename=f"{log_path}/train_{run_name}.log",
     filemode="w",
     format=FORMAT,
 )
@@ -80,10 +95,14 @@ Load checkpoint
 """
 start_epoch = 0
 
+get_num = -1
+if ('WANDB_MODE' in os.environ.keys() and os.environ['WANDB_MODE'] == 'disabled'):
+    get_num = 550
+
 print(f"tokenizing Train")
-train_dataset = prepareListwiseDataset(data_json = train_json, tokenizer = tokenizer, sort_by_len = True)
+train_dataset = prepareListwiseDataset(data_json = train_json, dataset = args['dataset'], tokenizer = tokenizer, sort_by_len = True, get_num=get_num)
 print(f"tokenizing Validation")
-valid_dataset = prepareListwiseDataset(data_json = valid_json, tokenizer = tokenizer, sort_by_len = True)
+valid_dataset = prepareListwiseDataset(data_json = valid_json, dataset = args['dataset'], tokenizer = tokenizer, sort_by_len = True, get_num=get_num)
 
 print(f"Prepare Sampler")
 train_sampler = NBestSampler(train_dataset)
@@ -97,10 +116,7 @@ valid_batch_sampler = BatchSampler(valid_sampler, train_args['batch_size'])
 print(f"len of batch sampler:{len(train_batch_sampler)}")
 
 collate_func = PBertBatch
-run_name = f"RescoreBert_{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_Freeze{train_args['freeze_epoch']}"
-if (train_args['hard_label']):
-    collate_func = PBertBatchWithHardLabel
-    run_name = run_name + "_HardLabel_KL"
+
 
 train_loader = DataLoader(
     dataset = train_dataset,
@@ -128,7 +144,7 @@ print(f"total steps : {len(train_batch_sampler) * int(train_args['epoch'])}")
 
 lr_scheduler = OneCycleLR(
     optimizer, 
-    max_lr = float(train_args['lr']) * 100, 
+    max_lr = float(train_args['lr']) * 10, 
     epochs = int(train_args['epoch']), 
     steps_per_epoch = len(train_batch_sampler),
     pct_start = 0.02
@@ -174,8 +190,8 @@ for param in model.bert.parameters():
 #     model, optimizer, train_loader, lr_scheduler
 # )
 
-
 for e in range(start_epoch, train_args['epoch']):
+    train_epoch_loss = torch.tensor([0.0])
     model.train()
     if (e >= int(train_args['freeze_epoch'])):
         print('Unfreeze BERT')
@@ -200,6 +216,7 @@ for e in range(start_epoch, train_args['epoch']):
             am_score = data['am_score'],
             ctc_score = data['ctc_score'],
             labels = data['label'],
+            wers = data['wers'] if (train_args['weightByWER']) else None
         )
 
         loss = output['loss']
@@ -216,7 +233,7 @@ for e in range(start_epoch, train_args['epoch']):
             optimizer.zero_grad(set_to_none=True)
             step += 1
         
-        if ( (step % int(train_args['print_loss'])) == 0 or (i + 1) == len(train_batch_sampler) ):
+        if ( (step > 0) and (step % int(train_args['print_loss'])) == 0):
             logging_loss = logging_loss / step
             logging.warning( f"epoch:{e + 1} step {i + 1},loss:{logging_loss}" )
             wandb.log(
@@ -229,6 +246,7 @@ for e in range(start_epoch, train_args['epoch']):
             step = 0
         
         logging_loss += loss.item()
+        train_epoch_loss += loss.item()
 
     if (e == 0 or (e + 1) % 5 == 0 ):    
         checkpoint = {
@@ -239,6 +257,13 @@ for e in range(start_epoch, train_args['epoch']):
         }
 
         torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_{e+1}.pt")
+    
+    wandb.log(
+                {
+                    "train_loss": train_epoch_loss,
+                    "epoch": e + 1
+                }, step = (i + 1) + e * len(train_batch_sampler)
+            )
     
     """
     Validation
@@ -310,6 +335,6 @@ for e in range(start_epoch, train_args['epoch']):
         if (eval_loss < min_val_loss):
             torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_best.pt")
             min_val_loss = eval_loss
-        if (min_cer < min_cer):
+        if (min_cer < min_val_cer):
             torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_best_CER.pt")
             min_val_cer = min_cer

@@ -37,16 +37,26 @@ else:
 def compute_metric(eval_pred):
     hyp, ref = eval_pred
 
-    # print(f'hyp type:{type(hyp)}')
-    # print(hyp.shape)
-    # print(f'ref type:{type(ref)}')
-    # print(ref.shape)
-
     decoded_preds = tokenizer.batch_decode(hyp, skip_special_tokens=True)
+    
+    if (args['dataset'] in ['csj']):
+        for i, pred in enumerate(decoded_preds):
+            new_pred = "".join(pred.split())
+            new_pred = [p for p in new_pred]
+            # assert(len(new_pred) > 0) , f"empty hyp at {i} = {pred}"
+            decoded_preds[i] = " ".join(new_pred)
+
     # Replace -100 in the labels as we can't decode them.
     # labels[ref == -100] = tokenizer.pad_token_id
     labels = np.where(ref != -100, ref, tokenizer.pad_token_id)
     decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+    if (args['dataset'] in ['csj']): 
+        for i, ref in enumerate(decoded_labels):
+            new_ref = "".join(ref.split())
+            new_ref = [r for r in new_ref]
+
+            decoded_labels[i] = " ".join(new_ref)
 
     print(f"hyp:{len(decoded_preds)}")
     print(f"ref:{len(decoded_labels)}")
@@ -60,6 +70,7 @@ def compute_metric(eval_pred):
 
 args, train_args, recog_args = load_config(config_name)
 print(f"from_pretrain:{train_args['from_pretrain']}")
+
 model, tokenizer = prepare_model(args['dataset'], from_pretrain = train_args['from_pretrain'])
 setting = 'withLM' if args['withLM'] else 'noLM'
 
@@ -113,8 +124,9 @@ else:
     valid_topk = topk
 
 print(f'prepare data & tokenization')
-train_dataset = get_dataset(train_json, tokenizer, data_type = train_args['data_type'], sep_token = sep_token, topk = topk, for_train = True)
-valid_dataset = get_dataset(valid_json, tokenizer, data_type = train_args['data_type'], topk = valid_topk, for_train = True)
+valid_dataset = get_dataset(valid_json, args['dataset'], tokenizer, data_type = train_args['data_type'], sep_token = sep_token, topk = valid_topk, for_train = True)
+train_dataset = get_dataset(train_json, args['dataset'], tokenizer, data_type = train_args['data_type'], sep_token = sep_token, topk = topk, for_train = True)
+
 
 del train_json
 del valid_json

@@ -2,20 +2,20 @@ args:
   stage: 0 
   stop_stage: 1
   nbest: 4
-  withLM: True
-  dataset: aishell
+  withLM: False
+  dataset: librispeech
 
 train:
   start_epoch: 0
   epoch: 30
-  train_batch: 256
-  valid_batch: 256
-  accumgrad: 1
+  train_batch: 8
+  valid_batch: 8
+  accumgrad: 32
   print_loss: 2000
-  lr: 1e-5
+  lr: 1e-6
   data_type: concat
   sep_token: '#'
   from_pretrain: True
 
 recog:
-  batch: 64
+  batch: 16

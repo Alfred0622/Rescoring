@@ -24,6 +24,7 @@ from src_utils.LoadConfig import load_config
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.optim import AdamW
 import wandb
+from pathlib import Path
 
 random.seed(42)
 torch.manual_seed(42)
@@ -58,7 +59,7 @@ print(f"nbest:{args['nbest']}")
 
 # if (args['stage'] <= 0) and (args['stop_stage']>= 0):
 model, tokenizer = prepare_model(args, train_args, device)
-wandb.init()
+
 
 optimizer = AdamW(model.parameters(), lr = float(train_args['lr']))
 
@@ -96,11 +97,12 @@ print(f"# of train data:{len(train_json)}")
 print(f"# of valid data:{len(valid_json)}")
 
 print(f'tokenizing data......')
-valid_dataset, valid_json = get_dataset(valid_json, tokenizer)
+
+valid_dataset, valid_json = get_dataset(valid_json, args['dataset'], tokenizer)
 # with open(f"./data/{args['dataset']}/valid/{setting}/{args['nbest']}best/token.json", 'w') as valid:
 #     json.dump(valid_json, valid, ensure_ascii = False, indent = 4)
 
-train_dataset, train_json = get_dataset(train_json, tokenizer)
+train_dataset, train_json = get_dataset(train_json, args['dataset'], tokenizer)
 # with open(f"./data/{args['dataset']}/train/{setting}/{args['nbest']}best/token.json", 'w') as train:
 #     json.dump(train_json, train, ensure_ascii = False, indent = 4)
 
@@ -119,17 +121,32 @@ valid_loader = DataLoader(
     num_workers=8,
 )
 
-# scheduler = OneCycleLR(
-#     model.optimizer, 
-#     max_lr = float(train_args['lr']), 
-#     steps_per_epoch = len(train_loader),
-#     epochs = train_args['epoch'],
-#     pct_start = 1 / train_args['epoch'],
-#     anneal_strategy = 'linear'
-# )
+scheduler = OneCycleLR(
+    optimizer, 
+    max_lr = float(train_args['lr']), 
+    steps_per_epoch = int(len(train_loader) / train_args['accumgrad']) + 1,
+    epochs = train_args['epoch'],
+    pct_start = 0.02,
+    anneal_strategy = 'linear'
+)
 
+wandb_config = wandb.config
+wandb_config = model.bert.config if (torch.cuda.device_count() == 1) else model.module.bert.config
+wandb_config.learning_rate = float(train_args['lr'])
+wandb_config.batch_size = train_args['train_batch']
+cal_batch = int(train_args['train_batch']) * train_args['accumgrad']
+
+wandb.init( 
+    project = f"Bertsem_{args['dataset']}",
+    config = wandb_config, 
+    name = f"batch{train_args['train_batch']}_accum{train_args['accumgrad']}_lr{train_args['lr']}"
+)
+optimizer.zero_grad(set_to_none=True)
+step = 0
 for e in range(start_epoch, train_args["epoch"]):
     model.train()
+    train_loss = 0.0
+
     if (e < 2):
         print(f'freeze')
         logging.warning(f'freeze')
@@ -149,10 +166,7 @@ for e in range(start_epoch, train_args["epoch"]):
 
     for n, data in enumerate(tqdm(train_loader, ncols = 100)):
         
-        optimizer.zero_grad()
         logging_loss = 0.0
-        # logging.warning(data['labels'])
-
         data = {k: v.to(device) for k, v in data.items()}
     
         loss = model(**data).loss
@@ -160,32 +174,38 @@ for e in range(start_epoch, train_args["epoch"]):
         loss.backward()
         
         logging_loss += loss.item()
+        train_loss += loss.item()
 
         if ((n + 1) % train_args["accumgrad"] == 0) or ((n + 1) == len(train_loader)):
             optimizer.step()
             # lrs.append(model.optimizer.param_groups[0]["lr"])
-            # scheduler.step()
+            scheduler.step()
+            optimizer.zero_grad(set_to_none=True)
+            step += 1
             
-        if ((n + 1) % train_args["print_loss"] == 0) or ((n + 1) == len(train_loader)):
-            logging.warning(
-                f"Training epoch :{e + 1} step:{n + 1}, loss:{logging_loss}"
+        if ( (step > 0) and (step % train_args["print_loss"] == 0) ):
+            logging.warning(f"Training epoch :{e + 1} step:{n + 1}, loss:{logging_loss}")
+            wandb.log(
+                {"loss": logging_loss},
+                step = (n+1) + e * len(train_loader)
             )
-            loss_seq.append(logging_loss)
+
             logging_loss = 0.0
+            step = 0
 
     train_checkpoint = dict()
     train_checkpoint["state_dict"] = model.bert.state_dict() if torch.cuda.device_count() == 1 else  model.module.bert.state_dict()
     train_checkpoint["fc_checkpoint"] = model.linear.state_dict() if torch.cuda.device_count() == 1 else  model.module.linear.state_dict()
     train_checkpoint["optimizer"] = optimizer.state_dict()  # if torch.cuda.device_count() > 1 else  model.module.optimizer.state_dict()
-    # train_checkpoint["scheduler"] = scheduler.state_dict()
-    if (not os.path.exists(f"./checkpoint/{args['dataset']}/{setting}/{args['nbest']}/batch{train_args['train_batch']}_lr{train_args['lr']}")):
-        os.makedirs(f"./checkpoint/{args['dataset']}/{setting}/{args['nbest']}/batch{train_args['train_batch']}_lr{train_args['lr']}")
+    train_checkpoint["scheduler"] = scheduler.state_dict()
+
+    checkpoint_path = Path(f"./checkpoint/{args['dataset']}/{setting}/{args['nbest']}/batch{train_args['train_batch']}_lr{train_args['lr']}")
+    checkpoint_path.mkdir(parents = True, exist_ok = True)
     
     torch.save(
         train_checkpoint,
-        f"./checkpoint/{args['dataset']}/{setting}/{args['nbest']}/batch{train_args['train_batch']}_lr{train_args['lr']}/checkpoint_train_{e + 1}.pt",
+        f"{checkpoint_path}/checkpoint_train_{e + 1}.pt",
     )
-
     # eval
     model.eval()
     valid_loss = 0.0   
@@ -198,11 +218,18 @@ for e in range(start_epoch, train_args["epoch"]):
             valid_loss += loss.sum().item()
 
     logging.warning(f'epoch:{e + 1} validation loss:{valid_loss}')
+    wandb.log(
+        {
+            "train_epoch_loss": train_loss,
+            "valid_loss":valid_loss,
+            "epoch": e + 1
+        },
+        step = len(train_loader) * (e + 1)
+    )
     
     if (valid_loss < min_loss):
         torch.save(
             train_checkpoint,
-            f"./checkpoint/{args['dataset']}/{setting}/{args['nbest']}/batch{train_args['train_batch']}_lr{train_args['lr']}/checkpoint_train_best.pt",
+            f"./checkpoint/{args['dataset']}/{setting}/{args['nbest']}/batch{train_args['train_batch']}_lr{train_args['lr']}/checkpoint_train_bestLoss.pt",
         )
-
         min_loss = valid_loss

@@ -2,28 +2,35 @@ args:
   nbest: 50 # max: 50
   withLM: False
   dataset: aishell
+  seed: 42
 
 train:
   epoch: 30
   AttLayer: 1
-  freeze_gpt_epoch: -1
   batch_size: 256
   valid_batch: 1
   accumgrad: 1
   print_loss: 5000
-  lr: 1e-5
-  maxlr: 1e-3
-  fuseType: none # lstm , attn or None
+  lr: 1e-7
+  maxlr: 1e-7
+  fuseType: none  # lstm , attn, query or None
   lstm_embedding: 1024
   useNBestCross: False
   trainAttendWeight: False
   addRes: True
-  freeze_epoch: 30
-  hardLabel: False
+  freeze_epoch: -1
+  hardLabel: True
   logSoftmax: False
   lossType: 'KL'
   sortByLen: True
-  
+  concatCLS: False
+  concatMaskAfter: True # if True [CLS] tokens [SEP] [MASK]  else [CLS] tokens [MASK] [SEP]
+  dropout: 0.3
+  weightByGrad: False
+  train_cls_first: False
+  sepTask: True
+  scoreByRank: False
+
 recog:
   batch: 1
-  find_weight: True 
+  find_weight: True

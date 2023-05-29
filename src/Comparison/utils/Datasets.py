@@ -1,7 +1,11 @@
+import sys
+sys.path.append("../")
+sys.path.append("../..")
 import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
 import json
+from src_utils.preprocess import preprocess_string
 
 class concatTrainerDataset(Dataset):
     def __init__(self, nbest_list):
@@ -13,13 +17,15 @@ class concatTrainerDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-def get_dataset(data_json, tokenizer, is_token = False):
+def get_dataset(data_json, dataset ,tokenizer, is_token = False):
     if (is_token):
         return concatTrainerDataset(data_json), None
     else:
         data_list = list()
-        for data in tqdm(data_json):
-            input_ids, token_type_ids, attention_mask = tokenizer(data['hyp1'], data['hyp2']).values()
+        for data in tqdm(data_json, ncols = 60):
+            hyp1 = preprocess_string(data['hyp1'], dataset)
+            hyp2 = preprocess_string(data['hyp2'], dataset)
+            input_ids, token_type_ids, attention_mask = tokenizer(hyp1, hyp2, max_length = 512, truncation = True).values()
             label = data['label']
             data_list.append(
                 {
@@ -29,12 +35,16 @@ def get_dataset(data_json, tokenizer, is_token = False):
                     "labels": label
                 }
             )
+        
+        data_list = sorted(data_list, key = lambda x : len(x['input_ids']))
         return concatTrainerDataset(data_list), data_list
 
-def get_alsemDataset(data_json, tokenizer, for_train = True):
+def get_alsemDataset(data_json, dataset,tokenizer, for_train = True):
     data_list = list()
     for i, data in enumerate(tqdm(data_json, ncols = 100)):
-        input_ids, token_type_ids, attention_mask = tokenizer(data['hyp1'], data['hyp2']).values()
+        hyp1 = preprocess_string(data['hyp1'], dataset)
+        hyp2 = preprocess_string(data['hyp2'], dataset)
+        input_ids, token_type_ids, attention_mask = tokenizer(hyp1, hyp2).values()
         label = data['label']
         am_score = torch.tensor(data['am_score'])
         ctc_score = torch.tensor(data['ctc_score'])
@@ -51,18 +61,21 @@ def get_alsemDataset(data_json, tokenizer, for_train = True):
             }
         )
 
+        # if (i > 250):
+        #     break
+    data_list = sorted(data_list, key = lambda x : len(x['input_ids']))
     return concatTrainerDataset(data_list)
 
-def get_recogDataset(data_json, tokenizer):
+def get_recogDataset(data_json, dataset,tokenizer):
     data_list = list()
     for i, data in enumerate(tqdm(data_json, ncols = 100)):
 
         name  = data['name']
         # print(f"{len(data['hyp'])}")
         for hyps in data['hyps']:
-            input_id, token_type_id, mask = tokenizer(
-                hyps['hyp1'], hyps['hyp2']
-            ).values() 
+            hyp1 = preprocess_string(hyps['hyp1'], dataset)
+            hyp2 = preprocess_string(hyps['hyp2'], dataset)
+            input_id, token_type_id, mask = tokenizer(hyp1, hyp2).values() 
             pair = hyps['pair']
             data_list.append(
                 {
@@ -73,8 +86,6 @@ def get_recogDataset(data_json, tokenizer):
                     "pair": pair,
                 }
             )
-    
-        
 
     return concatTrainerDataset(data_list)
 

@@ -5,7 +5,6 @@ import torch
 from tqdm import tqdm
 from jiwer import wer, cer
 from itertools import zip_longest
-    
 
 def prepare_score_dict_simp(data_json, nbest):
     """
@@ -54,6 +53,7 @@ def prepare_score_dict(data_json, nbest):
     lm_scores = []
     ctc_scores = []
     rescores = []
+    wer_rescores = []
     wers = []
     hyps = []
     refs = []
@@ -101,6 +101,10 @@ def prepare_score_dict(data_json, nbest):
             )
 
             rescores.append(
+                [0.0 for _ in range(legal_length)]
+            )
+
+            wer_rescores.append(
                 [0.0 for _ in range(legal_length)]
             )
 
@@ -156,6 +160,11 @@ def prepare_score_dict(data_json, nbest):
                 # np.zeros(am_scores[-1].shape[0], dtype = np.float32)
             )
 
+            wer_rescores.append(
+                [0.0 for _ in range(legal_length)]
+                # np.zeros(am_scores[-1].shape[0], dtype = np.float32)
+            )
+
             utt_wer = [[value for value in wer.values()] for wer in data_json[key]['err']]
 
             wers.append(np.array(utt_wer))
@@ -170,8 +179,9 @@ def prepare_score_dict(data_json, nbest):
     ctc_scores = np.array(list(zip_longest(*ctc_scores, fillvalue=np.NINF)), dtype = np.float32)
     lm_scores = np.array(list(zip_longest(*lm_scores, fillvalue=np.NINF)), dtype = np.float32)
     rescores = np.array(list(zip_longest(*rescores, fillvalue=np.NINF)), dtype = np.float32)
+    wer_rescores = np.array(list(zip_longest(*wer_rescores, fillvalue=np.NINF)), dtype = np.float32)
 
-    return index_dict, inverse_index, am_scores.T, ctc_scores.T, lm_scores.T, rescores.T, wers, hyps, refs
+    return index_dict, inverse_index, am_scores.T, ctc_scores.T, lm_scores.T, rescores.T ,wers, hyps, refs
 
 def createCorrptFlag(rerank_hyp, top_hyp, ref):
     if (top_hyp == ref):
@@ -388,12 +398,6 @@ def calculate_cer(
                         rescore_weight * rescores
                     )
 
-                    # for total in total_score:
-                    #     if (np.isnan(np.min(total))):
-                    #         # print(total)
-                    #         total[np.isnan(total)] = np.NINF
-                    #         # print(total)
-
                     total_score[np.isnan(total_score)] = np.NINF
                     total_score[np.isposinf(total_score)] = np.NINF
 
@@ -411,6 +415,7 @@ def calculate_cer(
                     
                     cer = (s + d + i) / (c + s + d)
 
+                    # print(f'weight = {[am_weight, ctc_weight, lm_weight, rescore_weight]}, cer = {cer}')
                     if (min_cer > cer):
                         best_am = am_weight
                         best_ctc = ctc_weight
@@ -475,6 +480,117 @@ def calculate_cer(
             first_flag=False,
             recog_mode= recog_mode
         )
+
+def calculate_cerOnRank(
+        am_scores,
+        ctc_scores,
+        lm_scores,
+        rescores,
+        wers,
+        withLM = False
+):
+    c = np.int64(0.0)
+    s = np.int64(0.0)
+    d = np.int64(0.0)
+    i = np.int64(0.0)
+
+    # Here, the rescores will be the rank score
+
+
+    am_rank = (-am_scores).argsort(axis = -1, kind = 'stable')
+    ctc_rank = (-ctc_scores).argsort(axis = -1, kind = 'stable')
+    lm_rank = (-lm_scores).argsort(axis = -1, kind = 'stable')
+
+    am_rank = np.reciprocal((am_rank + 1).astype('float32'))
+    ctc_rank = np.reciprocal((ctc_rank + 1).astype('float32'))
+    lm_rank = np.reciprocal((lm_rank + 1).astype('float32'))
+
+    if (withLM):
+        total_rank = am_rank + ctc_rank + lm_rank + rescores
+    else:
+        total_rank = am_rank + ctc_rank + rescores
+
+    max_index = total_rank.argmax(axis = -1)
+
+    for utt, index in enumerate(max_index):
+        c += wers[utt][index][1]
+        s += wers[utt][index][2]
+        d += wers[utt][index][3]
+        i += wers[utt][index][4]
+
+    cer = (s + d + i) / (c + s + d)
+
+    return cer
+
+def get_resultOnRank(
+        index_dict,
+        am_scores,
+        ctc_scores,
+        lm_scores,
+        rescores,
+        wers,
+        hyps,
+        refs,
+):
+    c = np.int64(0.0)
+    s = np.int64(0.0)
+    d = np.int64(0.0)
+    i = np.int64(0.0)
+
+    result_dict = []
+    # Here, the rescores will be the rank score
+    am_rank = (-am_scores).argsort(dim = -1)
+    ctc_rank = (-ctc_scores).argsort(dim = -1)
+    lm_rank = (-lm_scores).argsort(dim = -1)
+
+    am_rank = np.reciprocal(am_rank + 1)
+    ctc_rank = np.reciprocal(ctc_rank + 1)
+    lm_rank = np.reciprocal(lm_rank + 1)
+
+    total_rank = am_rank + ctc_rank + lm_rank + rescores
+
+    max_index = torch.argmax(total_rank, dim = -1)
+
+    for utt, index in enumerate(max_index):
+        if (hyps[utt][0] == refs[utt]):
+            if (hyps[utt][index] != refs[utt]):
+                corrupt_flag = "Totally Corrupt"
+            else:
+                corrupt_flag = "Remain Correct"
+        else:
+
+            top_wer = wer(refs[utt], hyps[utt][0])
+            rerank_wer = wer(refs[utt], hyps[utt][index])
+            if (hyps[utt][index] == refs[utt]):
+                corrupt_flag = "Totally Improve"
+                
+            elif (top_wer < rerank_wer):
+                corrupt_flag = "Partial Corrupt"
+            elif (top_wer == rerank_wer):
+                corrupt_flag = "Remain Error"
+            else:
+                corrupt_flag = "Partial Improve"
+        
+
+        c += wers[utt][max_index][1]
+        s += wers[utt][max_index][2]
+        d += wers[utt][max_index][3]
+        i += wers[utt][max_index][4]
+
+        result_dict.append(
+            {
+                'ASR_utt_name': index_dict[utt],
+                'top_hyps': hyps[utt][0],
+                'rescore_hyps': hyps[utt][index],
+                'ref': refs[utt],
+                'check_1': "Correct" if hyps[utt][index] == refs[utt] else "Error",
+                "check_2": corrupt_flag,
+            }
+        )
+    
+    cer = (s + d + i) / (c + s + d)
+
+    return cer, result_dict
 
 
 def get_result_simp(

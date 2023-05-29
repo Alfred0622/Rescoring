@@ -9,7 +9,8 @@ from transformers import (
     BertTokenizer,
     BartTokenizer,
     AutoConfig,
-    AutoTokenizer
+    AutoTokenizer,
+    MBartForConditionalGeneration
 )
 from transformers import Trainer
 
@@ -37,8 +38,8 @@ def prepare_model(dataset, from_pretrain = True):
             tokenizer = BartTokenizer.from_pretrained(f'facebook/bart-base')
 
         elif (dataset in ['csj']): # japanese
-            model = AutoModelForSeq2SeqLM.from_pretrained('stockmark/bart-base-japanese-news')
-            tokenizer = AutoTokenizer.from_pretrained('stockmark/bart-base-japanese-news', trust_remote_code=True)
+            model = MBartForConditionalGeneration.from_pretrained('ku-nlp/bart-base-japanese')
+            tokenizer = AutoTokenizer.from_pretrained('ku-nlp/bart-base-japanese')
     else:
         print(f'Not From Pretrain')
         if (dataset in ['aishell', 'aishell2', 'old_aishell']):
@@ -50,9 +51,10 @@ def prepare_model(dataset, from_pretrain = True):
             tokenizer = BartTokenizer.from_pretrained(f'facebook/bart-base')
 
         elif (dataset in ['csj']): # japanese
-            tokenizer = BartTokenizer.from_pretrained('ClassCat/gpt2-base-japanese-v2')
-        config = AutoConfig.from_pretrained(pretrain_name)
-        model = BartForConditionalGeneration(config)
+            pass
+            # tokenizer = BartTokenizer.from_pretrained('ClassCat/gpt2-base-japanese-v2')
+            config = AutoConfig.from_pretrained(pretrain_name)
+            model = BartForConditionalGeneration(config)
 
         print(f'config:{config}')
 

@@ -5,10 +5,11 @@ import logging
 import torch
 from torch.utils.data import Dataset, DataLoader
 from jiwer import wer
+import sys
 
 choose_nbest = [50]
 
-dataset = 'librispeech'
+dataset = sys.argv[1]
 if (dataset in ['aishell2']):
     file_name = ['dev_ios', 'test_android', 'test_mic', 'test_ios']
 elif (dataset in ['aishell', 'tedlium2', 'tedlium2_conformer']):

@@ -14,10 +14,10 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 from utils.Datasets import getRescoreDataset
 from src_utils.LoadConfig import load_config
-from utils.CollateFunc import MDTrainBatch, RescoreBertBatch, NBestSampler, BatchSampler, MWERBatch
+from utils.CollateFunc import MDTrainBatch, RescoreBertBatch, NBestSampler, RescoreBert_BatchSampler, MWERBatch
 from utils.PrepareModel import prepare_RescoreBert
 from utils.DataPara import BalancedDataParallel
-from utils.PrepareScoring import prepareRescoreDict
+from utils.PrepareScoring import prepareRescoreDict, prepare_score_dict, calculate_cer
 from torch.optim import AdamW
 import gc
 from jiwer import wer, cer
@@ -56,7 +56,7 @@ config = f'./config/RescoreBert.yaml'
 args, train_args, recog_args = load_config(config)
 
 # accerlerator = Accerlerator(
-#     gradient_accumulation_steps = int(train_args['accum_grad'])
+#     gradient_accumulation_steps = int(train_args['accumgrad'])
 # )
 
 setting = 'withLM' if (args['withLM']) else 'noLM'
@@ -116,17 +116,16 @@ train_dataset = getRescoreDataset(train_json, args['dataset'], tokenizer, topk =
 print(f" Tokenization : valid")
 valid_dataset = getRescoreDataset(valid_json, args['dataset'], tokenizer, topk = args['nbest'], mode = mode)
 
-valid_name_index, valid_name_inverse, hyps_dict ,valid_score, valid_rescore, wers = prepareRescoreDict(valid_json)
 
-# print(f"valid_score:{valid_score.shape}")
-# print(f"valid_rescore:{valid_rescore.shape}")
+index_dict, inverse_dict,am_scores, ctc_scores, lm_scores, rescores, wers, hyps, refs = prepare_score_dict(valid_json, nbest = args['nbest'])
+valid_name_index, valid_name_inverse, hyps_dict ,valid_score, valid_rescore, eval_wers = prepareRescoreDict(valid_json)
 
 if (use_MWED or use_MWER):
     train_sampler = NBestSampler(train_dataset)
     valid_sampler = NBestSampler(valid_dataset)
     
-    train_batch_sampler = BatchSampler(train_sampler, train_args['train_batch'])
-    valid_batch_sampler = BatchSampler(valid_sampler, 1)
+    train_batch_sampler = RescoreBert_BatchSampler(train_sampler, train_args['train_batch'])
+    valid_batch_sampler = RescoreBert_BatchSampler(valid_sampler, 1)
 
     train_loader = DataLoader(
         dataset = train_dataset,
@@ -147,7 +146,7 @@ if (use_MWED or use_MWER):
     )
 
     print(f"sampler:{len(valid_sampler)}")
-    print(f"BatchSampler:{len(valid_batch_sampler)}")
+    print(f"RescoreBert_BatchSampler:{len(valid_batch_sampler)}")
     print(f"Loader:{len(valid_loader)}")
     # exit(0)
 
@@ -188,27 +187,19 @@ checkpoint_path = Path(f"./checkpoint/{args['dataset']}/RescoreBert/{setting}/{m
 checkpoint_path.mkdir(parents=True, exist_ok=True)
 
 wandb.watch(model, log_freq = int(train_args['print_loss']))
-# model, optimizer, train_loader = accerlerator.prepare(model, optimizer, train_loader)
 
 step = 0
 min_val_loss = 1e8
 min_val_cer = 1e6
 for e in range(start_epoch, train_args['epoch']):
-    # train_sampler.set_epoch(e)
-    # valid_sampler.set_epoch(e)
     model.train()
 
     logging_loss = torch.tensor([0.0], device = device)
-# with torch.autograd.set_detect_anomaly(True):
     for i, data in enumerate(tqdm(train_loader, ncols = 100)):
 
         data['input_ids'] = data['input_ids'].to(device)
         data['attention_mask'] = data['attention_mask'].to(device)
         data['labels'] = data['labels'].to(device)
-
-
-        # print(f"input_ids.shape:{data['input_ids'].shape}")
-        # print(f"labels.shape:{data['labels'].shape}")
 
         output = model(
             input_ids = data['input_ids'],
@@ -216,7 +207,7 @@ for e in range(start_epoch, train_args['epoch']):
             labels = data['labels'],
         )
 
-        loss = output["loss"]
+        loss = output["loss"] / int(train_args['accumgrad'])
         loss = loss.sum()
 
         # MWER
@@ -240,7 +231,7 @@ for e in range(start_epoch, train_args['epoch']):
 
             loss_MWER = combined_score * (data['wer'] - avg_error)
             
-            loss_MWER = loss_MWER.sum()  / torch.tensor(train_args['accumgrad'], dtype = torch.float32)
+            loss_MWER = loss_MWER.sum()
 
             loss = loss * 1e-4
             loss = loss_MWER + loss
@@ -253,13 +244,11 @@ for e in range(start_epoch, train_args['epoch']):
             assert(first_score.shape == output['score'].shape), f"first_score:{first_score.shape}, score:{output['score'].shape}"
 
             combined_score = first_score + score_weight * output['score'].clone()
-            
+            # calculate Temperature T
             index = 0
             scoreSum = torch.tensor([]).to(device)
             werSum = torch.tensor([]).to(device)
-
             for nbest in data['nbest']:
-
                 score_sum = torch.sum(
                     combined_score[index: index + nbest].clone()
                 ).repeat(nbest)
@@ -273,13 +262,12 @@ for e in range(start_epoch, train_args['epoch']):
 
                 index = index + nbest
 
+             # Softmax over distribution
             index = 0
-
+            T = scoreSum / werSum # Temperature T
+            combined_score = combined_score / T
             assert(scoreSum.shape == combined_score.shape), f"scoreSum:{scoreSum.shape} != combined_score:{combined_score}"
             assert(werSum.shape == combined_score.shape), f"werSum:{werSum.shape} != combined_score:{combined_score}"
-            
-            T = scoreSum / werSum # hyperparameter T
-            combined_score = combined_score / T
 
             for nbest in data['nbest']:
                 combined_score[index: index + nbest] = torch.softmax(
@@ -290,15 +278,16 @@ for e in range(start_epoch, train_args['epoch']):
                 )
             
                 index = index + nbest
-            
-            # print(f'combined_score after scale & softmax:{combined_score}')
 
             loss_MWED =  wer * torch.log(combined_score)
-            loss_MWED = torch.neg(loss_MWED.sum()) 
+            loss_MWED = loss_MWED.sum()
+            loss_MWED = torch.neg(loss_MWED)
+
             loss = loss_MWED + 1e-4 * loss
 
         if (torch.cuda.device_count() > 1):
             loss = loss.sum()
+        
         loss = loss / float(train_args['accumgrad'])
         loss.backward()
 
@@ -312,21 +301,10 @@ for e in range(start_epoch, train_args['epoch']):
             wandb.log(
                 {
                 "train_loss":(logging_loss / step),
-            },
-            step = (i + 1) + e * len(train_loader)
-        )
+                },  step = (i + 1) + e * len(train_loader)
+            )
             logging_loss = torch.tensor([0.0], device = device)
             step = 0
-        # elif ():
-        #     logging.warning(f"step {i + 1},loss:{logging_loss / step}")
-        #     wandb.log(
-        #         {
-        #             "train_loss":(logging_loss / step), 
-        #         },
-        #         step = (i + 1) + e * len(train_loader)
-        #     )
-        #     logging_loss = torch.tensor([0.0], device = device)
-        #     step = 0
 
         logging_loss += loss.clone().detach() 
         
@@ -354,11 +332,15 @@ for e in range(start_epoch, train_args['epoch']):
                     labels = data['labels']
                 )
             loss = output['loss']
-            # print(f'loss:{loss}')
 
             if (mode in ["MWER" , "MWED"]):
                 for n, (name, score) in enumerate(zip(data['name'], output['score'])):
+                    rescores[index_dict[name]][n] = score.item()
                     valid_rescore[valid_name_index[name]][n] = score.item()
+            
+            else:
+                for n, (name, score) in enumerate(zip(data['name'], output['score'])):
+                    rescores[index_dict[name]][n] = score.item()
 
             if (mode == 'MWER'):
                 data['wer'] = data['wer'].to(device)
@@ -379,7 +361,7 @@ for e in range(start_epoch, train_args['epoch']):
                     index = index + nbest
 
                 loss_MWER = first_score * (data['wer'] - avg_error)
-                loss_MWER = torch.sum(loss_MWER) / torch.tensor(train_args['accumgrad'], dtype = torch.float32)
+                loss_MWER = torch.sum(loss_MWER)
 
                 # print(f'loss_MWER:{loss_MWER}')
 
@@ -419,9 +401,8 @@ for e in range(start_epoch, train_args['epoch']):
                 index = 0
                 
                 T = scoreSum / werSum # hyperparameter T
-                # print(f'combined_score:{combined_score}')
+
                 combined_score = combined_score / T
-                # print(f'combined_score after scale:{combined_score}')
 
                 for nbest in data['nbest']:
                     combined_score[index: index + nbest] = torch.softmax(
@@ -435,7 +416,8 @@ for e in range(start_epoch, train_args['epoch']):
                 
                 # print(f'combined_score after scale & softmax:{combined_score}')
                 loss_MWED =  wer * torch.log(combined_score)
-                loss_MWED = torch.neg(torch.sum(loss_MWED)) / torch.tensor(train_args['accumgrad'], dtype = torch.float32)
+                loss_MWED = torch.neg(loss_MWED)
+                loss_MWED = torch.sum(loss_MWED)
                 loss = loss_MWED + 1e-4 * loss
             
             # print(f'total_loss:{loss}')
@@ -445,7 +427,7 @@ for e in range(start_epoch, train_args['epoch']):
             eval_loss += loss.item()
 
         if (mode in ['MWER', 'MWED']):
-            min_cer = 0
+            min_cer = 100
             best_weight = score_weight
             for w in np.arange(0, 1.1, step = 0.1):
                 c = 0
@@ -453,17 +435,12 @@ for e in range(start_epoch, train_args['epoch']):
                 d = 0
                 i = 0
                 for n, (score, rescore) in enumerate(zip(valid_score, valid_rescore)):
-                    # print(f'score:{score.shape}')
-                    # print(f'rescore:{rescore.shape}')
+
                     combined_score = score + w * rescore
-
-                    # print(f'combined_score:{combined_score.shape}')
-
+                    combined_score[np.isnan(combined_score)] = np.NINF
                     best_index = np.argmax(combined_score)
 
-                    # print(f'best_index:{best_index}')
-
-                    best_wers = wers[n][best_index]
+                    best_wers = eval_wers[n][best_index]
 
                     c += best_wers['hit']
                     s += best_wers['sub']
@@ -476,13 +453,28 @@ for e in range(start_epoch, train_args['epoch']):
                     min_cer = cer
         
             score_weight = best_weight
-            print(f'epoch: {e + 1}, Best Weight:{best_weight}')
+            print(f'epoch: {e + 1}, Best Weight:{best_weight} , min_CER:{min_cer}')
+
+        best_am, best_ctc, best_lm, best_rescore, eval_cer = calculate_cer(
+            am_scores,
+            ctc_scores,
+            lm_scores,
+            rescores,
+            wers,
+            am_range = [0, 1],
+            ctc_range = [0, 1],
+            lm_range = [0, 1],
+            rescore_range = [0, 1],
+            search_step = 0.2 ,
+            recog_mode = False
+        )              
 
         eval_loss = (eval_loss / len(valid_loader)) if (mode == 'MD') else (eval_loss / len(valid_batch_sampler))
         print(f'epoch:{e + 1}, loss:{eval_loss}')
         wandb.log(
             {
                 "eval_loss": eval_loss,
+                "eval_cer": eval_cer, 
                 "epoch": (e + 1)
             }, 
             step = (e + 1) * len(train_loader)
@@ -492,3 +484,6 @@ for e in range(start_epoch, train_args['epoch']):
         if (eval_loss < min_val_loss):
             torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_best.pt")
             min_val_loss = eval_loss
+        if (eval_cer < min_val_cer):
+            torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_best_CER.pt")
+            min_val_cer = eval_cer

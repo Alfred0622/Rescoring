@@ -3,7 +3,7 @@ import logging
 from torch.nn.functional import softmax
 from torch.nn import CrossEntropyLoss, BCELoss, Sigmoid
 from torch.nn import LSTM, Linear
-from torch.nn import AvgPool1d, MaxPool1d
+# from torch.nn import AvgPool1d, MaxPool1d
 from transformers import (
     BertForMaskedLM,
     BertModel,
@@ -13,9 +13,11 @@ from transformers import (
     DistilBertModel,
     DistilBertConfig,
     Trainer,
+    BertJapaneseTokenizer
 )
 from transformers.modeling_outputs import SequenceClassifierOutput
 from torch.optim import Adam, AdamW
+from RescoreBert.utils.Pooling import MaxPooling, AvgPooling
 
 
 class Bert_Compare(torch.nn.Module): # Bert_sem
@@ -83,16 +85,17 @@ class Bert_Sem(torch.nn.Module): # Bert_sem
     
             self.bert = BertModel.from_pretrained('bert-base-uncased', config = self.config)
         elif (self.dataset in ['csj']):
-            pass
-            # self.model = BertModel.from_pretrained()
+            self.config = BertConfig.from_pretrained('cl-tohoku/bert-base-japanese')
+            self.config.hidden_dropout_prob = 0.3
+            self.config.attention_probs_dropout_prob = 0.3
+
+            self.bert = BertModel.from_pretrained('cl-tohoku/bert-base-japanese', config = self.config)
         self.bert = self.bert.to(device)
         
         self.dropout = torch.nn.Dropout(0.3)
         self.linear = torch.nn.Linear(768, 1).to(device)
         self.loss = BCELoss()
         self.sigmoid = Sigmoid()
-
-        
 
         # logging.warning(f'{self.bert}\n {self.linear}')
     def forward(self, input_ids, token_type_ids, attention_mask, labels = None):
@@ -135,8 +138,8 @@ class Bert_Sem(torch.nn.Module): # Bert_sem
 
 class Bert_Alsem(torch.nn.Module): # Bert Alsem
     def __init__(
-        self, 
-        pretrain_name, 
+        self,
+        dataset,
         device,
         hidden_size = 2048, 
         output_size = 64,
@@ -146,7 +149,29 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
     ):
         torch.nn.Module.__init__(self)
         self.device = device
-        self.bert = BertModel.from_pretrained(pretrain_name).to(device)
+        self.dataset = dataset
+        
+        if (self.dataset in ['aishell', 'aishell2']):
+            self.config = BertConfig.from_pretrained('bert-base-chinese')
+            self.config.hidden_dropout_prob = 0.3
+            self.config.attention_probs_dropout_prob = 0.3
+
+            self.bert = BertModel.from_pretrained('bert-base-chinese', config = self.config)
+        elif (self.dataset in ['tedlium2', 'librispeech', 'tedlium2_conformer']):
+            self.config = BertConfig.from_pretrained('bert-base-uncased')
+            self.config.hidden_dropout_prob = 0.3
+            self.config.attention_probs_dropout_prob = 0.3
+    
+            self.bert = BertModel.from_pretrained('bert-base-uncased', config = self.config)
+        elif (self.dataset in ['csj']):
+            self.config = BertConfig.from_pretrained('cl-tohoku/bert-base-japanese')
+            self.config.hidden_dropout_prob = 0.3
+            self.config.attention_probs_dropout_prob = 0.3
+
+            self.bert = BertModel.from_pretrained('cl-tohoku/bert-base-japanese', config = self.config)
+
+        self.bert = self.bert.to(device)
+        self.dropout = torch.nn.Dropout(0.3)
         self.rnn = torch.nn.LSTM(
             input_size = 768,
             hidden_size = hidden_size,
@@ -156,8 +181,6 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
             bidirectional = True,
             proj_size = output_size
         ).to(device) # output: 64 * 2(bidirectional)
-        
-        # input: 128(output) + 4 (am_score & lm_score of the two hyps)
 
         self.fc1 = torch.nn.Sequential(
             Linear(256, 128),
@@ -165,9 +188,8 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
         ).to(device)
 
         self.fc2 = torch.nn.Sequential(
-            Linear(132, 64),
-            Linear(64, 1),
-            torch.nn.ReLU()
+            Linear(132, 1),
+            Sigmoid()
         ).to(device)
 
         self.lr = lr
@@ -182,6 +204,9 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
         self.sigmoid = Sigmoid()
         self.loss = BCELoss()
 
+        self.avg_pool = AvgPooling()
+        self.max_pool = MaxPooling()
+
         self.ctc_weight = ctc_weight
 
     def forward(self, input_ids,token_type_ids ,attention_mask, am_score, ctc_score, lm_score ,labels = None):
@@ -195,18 +220,10 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
 
         LSTM_state, (h, c) = self.rnn(last_hidden_states) # (B, L, 128)
 
-        # print(f'LSTM_state:{LSTM_state.shape}')
+        avg_state = self.avg_pool(LSTM_state, attention_mask)
+        max_state = self.max_pool(LSTM_state, attention_mask)
 
-        avg_pool = AvgPool1d(LSTM_state.shape[1]).to(self.device)
-        max_pool = MaxPool1d(LSTM_state.shape[1]).to(self.device)
-
-        avg_state = avg_pool(torch.transpose(LSTM_state,1,2))
-        max_state = max_pool(torch.transpose(LSTM_state,1,2))
-
-        # print(f'avg_pool:{avg_state.shape}')
-        # print(f'max_pool:{max_state.shape}')
-
-        concat_state = torch.cat([torch.transpose(avg_state, 1,2), torch.transpose(max_state,1,2)], dim = -1) # (B, 128 + 128)
+        concat_state = torch.cat([avg_state, avg_state], dim = -1) # (B, 128 + 128)
         concat_state = concat_state.squeeze(1)
         # print(f'concat_state:{concat_state.shape}')
         concat_state = self.fc1(concat_state) # (B, 256) -> (B, 128)
@@ -218,7 +235,7 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
 
         logits = self.fc2(concat_state).squeeze(-1) #(B, 132) -> (B, 1) ->"squeeze" (B)
 
-        logits = self.sigmoid(logits)
+        # logits = self.sigmoid(logits)
 
         if (labels is not None):
             loss = self.loss(logits, labels)

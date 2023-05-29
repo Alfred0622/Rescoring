@@ -106,7 +106,6 @@ for task in recog_set:
         recog_dataset,
         batch_size = recog_args['recog_batch'],
         collate_fn=RescoreBertRecogBatch,
-
     )
 
     for data in tqdm(recog_loader, ncols = 100):

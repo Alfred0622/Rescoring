@@ -10,8 +10,8 @@ from transformers import BertTokenizer
 random.seed(42)
 nbest = 20
 
-name = 'aishell'
-setting = ['noLM',]
+name = 'librispeech'
+setting = ['noLM', 'withLM']
 
 if (name in ['tedlium2', 'librispeech']):
     tokenizer = BertTokenizer.from_pretrained(f'bert-base-uncased')
@@ -115,7 +115,7 @@ if (concat_train):
                     print(f'{concat_nbest} best')
                     sample_num = concat_nbest * (concat_nbest - 1)
                     same_cer = 0
-                    for n, data in enumerate(tqdm(token_file)):
+                    for n, data in enumerate(tqdm(token_file, ncols = 100)):
                         if (concat_nbest > len(data['hyps'])):
                             hyp_num = len(data['hyps'])
                         else:
@@ -176,6 +176,7 @@ if (concat_train):
                 print(f'total_data_num : {len(concat_dict)}')
                 save_path = Path(f"../data/{name}/{save_file}/{s}/{concat_nbest}best")
                 save_path.mkdir(parents = True, exist_ok = True)
+
                 with open(f'{save_path}/data.json', 'w') as fw:
                     json.dump(
                         concat_dict, fw, ensure_ascii = False, indent = 4
@@ -269,12 +270,12 @@ if (concat_test):
             ) as fw:
                 json.dump(save_list, fw, ensure_ascii = False, indent = 4)
     
-    if (name == 'librispeech'):
-        with open(f"../data/{name}/dev_clean/{s}/{nbest}best/data.json") as clean , \
-             open(f"../data/{name}/dev_other/{s}/{nbest}best/data.json") as other :
-            
-            valid_json = json.load(clean)
-            valid_json = valid_json + json.load(other)
+if (name == 'librispeech'):
+    with open(f"../data/{name}/dev_clean/{s}/5best/data.json") as clean , \
+            open(f"../data/{name}/dev_other/{s}/5best/data.json") as other :
+        
+        valid_json = json.load(clean)
+        valid_json = valid_json + json.load(other)
 
-            with open(f"../data/{name}/valid/{s}/{nbest}best/rescore_data.json", 'w') as valid:
-                json.dump(valid_json, valid, ensure_ascii = False, indent = 1)
+        with open(f"../data/{name}/valid/{s}/{nbest}best/data.json", 'w') as valid:
+            json.dump(valid_json, valid, ensure_ascii = False, indent = 1)

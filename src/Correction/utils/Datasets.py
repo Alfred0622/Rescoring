@@ -3,6 +3,10 @@ from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 from models.nBestAligner.nBestAlign import align, alignNbest
 from jiwer import wer
+from pyknp import Juman
+
+
+jumanpp = Juman()
 
 class correctTrainerDataset(Dataset):
     def __init__(self, nbest_list):
@@ -17,8 +21,31 @@ class correctTrainerDataset(Dataset):
 
     def __len__(self):
         return len(self.data)
+    
+def change_unicode(token_list):
+    for i, token in  enumerate(token_list):
+        if (65281 <= ord(token) <= 65374 ): # if 全形
+            token_list[i] = chr(ord(token) - 65248)
+    
+    return token_list
 
-def get_dataset(data_json, tokenizer, topk, sep_token = '[SEP]', data_type = 'single', for_train = True):
+def preprocess_string(string, dataset):
+    string = string.replace("<eos>", "").strip().split()
+    string = [token for token in string]
+
+    if (dataset in ['csj']):
+        string = change_unicode(string)
+        string = "".join(string)
+        # print(f"string before segment:{string}")
+        # string = jumanpp.analysis(string)
+        # string = " ".join([mrph.genkei for mrph in string.mrph_list()])
+        # print(f"string after segment:{string}")
+    else:
+        string = " ".join(string)
+    
+    return string
+
+def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_type = 'single', for_train = True):
     """
     data_type: str. can be "single" or "concat"
     """
@@ -33,13 +60,20 @@ def get_dataset(data_json, tokenizer, topk, sep_token = '[SEP]', data_type = 'si
             if (not for_train):
                 topk = 1
             for i, data in enumerate(tqdm(data_json, ncols = 80)):
-                label = tokenizer(data['ref'])["input_ids"]
-                ref = data['ref']
+                ref = preprocess_string(data['ref'], dataset)
+
+
+                label = tokenizer(ref)["input_ids"]
+
 
                 for hyp in data['hyps'][:topk]:
-                    if (wer(ref, hyp) > 0.3): continue
-                    
+                    hyp = hyp.replace('<eos>', "").strip()
+                    if (wer(data['ref'], hyp) > 0.3): continue
+
+                    hyp = preprocess_string(hyp, dataset)
                     output = tokenizer(hyp)
+
+
                     if ('token_type_ids' in output.keys()):
                         input_ids, _ , attention_mask = output.values()
                     else:
@@ -58,7 +92,7 @@ def get_dataset(data_json, tokenizer, topk, sep_token = '[SEP]', data_type = 'si
                                 "input_ids":input_ids,
                                 "attention_mask": attention_mask,
                                 "labels": label,
-                                "top_hyp": data['hyps'][0]
+                                "top_hyp": data['hyps'][0].replace("<eos>", "").strip(),
                             }
                     )
                 # if (i > 16): break
@@ -69,23 +103,27 @@ def get_dataset(data_json, tokenizer, topk, sep_token = '[SEP]', data_type = 'si
             if (sep_token == '[SEP]'):
                 sep_token = tokenizer.sep_token if tokenizer.sep_token is not None else tokenizer.eos_token
 
-            for data in tqdm(data_json,ncols = 80):
+            for j, data in enumerate(tqdm(data_json,ncols = 80)):
+                ref = preprocess_string(data['ref'], dataset)
+                
 
-                label = tokenizer(data['ref'])["input_ids"]
+                label = tokenizer(ref, max_length = 512,  truncation=True)["input_ids"]
+                # if (len(label) < 3):
+                #     print(f'ref:{ref}')
+                #     print(f'label:{label}')
                 concat_str = str()
                 nbest = len(data['hyps']) if (len(data['hyps']) < topk) else topk
                 for i in range(nbest):
-                    # print(f"hyp - {i}:{data['hyps'][i]}")
+                    hyp = preprocess_string(data['hyps'][i], dataset)
+                    
                     if (i == 0):
-                        concat_str = f"{data['hyps'][i]} {sep_token}"
+                        concat_str = f"{hyp} {sep_token}" #  "Empty sequence" ->  {hyp} [SEP]
                     elif (i == topk - 1):
-                        concat_str = f"{concat_str} {data['hyps'][i]} {tokenizer.sep_token if tokenizer.sep_token is not None else tokenizer.eos_token}"
+                        concat_str = f"{concat_str} {hyp}" # {hyp} [SEP] {hyp} [SEP] -> {hyp} [SEP] {hyp} [SEP] {last_hyp}
                     else:
-                        concat_str = f"{concat_str} {data['hyps'][i]} {sep_token}"
-                output = tokenizer(concat_str)
-
-                # print(f'concat_str:{concat_str}')
-                # print(f"concat_ids:{output['input_ids']}")
+                        concat_str = f"{concat_str} {hyp} {sep_token}" # {hyp} [SEP] -> {hyp} [SEP] {hyp} [SEP]
+                
+                output = tokenizer(concat_str, max_length = 512, truncation = True)
 
                 if ('token_type_ids' in output.keys() ):
                     input_ids, _ , attention_mask = output.values()
@@ -97,9 +135,10 @@ def get_dataset(data_json, tokenizer, topk, sep_token = '[SEP]', data_type = 'si
                         "input_ids": input_ids,
                         "attention_mask": attention_mask,
                         "labels": label,
-                        "top_hyp": data['hyps'][0]
+                        "ref_text": ref,
                     }
                 )
+                
             
         elif (data_type == 'align'):
             """
@@ -130,6 +169,7 @@ def get_dataset(data_json, tokenizer, topk, sep_token = '[SEP]', data_type = 'si
                         "top_hyp": top_hyp
                     }
                 )
+        data_list = sorted(data_list, key = lambda x: len(x['input_ids']))
                 
         return correctTrainerDataset(data_list)
 
@@ -137,12 +177,15 @@ def get_dataset(data_json, tokenizer, topk, sep_token = '[SEP]', data_type = 'si
         if (data_type == 'single'):
             for data in tqdm(data_json, ncols = 80):
                 name = data['name']
-                output = tokenizer(data['hyps'][0])
+                hyp = preprocess_string(data['hyps'][0], dataset)
+                output = tokenizer(hyp)
                 if ('token_type_ids' in output.keys()):
                     input_ids, _ , attention_mask = output.values()
                 else:
                     input_ids, attention_mask = output.values()
-                label = tokenizer(data['ref'])["input_ids"]
+
+                ref = preprocess_string(data['ref'], dataset)
+                label = tokenizer(ref)["input_ids"]
 
                 data_list.append(
                     {
@@ -150,7 +193,8 @@ def get_dataset(data_json, tokenizer, topk, sep_token = '[SEP]', data_type = 'si
                         "input_ids":input_ids,
                         "attention_mask": attention_mask,
                         "labels": label,
-                        "top_hyp": data['hyps'][0]
+                        "top_hyp": data['hyps'][0].replace("<eos>", "").strip(),
+                        "ref_text": data['ref'].replace("<eos>", "").strip()
                     }
                 )
 
@@ -158,36 +202,45 @@ def get_dataset(data_json, tokenizer, topk, sep_token = '[SEP]', data_type = 'si
             if (sep_token == '[SEP]'):
                 sep_token = tokenizer.sep_token
 
-            for data in tqdm(data_json, ncols = 80):
+            for j, data in enumerate(tqdm(data_json, ncols = 80)):
+
                 name = data['name']
                 concat_str = str()
                 for i in range(topk):
+                    hyp = preprocess_string(data['hyps'][i], dataset)
+                    
                     if (i == 0):
-                        concat_str = f"{data['hyps'][i]} {sep_token}"
-
+                        concat_str = f"{hyp} {sep_token}"
                     elif (i == topk - 1):
-                        concat_str = f"{concat_str} {data['hyps'][i]}"
+                        concat_str = f"{concat_str} {hyp}"
                     else:
-                        concat_str = f"{concat_str} {data['hyps'][i]} {sep_token}"
+                        concat_str = f"{concat_str} {hyp} {sep_token}"
                 
-                output = tokenizer(concat_str)
+                ref = preprocess_string(data['ref'], dataset)
+                top_hyp = preprocess_string(data['hyps'][0], dataset)
+                
+                output = tokenizer(concat_str, max_length = 512, truncation = True)
 
                 if ('token_type_ids' in output.keys()):
                     input_ids, _, attention_mask = output.values()
                 else:
                     input_ids, attention_mask = output.values()
                 
-                label = tokenizer(data['ref'])["input_ids"]
-                top_hyp = data['top_hyp']
+                label_tokens = tokenizer(ref)["input_ids"]
+                top_hyp_tokens = tokenizer(top_hyp)["input_ids"]
                 
                 data_list.append(
                     {
                         "name": name,
                         "input_ids":input_ids,
                         "attention_mask": attention_mask,
-                        "labels": label,
-                        "top_hyp": data['hyps'][0]
+                        "labels": label_tokens,
+                        "ref_text": data['ref'].replace("<eos>", "").strip(),
+                        "top_hyp": data['hyps'][0].replace("<eos>", "").strip(),
+                        "top_hyp_token": top_hyp_tokens
                     }
                 )
+        
+        data_list = sorted(data_list, key = lambda x: len(x['input_ids']))
                     
         return correctTrainerDataset(data_list)

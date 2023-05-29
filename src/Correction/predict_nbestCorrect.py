@@ -10,6 +10,8 @@ from transformers import (
     BertTokenizer,
 )
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from torch.utils.data import DataLoader
 
 from utils.Datasets import get_dataset
@@ -22,15 +24,16 @@ from pathlib import Path
 from jiwer import wer, cer
 from tqdm import tqdm
 
-if (len(sys.argv) != 3):
-    raise AssertionError("Usage: python predict_nbestAlignConcat.py <mode> <checkpoint_path>")
+if (len(sys.argv) != 4):
+    raise AssertionError("Usage: python predict_nbestAlignConcat.py <mode> <checkpoint_path> <save_name>")
 
 task_name = sys.argv[1]
 checkpoint_path = sys.argv[2]
+save_name = sys.argv[3]
 
 use_train = False
 
-def predict(model, tokenizer, loader):
+def predict(model, dataset, tokenizer, loader):
     result = {}
     model.eval()
 
@@ -57,21 +60,26 @@ def predict(model, tokenizer, loader):
                 # early_stopping = True
             )
 
-            # print(f'output:{output}')
-
             output = tokenizer.batch_decode(output, skip_special_tokens = True)
-            ref_list = tokenizer.batch_decode(batch["labels"], skip_special_tokens = True)
+            ref_list = batch['ref_text']
+            top_hyps = batch['top_hyp']
 
-            # for hyp, ref in zip(output, ref_list):
-            #     print(f'hyp:{hyp}\n ref:{ref}')
+            for i, hyp in enumerate(output):
+                if (dataset in ['csj', 'aishell', 'aishell2']):
+                    hyp = [t for t in "".join(hyp.split())]
+                    output[i] = " ".join(hyp)
+                # print(f'output:{output[i]}')
+                # print(f'ref_list:{ref_list[i]}')
+                # print(f'top_hyps:{top_hyps[i]}')
 
-            for single_name, pred, ref in zip(name, output, ref_list):
+            for single_name, pred, ref, top_hyp in zip(name, output, ref_list, top_hyps):
                 if (single_name not in result.keys()):
                     result[single_name] = dict()
-                result[single_name]["hyp"] = "".join(pred).strip()
-                result[single_name]["ref"] = "".join(ref).strip()
+                result[single_name]["hyp"] = pred.strip()
+                result[single_name]["ref"] = ref.strip()
+                result[single_name]["top_hyp"] = top_hyp.strip()
 
-                # print(f'hyp:{result[single_name]["hyp"]}\n ref:{result[single_name]["ref"]}')
+                # print(f'hyp:{result[single_name]["hyp"].replace(" ", "_")}\nref:{result[single_name]["ref"].replace(" ", "_")} \ntop_hyp:{result[single_name]["top_hyp"].replace(" ", "_")}\n')
     
     return result
 
@@ -121,7 +129,7 @@ if __name__ == '__main__':
         with open(f"../../data/{args['dataset']}/data/{setting}/{data_name}/data.json") as f:
             data_json = json.load(f)
 
-        dataset = get_dataset(data_json, tokenizer, data_type = train_args['data_type'], sep_token=train_args['sep_token'] ,topk = topk, for_train = False)
+        dataset = get_dataset(data_json,args['dataset'] , tokenizer, data_type = train_args['data_type'], sep_token=train_args['sep_token'] ,topk = topk, for_train = False)
 
         dataloader = DataLoader(
             dataset,
@@ -130,7 +138,8 @@ if __name__ == '__main__':
             num_workers = 5
         )
 
-        output = predict(model, tokenizer, dataloader)
+        output = predict(model, args['dataset'],tokenizer, dataloader)
+
         if (not os.path.exists(f"./data/{args['dataset']}/{setting}/{data_name}/{args['nbest']}{task_name}/")):
             os.makedirs(f"./data/{args['dataset']}/{setting}/{data_name}/{args['nbest']}{task_name}/")
         with open(
@@ -147,9 +156,12 @@ if __name__ == '__main__':
         result_dict = []
 
         for data in data_json:
-            top_1_hyp.append(data['hyps'][0])
+
+            # print(f"\n Ref:{output[data['name']]['ref']} \n Hyp:{output[data['name']]['hyp']}")
+            # exit(0)
             ref.append(output[data['name']]['ref'])
             hyp.append(output[data['name']]['hyp'])
+            top_1_hyp.append(output[data['name']]['top_hyp'])
 
             corrupt_flag = "Missed"
 
@@ -176,17 +188,16 @@ if __name__ == '__main__':
                 {
                     "hyp": output[data['name']]['hyp'],
                     "ref": output[data['name']]['ref'],
-                    "top_hyp": data['hyps'][0],
+                    "top_hyp": output[data['name']]['top_hyp'],
                     "check1": "Correct" if output[data['name']]['hyp'] == output[data['name']]['ref'] else "Wrong",
                     "check2": corrupt_flag
                 }
             )
-        
-        
+
         save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{data_name}/")
         save_path.mkdir(parents = True, exist_ok = True)
 
-        with open(f"{save_path}/{args['nbest']}_{task_name}_Correct_result.json", 'w') as f:
+        with open(f"{save_path}/{args['nbest']}_{task_name}_{save_name}_Correct_result.json", 'w') as f:
             json.dump(result_dict, f, ensure_ascii = False, indent = 1)
         
         print(f'org_wer:{wer(ref, top_1_hyp)}')

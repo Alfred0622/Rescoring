@@ -1,17 +1,17 @@
 args:
   stage: 0
   stop_stage: 0
-  nbest: 5 # max: 50
-  withLM: True
+  nbest: 20 # max: 50
+  withLM: False
   model_name: sem
-  dataset: aishell
+  dataset: csj
 
 train:
   epoch: 4
-  train_batch: 256
-  valid_batch: 256
-  accumgrad: 1
-  print_loss: 200
+  train_batch: 64
+  valid_batch: 64
+  accumgrad: 4
+  print_loss: 5000
   lr: 1e-6
 
 recog:

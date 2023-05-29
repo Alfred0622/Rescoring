@@ -36,9 +36,10 @@ model.rnn.load_state_dict(checkpoint['rnn'])
 model.fc1.load_state_dict(checkpoint['fc1'])
 model.fc2.load_state_dict(checkpoint['fc2'])
 
-am_weight = 1.0
-ctc_weight = 0.0
-lm_weight = 0.0
+best_am = 1.0
+best_ctc = 0.0
+best_lm = 0.0
+best_rescore = 0.0
 
 for task in recog_set:
     print(f'task:{task}')
@@ -89,7 +90,7 @@ for task in recog_set:
                 rescores[index_dict[name]][first] += output[i].item()
                 rescores[index_dict[name]][second] += (1 - output[i].item())
         
-        if (task == 'dev'): # find Best Weight
+        if (task in ['dev', 'dev_ios','valid']): # find Best Weight
             print(f'find_best_weight')
 
             best_am, best_ctc, best_lm, best_rescore, min_cer = calculate_cer(
@@ -126,4 +127,3 @@ for task in recog_set:
             json.dump(result_dict, f, ensure_ascii = False, indent = 1) 
         
         print(f"Dataset:{args['dataset']} {setting} {task} -- CER = {cer}")
-

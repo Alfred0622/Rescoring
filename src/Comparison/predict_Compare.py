@@ -71,7 +71,7 @@ for task in recog_set:
 
         index_dict, inverse_dict, am_scores, ctc_scores, lm_scores, rescores, wers = prepare_score_dict(data_json, nbest = args['nbest'])
 
-        dataset = get_recogDataset(data_json, tokenizer)
+        dataset = get_recogDataset(data_json, args['dataset'], tokenizer)
 
         data_json = json.load(hyp_f)
         hyps_dict = prepare_hyps_dict(data_json, nbest = args['nbest'])
@@ -138,11 +138,4 @@ for task in recog_set:
         
         print(f"Dataset:{args['dataset']} {setting} {task} -- CER = {cer}")
         # print(f'result_dict:{result_dict}')
-
-            
-
-
-            
-                        
-
             

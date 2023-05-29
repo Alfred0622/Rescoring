@@ -131,7 +131,19 @@ def prepare_myModel(dataset, lstm_dim ,device):
 
     return model, bert_tokenizer, gpt2, gpt_tokenizer
 
-def prepareNBestCrossBert(dataset, device ,lstm_dim = 512, useNbestCross = False, trainAttendWeight = False, addRes = False, fuseType = 'lstm',logSoftmax = False, lossType = 'KL'):
+def prepareNBestCrossBert(
+        dataset, 
+        device,
+        lstm_dim = 512, 
+        useNbestCross = False, 
+        trainAttendWeight = False, 
+        addRes = False, 
+        fuseType = 'lstm', 
+        lossType = 'KL',
+        concatCLS = False,
+        dropout = 0.1,
+        sepTask = True,
+    ):
     pretrain_name = getBertPretrainName(dataset)
     
     model = nBestCrossBert(
@@ -142,21 +154,24 @@ def prepareNBestCrossBert(dataset, device ,lstm_dim = 512, useNbestCross = False
         use_learnAttnWeight = trainAttendWeight,
         addRes=addRes,
         fuseType=fuseType,
-        logSoftmax = logSoftmax,
-        lossType=lossType
+        lossType=lossType,
+        concatCLS= concatCLS,
+        dropout = dropout,
+        sepTask=sepTask
     )
 
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 
     return model, tokenizer
 
-def preparePBert(dataset, device, hardLabel = False):
+def preparePBert(dataset, device, hardLabel = False, loss_type = 'KL'):
     pretrain_name = getBertPretrainName(dataset)
 
     model = pBert(
         dataset,
         device,
-        hardLabel
+        hardLabel,
+        loss_type
     )
 
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)

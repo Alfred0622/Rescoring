@@ -56,7 +56,7 @@ for task in recog_set:
 
         index_dict, inverse_dict,am_scores, ctc_scores, lm_scores, rescores, wers, hyps, refs = prepare_score_dict(recog_json, nbest = args['nbest'])
         
-        recog_dataset = prepareListwiseDataset(recog_json, tokenizer, sort_by_len=True)
+        recog_dataset = prepareListwiseDataset(recog_json, args['dataset'] ,tokenizer, sort_by_len=True)
         recog_sampler = NBestSampler(recog_dataset)
         recog_batch_sampler = BatchSampler(recog_sampler, recog_args['batch'])
         recog_loader = DataLoader(
@@ -101,7 +101,7 @@ for task in recog_set:
                 am_range = [0, 1],
                 ctc_range = [0, 1],
                 lm_range = [0, 1],
-                rescore_range = [0, 5],
+                rescore_range = [0, 1],
                 search_step = 0.1 
             )   
 

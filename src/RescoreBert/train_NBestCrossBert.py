@@ -5,13 +5,12 @@ import logging
 import json
 import wandb
 import random
-
+sys.path.append("../")
 from tqdm import tqdm
 from pathlib import Path
 import numpy as np
 from functools import partial
 from torch.utils.data import DataLoader
-from model.NBestCrossBert import nBestCrossBert
 from src_utils.LoadConfig import load_config
 from utils.Datasets import prepareListwiseDataset
 from utils.CollateFunc import NBestSampler, BatchSampler
@@ -20,12 +19,8 @@ from torch.optim.lr_scheduler import OneCycleLR
 from src_utils.get_recog_set import get_valid_set
 from utils.PrepareModel import prepareNBestCrossBert
 from utils.CollateFunc import crossNBestBatch
-from utils.PrepareScoring import prepare_score_dict, calculate_cer
+from utils.PrepareScoring import prepare_score_dict, calculate_cer, calculate_cerOnRank
 import math
-
-random.seed(42)
-torch.manual_seed(42)
-torch.cuda.manual_seed(42)
 
 checkpoint = None
 
@@ -47,6 +42,11 @@ config_path = "./config/NBestCrossBert.yaml"
 args, train_args, recog_args = load_config(config_path)
 mode = "Normal"
 
+seed = int(args['seed'])
+random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+
 print("\n")
 for key in train_args.keys():
     print(f"{key}: {train_args[key]}")
@@ -59,18 +59,34 @@ if (train_args['useNBestCross']):
         mode = "CrossAttend"
     
     if (train_args['addRes']):
-        mode = mode + "_Res"
+        mode = mode + "_ResOnNbest"
 
     mode = mode + f"_Att_{train_args['AttLayer']}Layers"
 
 mode = mode + f"_{train_args['fuseType']}"
 
-if (train_args['logSoftmax']):
-    mode = mode + f'_logSoftmax'
-
 mode = mode + f"_{train_args['lossType']}"
 if (train_args['sortByLen']):
     mode = mode + "_sortByLength"
+if (train_args['concatCLS']):
+    mode = mode + "_ResCLS"
+if (train_args['concatMaskAfter']):
+    mode = mode + "_concatMaskAfter"
+if (train_args['weightByGrad']):
+    mode = mode + "_weightByGrad"
+if (train_args['sepTask']):
+    mode = mode + "_sepMaskTask"
+
+
+dropout = 0.1
+
+if ("dropout" in train_args.keys()):
+    dropout = float(train_args['dropout'])
+    mode = mode + f"_dropout{train_args['dropout']}"
+else:
+    mode = mode + f"_dropout0.1"
+
+mode = mode + f"_seed{seed}"
 
 setting = 'withLM' if (args['withLM']) else 'noLM'
 
@@ -98,8 +114,10 @@ model, tokenizer = prepareNBestCrossBert(
     trainAttendWeight = False,
     addRes = train_args['addRes'],
     fuseType = train_args['fuseType'],
-    logSoftmax = train_args['logSoftmax'],
-    lossType=train_args['lossType']
+    lossType="Entropy" if train_args['hardLabel'] else train_args['lossType'],
+    concatCLS = train_args['concatCLS'],
+    dropout=dropout,
+    sepTask = train_args['sepTask']
 )
 
 model = model.to(device)
@@ -117,11 +135,32 @@ with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, 
 Load checkpoint
 """
 start_epoch = 0
+get_num = -1
+if ("WANDB_MODE" in os.environ.keys()):
+    if os.environ["WANDB_MODE"]=='disabled':
+        get_num = 50
+       
 
 print(f"tokenizing Train")
-train_dataset = prepareListwiseDataset(data_json = train_json, tokenizer = tokenizer, sort_by_len=train_args['sortByLen'])
+train_dataset = prepareListwiseDataset(
+    data_json = train_json, 
+    dataset = args['dataset'], 
+    tokenizer = tokenizer, 
+    sort_by_len=train_args['sortByLen'], 
+    get_num = get_num,
+    maskEmbedding=train_args['fuseType'] == 'query',
+    concatMask=train_args['concatMaskAfter']
+)
 print(f"tokenizing Validation")
-valid_dataset = prepareListwiseDataset(data_json = valid_json, tokenizer = tokenizer, sort_by_len=train_args['sortByLen'])
+valid_dataset = prepareListwiseDataset(
+    data_json = valid_json, 
+    dataset = args['dataset'], 
+    tokenizer = tokenizer, 
+    sort_by_len=train_args['sortByLen'], 
+    get_num = get_num,
+    maskEmbedding=train_args['fuseType'] == 'query',
+    concatMask=train_args['concatMaskAfter']
+)
 
 print(f"Prepare Sampler")
 train_sampler = NBestSampler(train_dataset)
@@ -129,8 +168,8 @@ valid_sampler = NBestSampler(valid_dataset)
 
 print(f"len of sampler:{len(train_sampler)}")
 
-train_batch_sampler = BatchSampler(train_sampler, train_args['batch_size'])
-valid_batch_sampler = BatchSampler(valid_sampler, train_args['valid_batch'])
+train_batch_sampler = BatchSampler(train_sampler, train_args['batch_size'], batch_by_len=(train_args['fuseType'] != 'query'))
+valid_batch_sampler = BatchSampler(valid_sampler, train_args['valid_batch'], batch_by_len=(train_args['fuseType'] != 'query'))
 
 print(f"len of batch sampler:{len(train_batch_sampler)}")
 
@@ -147,7 +186,6 @@ valid_loader = DataLoader(
     collate_fn = partial(crossNBestBatch, hard_label = train_args['hardLabel']),
     num_workers=16,
 )
-
 
 lr_scheduler = OneCycleLR(
     optimizer, 
@@ -167,14 +205,14 @@ if (train_args['useNBestCross']):
     config = {
         "args": args,
         "train_args": train_args,
-        "Bert_config": model.bert.config if (torch.cuda.device_count() <= 1) else model.module.bert.config ,
+        "Bert_config": model.bert.config.to_dict() if (torch.cuda.device_count() <= 1) else model.module.bert.config.to_dict() ,
         "CrossAttentionConfig": model.fuseAttention.config if (torch.cuda.device_count() <= 1) else model.module.fuseAttention.config
     }   
 else:
     config = {
         "args": args,
         "train_args": train_args,
-        "Bert_config": model.bert.config if (torch.cuda.device_count() <= 1) else model.module.bert.config
+        "Bert_config": model.bert.config.to_dict() if (torch.cuda.device_count() <= 1) else model.module.bert.config.to_dict()
     }
 
 wandb.init(
@@ -196,12 +234,29 @@ step = 0
 min_val_loss = 1e8
 min_val_cer = 1e6
 logging_loss = torch.tensor([0.0])
+cls_logging = torch.tensor([0.0])
+mask_logging = torch.tensor([0.0])
 
 for param in model.bert.parameters():
         param.requires_grad = False
 
+if (train_args['fuseType'] == 'query' and not train_args['concatCLS']):
+    if (train_args['train_cls_first']):
+        get_cls_loss = True
+        get_mask_loss = False
+    else:
+        get_cls_loss = True
+        get_mask_loss = True
+else:
+    get_cls_loss = False
+    get_mask_loss = False
+
 for e in range(start_epoch, train_args['epoch']):
     model.train()
+    epoch_loss = torch.tensor([0.0])
+    cls_loss = 0.0
+    mask_loss = 0.0
+
     if (e >= int(train_args['freeze_epoch'])):
         print(f'unfreeze bert')
         for param in model.bert.parameters():
@@ -209,15 +264,17 @@ for e in range(start_epoch, train_args['epoch']):
     else:
         print(f'freeze bert')
 
+    if (train_args['fuseType'] == 'query' and train_args['train_cls_first']):
+        if (e > 10):
+            get_cls_loss = False
+            get_mask_loss = True
+
     for i, data in enumerate(tqdm(train_loader, ncols = 100)):
         for key in data.keys():
             if (key not in ['name', 'indexes']):
                 # print(f"{key}:{type(data[key])}")
                 data[key] = data[key].to(device)
-            
-        # print(f"label.shape:{data['label'].shape}")
-        # print(f"label:{data['label']}")
-        
+
         output = model.forward(
             input_ids = data['input_ids'],
             attention_mask = data['attention_mask'],
@@ -225,7 +282,10 @@ for e in range(start_epoch, train_args['epoch']):
             am_score = data['am_score'],
             ctc_score = data['ctc_score'],
             labels = data['label'],
-            N_best_index= data['nBestIndex']
+            N_best_index= data['nBestIndex'],
+            use_cls_loss = get_cls_loss,
+            use_mask_loss = get_mask_loss,
+            wers = data['wers'] if (train_args['sepTask']) else None
         )
 
         loss = output['loss']
@@ -246,17 +306,37 @@ for e in range(start_epoch, train_args['epoch']):
         if ( ( (step > 0) and step % int(train_args['print_loss']) == 0)):
             logging_loss = logging_loss / step
             logging.warning( f"epoch:{e + 1} step {i + 1},loss:{logging_loss}" )
-            wandb.log(
-                {
-                    "train_loss": logging_loss,
-                    "lr": lr_scheduler.get_last_lr()
-                }, step = (i + 1) + e * len(train_batch_sampler)
-            )
+
+            if ('cls_loss' in output.keys()):
+                wandb.log(
+                    {
+                        "train_loss": logging_loss,
+                        "lr": optimizer.param_groups[0]['lr'],
+                        "cls_loss": cls_logging,
+                        "mask_loss": mask_logging
+                    }, step = (i + 1) + e * len(train_batch_sampler)
+                )
+            else:    
+                wandb.log(
+                    {
+                        "train_loss": logging_loss,
+                        "lr": optimizer.param_groups[0]['lr']
+                    }, step = (i + 1) + e * len(train_batch_sampler)
+                )
 
             logging_loss = torch.tensor([0.0])
+            cls_logging = torch.tensor([0.0])
+            mask_logging = torch.tensor([0.0])
             step = 0
         
         logging_loss += loss.item()
+        epoch_loss += loss.item()
+
+        if ("cls_loss" in output.keys()):
+            cls_logging += output['cls_loss'].item()
+            mask_logging += output['mask_loss'].item()
+            cls_loss += output['cls_loss'].item()
+            mask_loss += output['mask_loss'].item()
     
     checkpoint = {
         "epoch": e,
@@ -266,29 +346,43 @@ for e in range(start_epoch, train_args['epoch']):
         "optimizer": optimizer.state_dict(),
         "scheduler": lr_scheduler.state_dict()
     }
+
     if ( (e + 1) % 5 == 0 or e == 0 ):
         torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_{e+1}.pt")
     torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_last.pt")
 
-    # logging.warning( f"epoch {e + 1}, training loss:{logging_loss / len(train_batch_sampler)}" )
-    # wandb.log(
-    #     {
-    #         "train_loss": (logging_loss / len(train_batch_sampler)),
-    #         "epoch": (e + 1)
-    #     }
-    # )
-    
+    logging.warning( f"epoch {e + 1}, training loss:{epoch_loss / len(train_batch_sampler)}" )
+    if ('cls_loss' in output.keys()):
+        wandb.log(
+            {
+                "train_loss_per_epoch": (epoch_loss / len(train_batch_sampler)),
+                "cls_loss_per_epoch": (cls_loss / len(train_batch_sampler)),
+                "mask_loss_per_epoch": (mask_loss / len(train_batch_sampler)),
+                "epoch": (e + 1)
+            }
+        )
+
+    else:
+        wandb.log(
+            {
+                "train_loss_per_epoch": (epoch_loss / len(train_batch_sampler)),
+                "epoch": (e + 1)
+            }
+        )
+
     """
     Validation
     """
     model.eval()
     valid_len = len(valid_batch_sampler)
     eval_loss = torch.tensor([0.0])
+    cls_loss = torch.tensor([0.0])
+    mask_loss = torch.tensor([0.0])
+
     with torch.no_grad():
         for i, data in enumerate(tqdm(valid_loader, ncols = 100)):
             for key in data.keys():
                 if (key not in ['name', 'indexes']):
-
                     data[key] = data[key].to(device)
 
             output = model.forward(
@@ -298,7 +392,10 @@ for e in range(start_epoch, train_args['epoch']):
                 am_score = data['am_score'],
                 ctc_score = data['ctc_score'],
                 labels = data['label'],
-                N_best_index= data['nBestIndex']
+                N_best_index= data['nBestIndex'],
+                use_cls_loss = get_cls_loss,
+                use_mask_loss = get_mask_loss,
+                wers = data['wers'] if (train_args['sepTask']) else None
             )
 
             loss = output['loss']
@@ -308,41 +405,71 @@ for e in range(start_epoch, train_args['epoch']):
                 loss = loss.sum()
             eval_loss += loss.item()
 
-            """
-            Calculate Score
-            """
+            if ('cls_loss' in output.keys()):
+                cls_loss += output['cls_loss'].item()
+                mask_loss += output['mask_loss'].item()
+
             for n, (name, index, score) in enumerate(zip(data['name'], data['indexes'], scores)):
                 rescores[index_dict[name]][index] += score.item()
         
-        print(f"Validation: Calcuating CER")
-        best_am, best_ctc, best_lm, best_rescore, min_cer = calculate_cer(
-            am_scores,
-            ctc_scores,
-            lm_scores,
-            rescores,
-            wers,
-            am_range = [0, 1],
-            ctc_range = [0, 1],
-            lm_range = [0, 1],
-            rescore_range = [0, 1],
-            search_step = 0.1 ,
-            recog_mode = False
-        )              
+        cls_loss = (cls_loss / len(valid_batch_sampler))
+        mask_loss = (mask_loss / len(valid_batch_sampler))
+        if ('cls_loss' in output.keys() and train_args['weightByGrad']):
+            model.set_weight(cls_loss, mask_loss)
 
-        
+        """
+        Calculate Score
+        """
+
+        print(f"Validation: Calcuating CER")
+        if (not train_args['sepTask'] or not train_args['scoreByRank']):
+            best_am, best_ctc, best_lm, best_rescore, min_cer = calculate_cer(
+                am_scores,
+                ctc_scores,
+                lm_scores,
+                rescores,
+                wers,
+                am_range = [0, 1],
+                ctc_range = [0, 1],
+                lm_range = [0, 1],
+                rescore_range = [0, 1],
+                search_step = 0.2 ,
+                recog_mode = False
+            )
+            print(f'epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}')
+
+        else:
+            min_cer = calculate_cerOnRank(am_scores, ctc_scores, lm_scores, rescores, wers, withLM = args['withLM'])      
+            print(f'epoch:{e + 1},Validation CER:{min_cer}')
+
         eval_loss = (eval_loss / len(valid_batch_sampler))
+
         print(f'epoch:{e + 1},Validation loss:{eval_loss}')
-        print(f'epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}')
-        wandb.log(
-            {
-            "eval_loss": eval_loss,
-            "eval_CER": min_cer,
-            "epoch": (e + 1)
-            },
-            step = ( (e + 1) * len(train_batch_sampler) )
-        )
+
+        if ('cls_loss' in output.keys()):
+                wandb.log(
+                {
+                    "eval_loss": eval_loss,
+                    "eval_CER": min_cer,
+                    "epoch": (e + 1),
+                    "eval_cls_loss": cls_loss,
+                    "eval_mask_loss": mask_loss,
+                    "clsWeight": model.clsWeight,
+                    "maskWeight": model.maskWeight
+                },
+                step = ( (e + 1) * len(train_batch_sampler) )
+            )
+
+        else:
+            wandb.log(
+                {
+                    "eval_loss": eval_loss,
+                    "eval_CER": min_cer,
+                    "epoch": (e + 1)
+                },
+                step = ( (e + 1) * len(train_batch_sampler) )
+            )
         logging.warning(f'epoch:{e + 1},validation loss:{eval_loss}')
-        logging.warning(f'epoch:{e + 1},validation CER:{min_cer}, , weight = {[best_am, best_ctc, best_lm, best_rescore]}')
 
         rescores = np.zeros(rescores.shape, dtype = float)
 

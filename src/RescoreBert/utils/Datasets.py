@@ -13,6 +13,26 @@ class LM_Dataset(Dataset):
     
     def __len__(self):
         return len(self.data)
+    
+    
+def change_unicode(token_list):
+    for i, token in  enumerate(token_list):
+        if (65281 <= ord(token) <= 65374 ): # if 全形
+            token_list[i] = chr(ord(token) - 65248)
+    
+    return token_list
+
+def preprocess_string(string, dataset):
+    string = string.replace("<eos>", "").strip().split()
+    string = [token for token in string]
+
+    if (dataset in ['csj']):
+        string = change_unicode(string)
+        string = "".join(string)
+    else:
+        string = " ".join(string)
+    
+    return string
         
 def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk = 20, jp_split = True):
     # jp_split: remove space from hyps or refs of jp dataset
@@ -25,16 +45,10 @@ def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk
     if (for_train):
         if (lm == "MLM"):
             for data in tqdm(data_json, ncols = 100):
+                
+                ref = preprocess_string(data['ref'], dataset)
 
-                if (dataset in ['csj']):
-                    if (jp_split): 
-                        ref = data['ref']
-                    else:
-                        ref = "".join(data['ref'].split())
-                else:
-                    ref = data['ref']
                 output = tokenizer(ref)
-
                 if ('token_type_ids' in output.keys()):
                     input_ids, _, attention_mask = output.values()
                 else:
@@ -48,8 +62,6 @@ def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk
                 data_list.append(
                     {
                         "input_ids": input_ids,
-                        # "attention_mask": attention_mask,
-                        # "labels": input_ids.clone()
                     }
                 )
 
@@ -58,24 +70,15 @@ def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk
             eos_token = tokenizer.sep_token if tokenizer.eos_token is None else tokenizer.eos_token
             for i, data in enumerate(tqdm(data_json, ncols = 100)):
                 
-                if (dataset in ['csj']):
-                    if (jp_split): 
-                        ref = data['ref']
-                    else:
-                        ref = "".join(data['ref'].split())
+                ref = preprocess_string(data['ref'], dataset)
 
-                elif (dataset in ['tedlium2', 'tedlium2_conformer', 'librispeech']):
-                    ref = data['ref'] + "."
-                else:
-                    ref = data['ref']
+                if (dataset in ['tedlium2', 'tedlium2_conformer', 'librispeech']):
+                    ref = ref + "."
 
-                if (dataset in ['aishell', 'aishell2']):
-                    pass
-                else:
+                if (dataset not in ['aishell', 'aishell2']):
                     ref = f'{bos_token} {ref} {eos_token}'
 
                 output = tokenizer(ref)
-
                 if ('token_type_ids' in output.keys()):
                     input_ids, _ , attention_mask = output.values()
                 else:
@@ -105,14 +108,11 @@ def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk
 
             name = data['name']
             for i, hyp in enumerate(data['hyps'][:nbest]):
-                if ("<eos>" in hyp):
-                    hyp = hyp[:-5]
-                
-                if (dataset in ['csj']):
-                    if (jp_split): 
-                        hyp = hyp
-                    else:
-                        hyp = "".join(hyp.split())
+                hyp = preprocess_string(hyp, dataset)
+
+                if (lm in ["CLM", "CLM_char"] and dataset in ['tedlium2', 'tedlium2_conformer', 'librispeech']):
+                    hyp = hyp + "."
+                    hyp = f'{bos_token} {hyp} {eos_token}'
 
                 output = tokenizer(hyp)
                 if ('token_type_ids' in output.keys()):
@@ -128,9 +128,7 @@ def get_Dataset(data_json, tokenizer, dataset, lm = "CLM",for_train = True, topk
                         "index": i
                     }
                 )
-            
-            # if (k > 50):
-            #     break
+
         return LM_Dataset(data_list)
 
 def get_mlm_dataset(data_json, tokenizer,  dataset, topk = 50, jp_split = True):
@@ -149,13 +147,7 @@ def get_mlm_dataset(data_json, tokenizer,  dataset, topk = 50, jp_split = True):
         name = data['name']
 
         for i, hyp in enumerate(data['hyps'][:nbest]):
-            if ("<eos>" in hyp):
-                hyp = hyp[:hyp.find('<eos>')]
-            if (dataset in ['csj']):
-                if (jp_split): 
-                    hyp = hyp
-                else:
-                    hyp = "".join(hyp.split())
+            hyp = preprocess_string(hyp, dataset)
 
             output = tokenizer(hyp)
             if ('token_type_ids' in output.keys()):
@@ -186,10 +178,7 @@ def get_mlm_dataset(data_json, tokenizer,  dataset, topk = 50, jp_split = True):
                     continue
                 masked_token = temp_ids[j]
                 temp_ids[j] = tokenizer.mask_token_id
-                # print(f'masked_id:{masked_token}')
 
-                # print(f'after_mask:{temp_ids}')
-                
                 data_list.append(
                     {
                         "name": name,
@@ -202,11 +191,9 @@ def get_mlm_dataset(data_json, tokenizer,  dataset, topk = 50, jp_split = True):
                     }
                 )
 
-        # if (k > 120):
-        #     break    
     return LM_Dataset(data_list)
     
-def getRescoreDataset(data_json, dataset, tokenizer, mode,topk = 50):
+def getRescoreDataset(data_json, dataset, tokenizer, mode,topk = 50, fetch_num = -1):
     data_list = list()
     assert (mode in ['MD', 'MWER', 'MWED']), "Modes should be MD, MWER or MWED"
      
@@ -222,6 +209,7 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode,topk = 50):
 
                 avg_err = torch.mean(wers).item()
                 for hyp, score, rescore, err in zip(data_json[key]['hyps'], data_json[key]['score'] ,data_json[key]['rescore'], data_json[key]['err']):
+                    hyp = preprocess_string(hyp, dataset)
                     output = tokenizer(hyp)
                     if ('token_type_ids' in output.keys()):
                         input_ids, _, attention_mask = tokenizer(hyp).values()
@@ -241,9 +229,7 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode,topk = 50):
                             "avg_err": avg_err
                         }
                     )
-                # if (i > 550):
-                #     break
-            
+ 
         elif (isinstance(data_json, list)):
             for i, data in enumerate(tqdm(data_json, ncols = 100)):
                 wers = []
@@ -255,13 +241,14 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode,topk = 50):
                 avg_err = wers.mean().item()
                 
                 for hyp, score, rescore, err in zip(data['hyps'], data['score'] ,data['rescore'], data['err']):
+                    hyp = preprocess_string(hyp, dataset)
                     output = tokenizer(hyp)
+
                     if ('token_type_ids' in output.keys()):
                         input_ids, _, attention_mask = tokenizer(hyp).values()
                     else:
                         input_ids, attention_mask = tokenizer(hyp).values()
-                
-                    
+
                     data_list.append(
                         {
                             'name': data['name'],
@@ -274,8 +261,6 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode,topk = 50):
                             "avg_err": avg_err
                         }
                     )
-                # if (i > 550):
-                #     break
             
     elif (mode in ['MWER', 'MWED']):
         if (isinstance(data_json, dict)):
@@ -294,6 +279,7 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode,topk = 50):
                 avg_errs = []
 
                 for hyp in data_json[key]['hyps']:
+                    hyp = preprocess_string(hyp)
                     output = tokenizer(hyp)
                     input_ids.append(output['input_ids'])
                     attention_masks.append(output['attention_mask'])
@@ -315,8 +301,6 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode,topk = 50):
                         "nbest": nbest
                     }
                 )
-                # if (i > 32):
-                #     break
             
         elif (isinstance(data_json, list)):
             for i, data in enumerate(tqdm(data_json, ncols = 100)):
@@ -333,6 +317,7 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode,topk = 50):
                 attention_masks = []
                 avg_errs = []
                 for hyp in data['hyps']:
+                    hyp = preprocess_string(hyp, dataset)
                     output = tokenizer(hyp)
                     input_ids.append(output['input_ids'])
                     attention_masks.append(output['attention_mask'])
@@ -354,9 +339,6 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode,topk = 50):
                         "nbest": nbest
                     }
                 )
-                # if (i > 32):
-                #     break
-
     return LM_Dataset(data_list)
 
 def getRecogDataset(data_json, dataset, tokenizer, topk = 50):
@@ -364,11 +346,8 @@ def getRecogDataset(data_json, dataset, tokenizer, topk = 50):
 
     if (isinstance(data_json, dict)):
         for i, key in enumerate(tqdm(data_json.keys(), ncols = 100)):
-            # if (dataset in ['aishell', 'aishell2', 'old_aishell']):
-            #     input_ids, _, attention_mask = tokenizer(data['ref']).values()
-            # elif (dataset in ['tedlium2', 'librispeech']):
-            #     input_ids, attention_mask = tokenizer(data['ref']).values()
             for j, (hyp, score, rescore, err) in enumerate(zip(data_json[key]['hyps'], data_json[key]['score'],data_json[key]['rescore'], data_json[key]['err'])):
+                hyp = preprocess_string(hyp, dataset)
                 output = tokenizer(hyp)
                 
                 if ('token_type_ids' in output.keys()):
@@ -390,12 +369,8 @@ def getRecogDataset(data_json, dataset, tokenizer, topk = 50):
                 )
     elif (isinstance(data_json, list)):
         for i, data in enumerate(tqdm(data_json, ncols = 100)):
-            # if (dataset in ['aishell', 'aishell2', 'old_aishell']):
-            #     input_ids, _, attention_mask = tokenizer(data['ref']).values()
-            # elif (dataset in ['tedlium2', 'librispeech']):
-            #     input_ids, attention_mask = tokenizer(data['ref']).values()
-            # print(data_json[key].keys())
             for j, (hyp, score, rescore, err) in enumerate(zip(data['hyps'], data['score'],data['rescore'], data['err'])):
+                hyp = preprocess_string(hyp, dataset)
                 output = tokenizer(hyp)
                 
                 if ('token_type_ids' in output.keys()):
@@ -415,8 +390,7 @@ def getRecogDataset(data_json, dataset, tokenizer, topk = 50):
                         "top_hyp": data['hyps'][0]
                     }
                 )
-        
-    
+
     return LM_Dataset(data_list)
 
 def prepare_myDataset(data_json, bert_tokenizer, gpt_tokenizer, topk = 50):
@@ -432,7 +406,6 @@ def prepare_myDataset(data_json, bert_tokenizer, gpt_tokenizer, topk = 50):
 
             for j, (hyp, am_score, ctc_score, err) in enumerate(zip(data['hyps'], data['am_score'],data['ctc_score'], data['err'])):
                 bert_output = bert_tokenizer(hyp)
-
                 gpt_output = gpt_tokenizer(hyp)
 
                 if ('token_type_ids' in bert_output.keys()):
@@ -572,7 +545,7 @@ def prepare_myRecogDataset(data_json, bert_tokenizer, topk = 50):
     return LM_Dataset(data_list)
 
 
-def prepareListwiseDataset(data_json, tokenizer, topk = 50, sort_by_len = False):
+def prepareListwiseDataset(data_json,dataset, tokenizer, topk = 50, sort_by_len = False, get_num = -1, maskEmbedding = False, concatMask = False):
     """
     The purpose of the function is to get the complete dataset. Includes:
 
@@ -612,7 +585,17 @@ def prepareListwiseDataset(data_json, tokenizer, topk = 50, sort_by_len = False)
             max_len = -1
 
             for hyp in data_json[key]['hyps']:
+                hyp = preprocess_string(hyp, dataset)
+
+                if (maskEmbedding and not concatMask):
+                    hyp = hyp + "[MASK]"
+
                 output = tokenizer(hyp)
+
+                if (maskEmbedding and concatMask):
+                    output['input_ids'] = output["input_ids"] + tokenizer.convert_tokens_to_ids(["[MASK]"])
+                    output['attention_mask'] = output['attention_mask'] + [1]
+
                 input_ids.append(output['input_ids'])
                 attention_masks.append(output['attention_mask'])
                 avg_errs.append(avg_err)
@@ -623,8 +606,7 @@ def prepareListwiseDataset(data_json, tokenizer, topk = 50, sort_by_len = False)
                     min_len = len(hyp)
             
             nbest = len(data_json[key]['hyps'])
-
-
+            
             data_list.append(
                 {
                     "name":key,
@@ -642,8 +624,8 @@ def prepareListwiseDataset(data_json, tokenizer, topk = 50, sort_by_len = False)
                     "min_len": min_len
                 }
             )
-            # if (i > 18):
-            #     break
+            if (get_num > 0 and i > get_num):
+                break
         
     elif (isinstance(data_json, list)):
         for i, data in enumerate(tqdm(data_json, ncols = 100)):
@@ -666,7 +648,17 @@ def prepareListwiseDataset(data_json, tokenizer, topk = 50, sort_by_len = False)
             max_len = -1
             
             for hyp in data['hyps']:
+                hyp = preprocess_string(hyp, dataset)
+
+                if (maskEmbedding and not concatMask):
+                    hyp = hyp + "[MASK]"
+                    
                 output = tokenizer(hyp)
+
+                if (maskEmbedding and concatMask):
+                    output['input_ids'] = output["input_ids"] + tokenizer.convert_tokens_to_ids(["[MASK]"])
+                    output['attention_mask'] = output['attention_mask'] + [1]
+
                 input_ids.append(output['input_ids'])
                 attention_masks.append(output['attention_mask'])
                 avg_errs.append(avg_err)
@@ -677,9 +669,6 @@ def prepareListwiseDataset(data_json, tokenizer, topk = 50, sort_by_len = False)
                     min_len = len(output['input_ids'])
             
             nbest = len(data['hyps'])
-            # print(f'nbest:{nbest}')
-
-
 
             data_list.append(
                 {
@@ -698,8 +687,8 @@ def prepareListwiseDataset(data_json, tokenizer, topk = 50, sort_by_len = False)
                     "min_len": min_len
                 }
             )
-            # if (i > 2560):
-            #     break
+            if (get_num > 0 and i > get_num):
+                break
     
     if (sort_by_len):
         data_list = sorted(data_list, key = lambda x: x['max_len'])

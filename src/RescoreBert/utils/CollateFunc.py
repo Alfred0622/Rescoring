@@ -79,6 +79,50 @@ class BatchSampler(Sampler):
         if (real_batch > 0) and not self.drop_last:
             num += 1
         return num
+    
+
+class RescoreBert_BatchSampler(Sampler):
+    def __init__(self, sampler, batch_size, drop_last = False):
+        super().__init__(self)
+        self.sampler = sampler
+        self.batch_size = batch_size
+        self.drop_last = drop_last
+
+        print(f'batch_size BatchSampler:{self.batch_size}')
+    
+    def __iter__(self):
+        batch = []
+        real_batch = 0
+        for sample in self.sampler:
+            data, index = sample
+
+            if (real_batch > 0 and (real_batch + data['nbest']) > self.batch_size): # IF added into batch, the batch size will get over
+                yield batch
+                batch = []
+                real_batch = 0
+            
+            batch.append(index)
+            real_batch += data['nbest']
+        
+        if (len(batch) > 0) and not self.drop_last:
+            yield batch
+    
+    def __len__(self):
+        real_batch = 0
+        num = 0
+
+        for sample in self.sampler:
+            data, _ = sample
+
+            if (real_batch > 0 and (real_batch + data['nbest']) > self.batch_size):
+                num += 1
+                real_batch = 0
+
+            real_batch += data['nbest']
+        
+        if (real_batch > 0) and not self.drop_last:
+            num += 1
+        return num
 
 
 def crossNBestBatch(batch, hard_label = False):
@@ -93,7 +137,8 @@ def crossNBestBatch(batch, hard_label = False):
 
     am_scores = torch.as_tensor([], dtype = torch.float32)
     ctc_scores = torch.as_tensor([], dtype = torch.float32)
-    wer = torch.as_tensor([], dtype = torch.float32)
+    labels = torch.as_tensor([], dtype = torch.float32)
+    wers = torch.as_tensor([], dtype = torch.float32)
 
     utt_count = 0
     for sample in batch:
@@ -101,9 +146,6 @@ def crossNBestBatch(batch, hard_label = False):
         names += [sample['name'] for _ in range(sample['nbest'])]
         input_ids += [torch.as_tensor(s, dtype = torch.int64) for s in sample['input_ids']]
         attention_mask += [torch.as_tensor(s, dtype = torch.int64) for s in sample['attention_mask']]
-
-        # print(f"am_score:{am_scores.shape}")
-        # print(f"new am_score:{sample['am_score'].shape}")
         
         am_scores = torch.cat([am_scores, sample['am_score']], dim = -1)
         ctc_scores = torch.cat([ctc_scores, sample['ctc_score']], dim = -1)
@@ -115,13 +157,14 @@ def crossNBestBatch(batch, hard_label = False):
         # rank_scale = torch.as_tensor([(1 / ((2 * rank) + 1)) for rank in range(sample['nbest'])])
         else:
             label_score = torch.reciprocal(1 + sample['wer'])
-
             label_score[label_score == 1.00] += 10 #extra bonus for correct answer
 
             for rank, index in enumerate(sort_index):
                 label_score[index] += (1 / ((2 * rank) + 1))
             label_score = softmax(label_score, dim = -1)
-        wer = torch.cat([wer, label_score])
+
+        labels = torch.cat([labels, label_score])
+        wers = torch.cat([wers, sample['wer']])
 
         nBest.append(sample['nbest'])
         indexes += [rank for rank in range(sample['nbest'])]
@@ -141,11 +184,11 @@ def crossNBestBatch(batch, hard_label = False):
     nBest = torch.as_tensor(nBest, dtype = torch.int64)
 
     NBestTokenTypeId = torch.as_tensor(NBestTokenTypeId, dtype = torch.int64)
-    cross_attention_mask = torch.ones(size = (input_ids.shape[0], input_ids.shape[0]), dtype = torch.float32)
+    cross_attention_mask = torch.zeros(size = (input_ids.shape[0], input_ids.shape[0]), dtype = torch.bool)
     
     start_index = 0
     for length in nBest:
-        cross_attention_mask[start_index:start_index + length, start_index:start_index + length] = 0
+        cross_attention_mask[start_index:start_index + length, start_index:start_index + length] = True
         start_index += length
     
     # print(f'min_lens: {min_lens}\n max_lens: {max_lens}')
@@ -157,7 +200,8 @@ def crossNBestBatch(batch, hard_label = False):
         "attention_mask": attention_mask,
         "am_score": am_scores,
         "ctc_score": ctc_scores,
-        "label": wer,
+        "label": labels,
+        'wers': wers,
         'nBestIndex': nBest,
         'indexes': indexes,
         "NBestTokenTypeId": NBestTokenTypeId,
@@ -175,6 +219,8 @@ def PBertBatch(batch):
     ctc_scores = torch.as_tensor([], dtype = torch.float32)
     wer = torch.as_tensor([], dtype = torch.float32)
 
+    errors = torch.as_tensor([] , dtype = torch.float32)
+
     for sample in batch:
         # print(f"nbest:{sample['nbest']}")
         names += [sample['name'] for _ in range(sample['nbest'])]
@@ -188,6 +234,7 @@ def PBertBatch(batch):
 
         # rank_scale = torch.as_tensor([(1 / ((2 * rank) + 1)) for rank in range(sample['nbest'])])
         label_score = torch.reciprocal(1 + sample['wer'])
+        errors = torch.cat([errors, sample['wer']], dim = -1)
 
         label_score[label_score == 1.00] += 10 #extra bonus for correct answer
 
@@ -212,6 +259,7 @@ def PBertBatch(batch):
         "am_score": am_scores,
         "ctc_score": ctc_scores,
         "label": wer,
+        'wers': errors,
         'nBestIndex': nBest,
         'indexes': indexes,
     }

@@ -14,11 +14,18 @@ from utils.PrepareModel import prepareNBestCrossBert
 from utils.PrepareScoring import (
     calculate_cer,
     get_result,
-    prepare_score_dict
+    prepare_score_dict,
+    calculate_cerOnRank, 
+    get_resultOnRank
 )
 from src_utils.get_recog_set import get_recog_set 
 from pathlib import Path
 from tqdm import tqdm
+import random
+
+random.seed(42)
+torch.manual_seed(42)
+torch.cuda.manual_seed(42)
 
 config_path = "./config/NBestCrossBert.yaml"
 args, train_args, recog_args = load_config(config_path)
@@ -32,9 +39,16 @@ if (train_args['useNBestCross']):
 checkpoint_path = sys.argv[1]
 mode = sys.argv[2]
 
-
 setting = 'withLM' if (args['withLM']) else 'noLM'
 print(f"{args['dataset']} : {setting}")
+
+if (checkpoint_path != "no"):
+    checkpoint = torch.load(checkpoint_path)
+    if ('train_args' in checkpoint.keys()):
+        train_args = checkpoint['train_args']
+
+for k in train_args.keys():
+    print(f'{k}:{train_args[k]}')
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model, tokenizer = prepareNBestCrossBert(
@@ -43,16 +57,23 @@ model, tokenizer = prepareNBestCrossBert(
     lstm_dim = train_args['lstm_embedding'],
     useNbestCross = train_args['useNBestCross'], 
     trainAttendWeight = False,
+    concatCLS=train_args['concatCLS'],
     fuseType = train_args['fuseType'],
 )
 
 model = model.to(device)
 model.eval()
-checkpoint = torch.load(checkpoint_path)
 
 # for key in checkpoint['model'].keys():
 #     print(f"ok {key}, {checkpoint['model'][key].value.shape}")
-model.load_state_dict(checkpoint['model'])
+# print(f"checkpoint:{checkpoint['model'].keys()}")
+
+if (checkpoint_path != "no"):
+    if ('clsWeight' in checkpoint['model'].keys()):
+
+        model.set_weight(checkpoint['model']['clsWeight'], checkpoint['model']['maskWeight'], is_weight = True)
+    model.load_state_dict(checkpoint['model'])
+
 recog_set = get_recog_set(args['dataset'])
 dev_set = recog_set[0]
 
@@ -68,7 +89,14 @@ for task in recog_set:
 
         index_dict, inverse_dict,am_scores, ctc_scores, lm_scores, rescores, wers, hyps, refs = prepare_score_dict(recog_json, nbest = args['nbest'])
         
-        recog_dataset = prepareListwiseDataset(recog_json, tokenizer, sort_by_len=True)
+        recog_dataset = prepareListwiseDataset(
+            recog_json, 
+            args['dataset'],
+            tokenizer, 
+            sort_by_len=True,
+            maskEmbedding=train_args['fuseType'] == 'query',
+            concatMask=train_args['concatMaskAfter'] if 'concatMaskAfter' in train_args.keys() else False
+        )
         recog_sampler = NBestSampler(recog_dataset)
         recog_batch_sampler = BatchSampler(recog_sampler, recog_args['batch'])
         recog_loader = DataLoader(
@@ -93,18 +121,9 @@ for task in recog_set:
                     N_best_index= None
                 )['score']
 
-                # print(f"output:{output.shape}\n {output}")
-                # print(f"name : {data['name']}")
-                # print(f"index : {data['indexes']}")
-
                 for n, (name, index,  score) in enumerate(zip(data['name'], data['indexes'], output)):
                     rescores[index_dict[name]][index] += score.item()
-                # print(f"rescores: {rescores[index_dict[name]]}")
-        
-        # print(f"name : {data['name']}")
-        # print(f"index : {data['indexes']}")
-        # print(f"score:{output}")
-        
+
         if (task == dev_set):
             best_am, best_ctc, best_lm, best_rescore, min_cer = calculate_cer(
                 am_scores,
@@ -139,7 +158,6 @@ for task in recog_set:
         print(f"Dataset:{args['dataset']}")
         print(f'setting:{setting}')
         print(f'task:{task}')
-        # print(f"length_norm:{recog_args['length_norm']}")
         print(f'CER : {cer}')
 
         save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}")

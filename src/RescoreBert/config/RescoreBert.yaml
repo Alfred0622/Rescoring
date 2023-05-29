@@ -1,11 +1,11 @@
 args:
   nbest: 50 # max: 50
-  withLM: True
-  dataset: csj
+  withLM: False
+  dataset: librispeech
 train:
   epoch: 10
-  train_batch: 64
-  accumgrad: 4
+  train_batch: 128
+  accumgrad: 2
   print_loss: 5000
   lr: 1e-6
 
