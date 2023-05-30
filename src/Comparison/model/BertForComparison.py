@@ -208,6 +208,7 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
         self.max_pool = MaxPooling()
 
         self.ctc_weight = ctc_weight
+        print(f'ctc_weight:{self.ctc_weight}')
 
     def forward(self, input_ids,token_type_ids ,attention_mask, am_score, ctc_score, lm_score ,labels = None):
         

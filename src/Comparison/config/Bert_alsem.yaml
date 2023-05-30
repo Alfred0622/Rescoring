@@ -11,8 +11,14 @@ train:
   accum_grads: 1
   print_loss: 5000
   lr: 1e-5
-  ctc_weight: 0.3
+  ctc_weight: {aishell: 0.7,
+  aishell2: 0.5,
+  librispeech: 0.4,
+  csj: 0.3,
+  tedlium2: 0.3
+}
+  
 
 recog:
-  batch: 64
+  batch: 256
   find_weight: True

@@ -26,7 +26,7 @@ def prepare_model(args, train_args, device):
         print(f"sem")
         model = Bert_Sem(args['dataset'], device)
     elif (args["model_name"] == 'alsem'):
-        model = Bert_Alsem(args['dataset'], device,ctc_weight = train_args['ctc_weight'])
+        model = Bert_Alsem(args['dataset'], device,ctc_weight = train_args['ctc_weight'][args['dataset']])
     
 
     if (args["dataset"] in {'csj'}):
