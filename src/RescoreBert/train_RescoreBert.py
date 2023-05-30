@@ -242,8 +242,11 @@ for e in range(start_epoch, train_args['epoch']):
             wer = data['wer'].clone()
 
             assert(first_score.shape == output['score'].shape), f"first_score:{first_score.shape}, score:{output['score'].shape}"
+            
 
             combined_score = first_score + score_weight * output['score'].clone()
+
+            assert(combined_score.shape == data['wer'].shape), f"combined_score:{combined_score.shape}, wer:{data['wer'].shape}"
             # calculate Temperature T
             index = 0
             scoreSum = torch.tensor([]).to(device)
@@ -261,6 +264,8 @@ for e in range(start_epoch, train_args['epoch']):
                 werSum = torch.cat([werSum, wer_sum])
 
                 index = index + nbest
+
+            assert(scoreSum.shape == combined_score.shape), f"combined_score:{combined_score.shape}, scoreSum:{scoreSum.shape}"
 
              # Softmax over distribution
             index = 0
@@ -283,7 +288,7 @@ for e in range(start_epoch, train_args['epoch']):
             loss_MWED = loss_MWED.sum()
             loss_MWED = torch.neg(loss_MWED)
 
-            loss = loss_MWED + 1e-4 * loss
+            loss = loss_MWED + 1e-3 * loss
 
         if (torch.cuda.device_count() > 1):
             loss = loss.sum()

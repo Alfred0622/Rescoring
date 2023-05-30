@@ -168,8 +168,8 @@ valid_sampler = NBestSampler(valid_dataset)
 
 print(f"len of sampler:{len(train_sampler)}")
 
-train_batch_sampler = BatchSampler(train_sampler, train_args['batch_size'], batch_by_len=(train_args['fuseType'] != 'query'))
-valid_batch_sampler = BatchSampler(valid_sampler, train_args['valid_batch'], batch_by_len=(train_args['fuseType'] != 'query'))
+train_batch_sampler = BatchSampler(train_sampler, train_args['batch_size'], batch_by_len=False)
+valid_batch_sampler = BatchSampler(valid_sampler, train_args['valid_batch'], batch_by_len=False)
 
 print(f"len of batch sampler:{len(train_batch_sampler)}")
 
@@ -305,6 +305,8 @@ for e in range(start_epoch, train_args['epoch']):
         
         if ( ( (step > 0) and step % int(train_args['print_loss']) == 0)):
             logging_loss = logging_loss / step
+            cls_logging = cls_logging / step
+            mask_logging = mask_logging / step
             logging.warning( f"epoch:{e + 1} step {i + 1},loss:{logging_loss}" )
 
             if ('cls_loss' in output.keys()):
@@ -454,8 +456,8 @@ for e in range(start_epoch, train_args['epoch']):
                     "epoch": (e + 1),
                     "eval_cls_loss": cls_loss,
                     "eval_mask_loss": mask_loss,
-                    "clsWeight": model.clsWeight,
-                    "maskWeight": model.maskWeight
+                    "clsWeight": model.clsWeight if (hasattr(model, 'clsWeight')) else None,
+                    "maskWeight": model.maskWeight if (hasattr(model, 'maskWeight')) else None
                 },
                 step = ( (e + 1) * len(train_batch_sampler) )
             )

@@ -301,6 +301,8 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode,topk = 50, fetch_num =
                         "nbest": nbest
                     }
                 )
+
+
             
         elif (isinstance(data_json, list)):
             for i, data in enumerate(tqdm(data_json, ncols = 100)):
@@ -339,6 +341,7 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode,topk = 50, fetch_num =
                         "nbest": nbest
                     }
                 )
+
     return LM_Dataset(data_list)
 
 def getRecogDataset(data_json, dataset, tokenizer, topk = 50):

@@ -277,21 +277,29 @@ class nBestCrossBert(torch.nn.Module):
 
                     mask_concat = torch.cat([concatTrans, am_score],  dim = -1)
                     mask_concat = torch.cat([mask_concat, ctc_score],  dim = -1)
-                    cls_score = self.finalLinear(cls_concat)
-                    mask_score = self.finalExLinear(mask_concat)
+                    cls_score = self.finalLinear(cls_concat).squeeze(-1)
+                    mask_score = self.finalExLinear(mask_concat).squeeze(-1)
 
                     cls_prob = self.activation_func(cls_score, N_best_index)
+
+                    # print(f'cls_prob:{cls_prob.shape}')
+                    # print(f'labels:{labels.shape}')
 
                     if (wers is not None):
                         cls_loss = labels * torch.log(cls_prob)
                         cls_loss = torch.sum(torch.neg(cls_loss))
 
-                        mask_loss = self.l2Loss(wers.unsqueeze(-1), mask_score)
+                        mask_loss = self.l2Loss(wers, mask_score)
 
-                        loss = (cls_loss + mask_loss) / 2
+                        # print(f'mask_loss:{mask_loss}')
+
+                        loss = 0.7 * cls_loss + 0.3 *  mask_loss
+                        # print(f'loss:{loss}')
 
                         if (not self.useRank):
                             logits = cls_score - mask_score
+                    else:
+                        logits = cls_score
                         
                     attMap = None
 
