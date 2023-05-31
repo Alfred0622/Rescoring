@@ -108,8 +108,12 @@ class nBestCrossBert(torch.nn.Module):
             concatCLS = False,
             dropout = 0.1,
             sepTask = False,
-            useRank = False
+            useRank = False,
+            noCLS = True,
+            noSEP = False
         ):
+
+        print(f"noCLS:{noCLS}, noSEP:{noSEP}")
         super().__init__()
         pretrain_name = getBertPretrainName(dataset)
         
@@ -123,10 +127,12 @@ class nBestCrossBert(torch.nn.Module):
         self.KL = (lossType == 'KL')
         self.useRank = useRank
         self.sepTask = sepTask
+        self.noCLS = noCLS
+        self.noSEP = noSEP
 
-        self.maxPool = MaxPooling()
-        self.minPool = MinPooling()
-        self.avgPool = AvgPooling()
+        self.maxPool = MaxPooling(self.noCLS, self.noSEP)
+        self.minPool = MinPooling(self.noCLS, self.noSEP)
+        self.avgPool = AvgPooling(self.noCLS, self.noSEP)
 
         self.l2Loss = torch.nn.MSELoss()
 
@@ -246,7 +252,7 @@ class nBestCrossBert(torch.nn.Module):
         else: # notConcatCLS
             if (self.fuseType in ['lstm', 'attn', 'none']):
                 if (self.fuseType == 'lstm'):
-                    fuse_state, (h, c) = self.lstm(token_embeddings[:, 1:, :]) # (B, L-1, 768)
+                    fuse_state, (h, c) = self.lstm(token_embeddings) # (B, L-1, 768)
                 
                 elif (self.fuseType == 'attn'):
                     attn_mask = attention_mask[:, 1:].clone()
@@ -258,7 +264,7 @@ class nBestCrossBert(torch.nn.Module):
                     attn_mask[mask_index] = 1
 
                     fuse_state = self.attnLayer(
-                        src = token_embeddings[:, 1:, :],
+                        src = token_embeddings,
                         src_key_padding_mask = attn_mask
                     )
                 elif (self.fuseType == 'none'):
@@ -282,19 +288,13 @@ class nBestCrossBert(torch.nn.Module):
 
                     cls_prob = self.activation_func(cls_score, N_best_index)
 
-                    # print(f'cls_prob:{cls_prob.shape}')
-                    # print(f'labels:{labels.shape}')
-
                     if (wers is not None):
                         cls_loss = labels * torch.log(cls_prob)
                         cls_loss = torch.sum(torch.neg(cls_loss))
 
                         mask_loss = self.l2Loss(wers, mask_score)
 
-                        # print(f'mask_loss:{mask_loss}')
-
                         loss = 0.7 * cls_loss + 0.3 *  mask_loss
-                        # print(f'loss:{loss}')
 
                         if (not self.useRank):
                             logits = cls_score - mask_score
@@ -310,8 +310,6 @@ class nBestCrossBert(torch.nn.Module):
                         "cls_loss": cls_loss,
                         "mask_loss": mask_loss
                     }
-                    
-
 
             elif (self.fuseType == 'query'):
                 mask_index = (input_ids == 103).nonzero(as_tuple = False).transpose(1,0)
@@ -493,6 +491,9 @@ class nBestCrossBert(torch.nn.Module):
         if (hasattr(self, 'finalExLinear')):
             state_dict['finalExLinear'] = self.finalExLinear.state_dict()
         
+        state_dict['noCLS'] = self.noCLS
+        state_dict['noSEP'] = self.noSEP
+        
         return state_dict
  
     def load_state_dict(self, checkpoint):
@@ -511,6 +512,11 @@ class nBestCrossBert(torch.nn.Module):
             self.fuseAttention.load_state_dict(checkpoint['fuseAttend'])
         if (hasattr(self, 'finalExLinear') and 'finalExLinear' in checkpoint.keys()):
             self.finalExLinear.load_state_dict(checkpoint['finalExLinear'])
+        
+        if ('noCLS' in checkpoint.keys()):
+            self.noCLS = checkpoint['noCLS']
+        if ('noSEP' in checkpoint.keys()):
+            self.noSEP = checkpoint['noSEP']
 
     def set_weight(self, cls_loss, mask_loss, is_weight = False):
         if (is_weight):
@@ -576,12 +582,12 @@ class pBert(torch.nn.Module):
         loss = None
         if (labels is not None):
             if (self.hardLabel):
-                scores = SoftmaxOverNBest(scores, N_best_index, log_score = False)
+                scores = self.activation_fn(scores, N_best_index, log_score = False)
                 loss = torch.sum(labels * torch.log(scores))
                 loss = torch.neg(loss)
             else:
                 if (self.loss_type == 'KL'):
-                    scores = SoftmaxOverNBest(scores, N_best_index, log_score = True) # Log_Softmax
+                    scores = self.activation_fn(scores, N_best_index, log_score = True) # Log_Softmax
                     if (wers is None):
                         loss = self.loss(scores, labels)
                     else:
@@ -590,7 +596,7 @@ class pBert(torch.nn.Module):
                         loss = loss * wers
                         loss = torch.sum(loss) / input_ids.shape[0] # batch_mean
                 else:
-                    scores = SoftmaxOverNBest(scores, N_best_index, log_score = False)
+                    scores = self.activation_fn(scores, N_best_index, log_score = False)
                     loss = torch.sum(labels * torch.log(scores)) / input_ids.shape[0] # batch_mean
                     loss = torch.neg(loss)
 

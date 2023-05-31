@@ -76,7 +76,10 @@ if (train_args['weightByGrad']):
     mode = mode + "_weightByGrad"
 if (train_args['sepTask']):
     mode = mode + "_sepMaskTask"
-
+if (train_args['noCLS']):
+    mode = mode + "_noCLS"
+if (train_args['noSEP']):
+    mode = mode + "_noSEP"
 
 dropout = 0.1
 
@@ -117,7 +120,9 @@ model, tokenizer = prepareNBestCrossBert(
     lossType="Entropy" if train_args['hardLabel'] else train_args['lossType'],
     concatCLS = train_args['concatCLS'],
     dropout=dropout,
-    sepTask = train_args['sepTask']
+    sepTask = train_args['sepTask'],
+    noCLS = train_args['noCLS'],
+    noSEP = train_args['noSEP']
 )
 
 model = model.to(device)
@@ -168,8 +173,8 @@ valid_sampler = NBestSampler(valid_dataset)
 
 print(f"len of sampler:{len(train_sampler)}")
 
-train_batch_sampler = BatchSampler(train_sampler, train_args['batch_size'], batch_by_len=False)
-valid_batch_sampler = BatchSampler(valid_sampler, train_args['valid_batch'], batch_by_len=False)
+train_batch_sampler = BatchSampler(train_sampler, train_args['batch_size'], batch_by_len=(train_args['fuseType'] in ['attn', 'lstm']))
+valid_batch_sampler = BatchSampler(valid_sampler, train_args['valid_batch'], batch_by_len=(train_args['fuseType'] in ['attn', 'lstm']))
 
 print(f"len of batch sampler:{len(train_batch_sampler)}")
 
@@ -300,7 +305,6 @@ for e in range(start_epoch, train_args['epoch']):
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad(set_to_none=True)
-
             step += 1
         
         if ( ( (step > 0) and step % int(train_args['print_loss']) == 0)):

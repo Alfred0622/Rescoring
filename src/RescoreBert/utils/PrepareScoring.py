@@ -72,7 +72,7 @@ def prepare_score_dict(data_json, nbest):
         """
         print(f'list')
 
-        for i, data in tqdm(enumerate(data_json)):
+        for i, data in enumerate(data_json):
             index_dict[data['name']] = i
             inverse_index[i] = data['name']
 

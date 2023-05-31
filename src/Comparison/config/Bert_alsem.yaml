@@ -13,7 +13,7 @@ train:
   lr: 1e-5
   ctc_weight: {aishell: 0.7,
   aishell2: 0.5,
-  librispeech: 0.4,
+  librispeech: 0.5,
   csj: 0.3,
   tedlium2: 0.3
 }

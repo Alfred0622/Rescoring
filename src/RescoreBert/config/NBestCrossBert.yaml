@@ -13,12 +13,12 @@ train:
   print_loss: 5000
   lr: 1e-7
   maxlr: 1e-7
+  freeze_epoch: -1
   fuseType: none  # lstm , attn, query or None
   lstm_embedding: 1024
   useNBestCross: False
   trainAttendWeight: False
   addRes: True
-  freeze_epoch: -1
   hardLabel: True
   logSoftmax: False
   lossType: 'KL'
@@ -30,6 +30,8 @@ train:
   train_cls_first: False
   sepTask: True
   scoreByRank: False
+  noCLS: True
+  noSEP: True
 
 recog:
   batch: 1

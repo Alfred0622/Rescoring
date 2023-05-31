@@ -10,7 +10,7 @@ train:
   print_loss: 5000
   lr: 1e-7
   freeze_epoch: -1
-  hard_label: False
+  hard_label: True
   warmup_step: 10000
   loss_type: KL
   weightByWER: False

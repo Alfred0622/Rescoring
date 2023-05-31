@@ -188,7 +188,8 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
         ).to(device)
 
         self.fc2 = torch.nn.Sequential(
-            Linear(132, 1),
+            Linear(132, 64),
+            Linear(64, 1),
             Sigmoid()
         ).to(device)
 

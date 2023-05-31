@@ -143,6 +143,8 @@ def prepareNBestCrossBert(
         concatCLS = False,
         dropout = 0.1,
         sepTask = True,
+        noCLS = True,
+        noSEP = False
     ):
     pretrain_name = getBertPretrainName(dataset)
     
@@ -157,7 +159,9 @@ def prepareNBestCrossBert(
         lossType=lossType,
         concatCLS= concatCLS,
         dropout = dropout,
-        sepTask=sepTask
+        sepTask=sepTask,
+        noCLS = noCLS,
+        noSEP = noSEP
     )
 
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
