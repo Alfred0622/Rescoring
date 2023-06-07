@@ -100,19 +100,34 @@ step = 0
 for e in range(train_args['epoch']):
     model.train()
     train_loss = 0.0
-    if (e < 2):
-        for param in model.bert.parameters():
-            param.require_grads = False
     accum_loss = 0.0
+    if (e < 2):
+        print(f'freeze')
+        logging.warning(f'freeze')
+        if (torch.cuda.device_count() > 1):
+            for param in model.module.bert.parameters():
+                param.require_grad = False
+        else:
+            for param in model.bert.parameters():
+                param.require_grad = False
+    else:
+        if (torch.cuda.device_count() > 1):
+            for param in model.module.bert.parameters():
+                param.require_grad = True
+        else:
+            for param in model.bert.parameters():
+                param.require_grad = True
+
     model.optimizer.zero_grad(set_to_none=True)
     for i, data in enumerate(tqdm(train_loader, ncols = 100)):
-        data = {k: v.to(device) for k, v in data.items()}
-        loss = model(**data).loss
-        accum_loss += loss.item()
-        train_loss += loss.item()
+        with torch.autograd.set_detect_anomaly(True):
+            data = {k: v.to(device) for k, v in data.items()}
+            loss = model(**data).loss
+            accum_loss += loss.item()
+            train_loss += loss.item()
 
-        loss /= train_args['accum_grads']
-        loss.backward()
+            loss /= train_args['accum_grads']
+            loss.backward()
 
         if ((i + 1) % train_args['accum_grads'] == 0):
             model.optimizer.step()

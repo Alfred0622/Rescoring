@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from torch.nn import Softmax
+import numpy as np
 
 
 class LM_Dataset(Dataset):
@@ -279,7 +280,7 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode,topk = 50, fetch_num =
                 avg_errs = []
 
                 for hyp in data_json[key]['hyps']:
-                    hyp = preprocess_string(hyp)
+                    hyp = preprocess_string(hyp, dataset)
                     output = tokenizer(hyp)
                     input_ids.append(output['input_ids'])
                     attention_masks.append(output['attention_mask'])
@@ -301,7 +302,6 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode,topk = 50, fetch_num =
                         "nbest": nbest
                     }
                 )
-
 
             
         elif (isinstance(data_json, list)):
@@ -571,8 +571,11 @@ def prepareListwiseDataset(data_json,dataset, tokenizer, topk = 50, sort_by_len 
             wers = []
             for err in data_json[key]['err']:
                 wers.append(err['err'])
-            
-            wers_tensor = torch.as_tensor(wers, dtype = torch.float32)
+            wers_tensor = np.array(wers, dtype = torch.float32)
+
+            wers_rank = np.argsort(wers_tensor, kind = 'stable')
+            wers_rank = torch.from_numpy(wers_tensor)
+
             avg_err = torch.mean(wers_tensor).item()
 
             scores = torch.as_tensor(data_json[key]['score'], dtype = torch.float32)
@@ -624,7 +627,8 @@ def prepareListwiseDataset(data_json,dataset, tokenizer, topk = 50, sort_by_len 
                     "avg_err": avg_errs,
                     "nbest": nbest,
                     "max_len": max_len,
-                    "min_len": min_len
+                    "min_len": min_len,
+                    "wer_Rank": wers_rank
                 }
             )
             if (get_num > 0 and i > get_num):

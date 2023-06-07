@@ -55,10 +55,6 @@ else:
 config = f'./config/RescoreBert.yaml'
 args, train_args, recog_args = load_config(config)
 
-# accerlerator = Accerlerator(
-#     gradient_accumulation_steps = int(train_args['accumgrad'])
-# )
-
 setting = 'withLM' if (args['withLM']) else 'noLM'
 
 log_path = Path(f"./log/RescoreBert/{args['dataset']}/{setting}/{mode}")
@@ -193,7 +189,8 @@ min_val_loss = 1e8
 min_val_cer = 1e6
 for e in range(start_epoch, train_args['epoch']):
     model.train()
-
+    
+    print(f'score_weight:{score_weight}')
     logging_loss = torch.tensor([0.0], device = device)
     for i, data in enumerate(tqdm(train_loader, ncols = 100)):
 
@@ -241,8 +238,7 @@ for e in range(start_epoch, train_args['epoch']):
             first_score = data['score'].to(device)
             wer = data['wer'].clone()
 
-            assert(first_score.shape == output['score'].shape), f"first_score:{first_score.shape}, score:{output['score'].shape}"
-            
+            assert(first_score.shape == output['score'].shape), f"first_score:{first_score.shape}, score:{output['score'].shape}"  
 
             combined_score = first_score + score_weight * output['score'].clone()
 
@@ -267,9 +263,9 @@ for e in range(start_epoch, train_args['epoch']):
 
             assert(scoreSum.shape == combined_score.shape), f"combined_score:{combined_score.shape}, scoreSum:{scoreSum.shape}"
 
-             # Softmax over distribution
             index = 0
             T = scoreSum / werSum # Temperature T
+
             combined_score = combined_score / T
             assert(scoreSum.shape == combined_score.shape), f"scoreSum:{scoreSum.shape} != combined_score:{combined_score}"
             assert(werSum.shape == combined_score.shape), f"werSum:{werSum.shape} != combined_score:{combined_score}"
@@ -288,7 +284,7 @@ for e in range(start_epoch, train_args['epoch']):
             loss_MWED = loss_MWED.sum()
             loss_MWED = torch.neg(loss_MWED)
 
-            loss = loss_MWED + 1e-3 * loss
+            loss = loss_MWED + 1e-4 * loss
 
         if (torch.cuda.device_count() > 1):
             loss = loss.sum()

@@ -1,7 +1,7 @@
 args:
   nbest: 50 # max: 50
   withLM: True
-  dataset: aishell2
+  dataset: aishell
 
 train:
   epoch: 10
@@ -12,8 +12,6 @@ train:
   freeze_epoch: -1
   hard_label: True
   warmup_step: 10000
-  loss_type: Entropy
-  weightByWER: none
 
 recog:
   batch: 1

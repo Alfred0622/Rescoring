@@ -332,7 +332,7 @@ class RescoreBert(torch.nn.Module):
             s_output = self.model(input_ids=input_id, attention_mask=attention_mask)
             s_score = self.fc(s_output.last_hidden_state[:, 0, :])
 
-            ignore_index = pll_score == -10000
+            ignore_index = (pll_score == -10000)
             # logging.warning(f's_score before view:{s_score}')
             s_score = s_score.view(pll_score.shape)
             # logging.warning(f'pll_score.shape:{pll_score.shape}')

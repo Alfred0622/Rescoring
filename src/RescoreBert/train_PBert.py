@@ -53,8 +53,9 @@ if (train_args['hard_label']):
 else:
     run_name = run_name + train_args['loss_type']
 
-if (train_args['weightByWER']):
-    run_name = run_name + "weightByWER"
+
+if (train_args['weightByWER']  != 'none'):
+    run_name = run_name + f"_weightByWER{train_args['weightByWER']}"
     log_path = log_path + "/weightByWER"
 else:
     log_path = log_path + "/normal"
@@ -76,7 +77,8 @@ valid_set = get_valid_set(args['dataset'])
 model, tokenizer = preparePBert(
     args['dataset'], 
     device,
-    train_args['hard_label']
+    train_args['hard_label'],
+    train_args['weightByWER']
 )
 print(type(model))
 model = model.to(device)

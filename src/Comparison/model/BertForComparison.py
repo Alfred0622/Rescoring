@@ -188,8 +188,7 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
         ).to(device)
 
         self.fc2 = torch.nn.Sequential(
-            Linear(132, 64),
-            Linear(64, 1),
+            Linear(132, 1),
             Sigmoid()
         ).to(device)
 
@@ -205,8 +204,8 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
         self.sigmoid = Sigmoid()
         self.loss = BCELoss()
 
-        self.avg_pool = AvgPooling()
-        self.max_pool = MaxPooling()
+        self.avg_pool = AvgPooling(noCLS = False, noSEP = False)
+        self.max_pool = MaxPooling(noCLS = False, noSEP = False)
 
         self.ctc_weight = ctc_weight
         print(f'ctc_weight:{self.ctc_weight}')
@@ -236,8 +235,6 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
         concat_state = torch.cat([concat_state, lm_score], dim = -1) #(B, 130) -> (B, 132)
 
         logits = self.fc2(concat_state).squeeze(-1) #(B, 132) -> (B, 1) ->"squeeze" (B)
-
-        # logits = self.sigmoid(logits)
 
         if (labels is not None):
             loss = self.loss(logits, labels)

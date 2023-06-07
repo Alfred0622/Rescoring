@@ -315,8 +315,9 @@ def get_result(
                     "top": top_total,
                     "rescore": ans_total
                 },
-                "Whole rescores": rescores[utt].tolist(),
-                "Whole total scores": total_score[utt].tolist(),
+                # "Whole rescores": rescores[utt].tolist(),
+                # "Whole total scores": total_score[utt].tolist(),
+                "Oracle Hypothesis": hyps[utt][min_index],
                 "Hyps before min wer": hyp_before_min,
                 "Score before min wer": score_before_min
             }

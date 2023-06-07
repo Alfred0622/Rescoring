@@ -61,8 +61,6 @@ def get_alsemDataset(data_json, dataset,tokenizer, for_train = True):
             }
         )
 
-        # if (i > 250):
-        #     break
     data_list = sorted(data_list, key = lambda x : len(x['input_ids']))
     return concatTrainerDataset(data_list)
 
@@ -89,14 +87,21 @@ def get_recogDataset(data_json, dataset,tokenizer):
 
     return concatTrainerDataset(data_list)
 
-def get_BertAlsemrecogDataset(data_json, tokenizer):
+def get_BertAlsemrecogDataset(data_json, dataset, tokenizer):
     data_list = list()
     for data in tqdm(data_json, ncols = 100):    
         name  = data['name']
-        # print(f"{len(data['hyp'])}")
+
         for hyps in data['hyps']:
+            hyp1 = preprocess_string(hyps['hyp1'], dataset)
+            hyp2 = preprocess_string(hyps['hyp2'], dataset)
+            # print(f"hyp1:{hyps['hyp1']}")
+            # print(f"hyp1 after preprocess:{hyp1}")
+
+            # print(f"hyp2:{hyps['hyp2']}")
+            # print(f"hyp2 after preprocess:{hyp2}")
             input_id, token_type_id, mask = tokenizer(
-                hyps['hyp1'], hyps['hyp2']
+                hyp1, hyp2
             ).values() 
             pair = hyps['pair']
             am_scores = hyps['am_score']

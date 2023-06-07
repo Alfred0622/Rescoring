@@ -41,6 +41,8 @@ best_ctc = 0.0
 best_lm = 0.0
 best_rescore = 0.0
 
+model.eval()
+
 for task in recog_set:
     print(f'task:{task}')
     file_name = f"./data/{args['dataset']}/{task}/{setting}/{args['nBest']}best/data.json"
@@ -50,7 +52,7 @@ for task in recog_set:
         data_json = json.load(f)
 
         index_dict, inverse_dict, am_scores, ctc_scores, lm_scores, rescores, wers = prepare_score_dict(data_json, nbest = args['nBest'])
-        dataset = get_BertAlsemrecogDataset(data_json, tokenizer)
+        dataset = get_BertAlsemrecogDataset(data_json, args['dataset'] ,tokenizer)
 
         data_json = json.load(hyp_f)
 
@@ -58,7 +60,7 @@ for task in recog_set:
 
         dataloader = DataLoader(
             dataset = dataset,
-            batch_size = 4,
+            batch_size = recog_args['batch'],
             collate_fn = recogAlsemBatch,
             num_workers = 1
         )
@@ -73,14 +75,15 @@ for task in recog_set:
             ctc_score = data['ctc_score'].to(device)
             lm_score = data['lm_score'].to(device)
 
-            output = model.recognize(
-                input_ids = input_ids,
-                token_type_ids = token_type_ids,
-                attention_mask = attention_mask,
-                am_scores = am_score,
-                ctc_scores = ctc_score,
-                lm_scores = lm_score
-            )
+            with torch.no_grad():
+                output = model.recognize(
+                    input_ids = input_ids,
+                    token_type_ids = token_type_ids,
+                    attention_mask = attention_mask,
+                    am_scores = am_score,
+                    ctc_scores = ctc_score,
+                    lm_scores = lm_score
+                )
 
             for i, (name, pair) in enumerate(zip(data['name'], data['pair'])):
                 # print(f'pair:{pair}')

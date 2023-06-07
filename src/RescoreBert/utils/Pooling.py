@@ -40,7 +40,7 @@ class AvgPooling(torch.nn.Module):
             attention_mask = torch.roll(attention_mask, -1, -1)
             attention_mask[:, -1] = 0
 
-        mean_embedding = torch.sum(input_ids * attention_mask.unsqueeze(-1), dim = 1) / torch.sum(attention_mask, dim = -1).unsqueeze(-1)
+        mean_embedding = torch.sum(input_ids.clone() * attention_mask.unsqueeze(-1), dim = 1).clone() / torch.sum(attention_mask, dim = -1).unsqueeze(-1)
         return mean_embedding
 
 class MinPooling(torch.nn.Module):

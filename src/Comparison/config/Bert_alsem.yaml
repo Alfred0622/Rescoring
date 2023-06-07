@@ -1,14 +1,14 @@
 args:
-  nBest: 5
+  nBest: 20
   withLM: False
   model_name: alsem
-  dataset: aishell2
+  dataset: tedlium2
 
 train: 
   epoch: 4
-  train_batch: 256
-  valid_batch: 256
-  accum_grads: 1
+  train_batch: 64
+  valid_batch: 64
+  accum_grads: 4
   print_loss: 5000
   lr: 1e-5
   ctc_weight: {aishell: 0.7,
@@ -20,5 +20,5 @@ train:
   
 
 recog:
-  batch: 256
+  batch: 16
   find_weight: True

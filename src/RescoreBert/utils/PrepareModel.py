@@ -4,6 +4,7 @@ sys.path.append("../")
 import torch
 from model.RescoreBert import RescoreBertAlsem
 from model.NBestCrossBert import nBestCrossBert, pBert
+from model.ContrastBERT import ContrastBert
 from transformers import (
     AutoModelForCausalLM,
     AutoModelForMaskedLM,
@@ -55,10 +56,9 @@ class RescoreBert(torch.nn.Module):
         
         score = score.squeeze(-1)
         if (labels is not None):
-            # print(f'labels.shape:{labels.shape}')
             labels = labels.to(dtype = torch.float32)
 
-            score[labels == -10000] = -10000
+            # score[labels == -10000] = -10000
 
             loss = self.l2_loss(
                 score, labels
@@ -168,14 +168,27 @@ def prepareNBestCrossBert(
 
     return model, tokenizer
 
-def preparePBert(dataset, device, hardLabel = False, loss_type = 'KL'):
+def preparePBert(dataset, device, hardLabel = False, loss_type = 'KL', weightByWER = 'none'):
     pretrain_name = getBertPretrainName(dataset)
 
     model = pBert(
         dataset,
         device,
         hardLabel,
-        loss_type
+        loss_type,
+        weightByWER=weightByWER
+    )
+
+    tokenizer = BertTokenizer.from_pretrained(pretrain_name)
+
+    return model, tokenizer
+
+def prepareContrastBert(args, train_args):
+    pretrain_name = getBertPretrainName(args['dataset'])
+
+    model = ContrastBert(
+        args,
+        margin = float(train_args['margin'])
     )
 
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
