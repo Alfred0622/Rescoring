@@ -30,8 +30,8 @@ train:
   train_cls_first: False
   sepTask: True
   scoreByRank: False
-  noCLS: True
-  noSEP: True
+  noCLS: False
+  noSEP: False
 
 recog:
   batch: 1

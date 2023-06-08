@@ -131,8 +131,8 @@ if (torch.cuda.device_count() > 1):
 # optimizer = AdamW(model.parameters(), lr = float(train_args['lr']))
 optimizer = Adam(model.parameters(), lr = float(train_args['lr']))
 
-with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, \
-     open(f"../../data/{args['dataset']}/data/{setting}/{valid_set}/data.json") as dev:
+with open(f"tmp/{args['dataset']}/data/{setting}/train/data.json") as f, \
+     open(f"tmp/{args['dataset']}/data/{setting}/{valid_set}/data.json") as dev:
     train_json = json.load(f)
     valid_json = json.load(dev)
 

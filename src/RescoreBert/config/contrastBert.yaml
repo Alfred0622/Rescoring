@@ -8,10 +8,11 @@ train:
   batch_size: 256
   accumgrad: 1
   print_loss: 5000
-  lr: 1e-8
+  lr: 1e-7
   freeze_epoch: -1
   hard_label: True
   warmup_step: 10000
+  margin: 0.1
 
 recog:
   batch: 1

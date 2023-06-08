@@ -571,17 +571,18 @@ def prepareListwiseDataset(data_json,dataset, tokenizer, topk = 50, sort_by_len 
             wers = []
             for err in data_json[key]['err']:
                 wers.append(err['err'])
+            # print(f'wers:{wers}')
             wers_tensor = np.array(wers, dtype = torch.float32)
 
-            wers_rank = np.argsort(wers_tensor, kind = 'stable')
-            wers_rank = torch.from_numpy(wers_tensor)
+            wers_rank = np.argsort(wers_tensor, kind = 'stable').astype(np.int32)
+            wers_rank = torch.from_numpy(wers_rank).type(torch.int32)
+            wers_tensor = torch.from_numpy(wers_tensor)
 
             avg_err = torch.mean(wers_tensor).item()
 
             scores = torch.as_tensor(data_json[key]['score'], dtype = torch.float32)
             am_scores = torch.as_tensor(data_json[key]['am_score'], dtype = torch.float32)
             ctc_scores = torch.as_tensor(data_json[key]['ctc_score'], dtype = torch.float32)
-            # lm_scores = torch.as_tensor(data_json[key]['lm_score'])
 
             input_ids = []
             attention_masks = []
@@ -628,7 +629,7 @@ def prepareListwiseDataset(data_json,dataset, tokenizer, topk = 50, sort_by_len 
                     "nbest": nbest,
                     "max_len": max_len,
                     "min_len": min_len,
-                    "wer_Rank": wers_rank
+                    "wer_rank": wers_rank
                 }
             )
             if (get_num > 0 and i > get_num):
@@ -639,8 +640,13 @@ def prepareListwiseDataset(data_json,dataset, tokenizer, topk = 50, sort_by_len 
             wers = []
             for err in data['err']:
                 wers.append(err['err'])
-            
-            wers_tensor = torch.tensor(wers, dtype = torch.float32)
+            # print(f'wers:{wers}')
+            wers_tensor = np.array(wers)
+
+            wers_rank = np.argsort(wers_tensor, kind = 'stable')
+            wers_rank = torch.from_numpy(wers_rank).type(torch.int32)
+            wers_tensor = torch.from_numpy(wers_tensor)
+    
             avg_err = torch.mean(wers_tensor).item()
 
             scores = torch.as_tensor(data['score'], dtype = torch.float32)
@@ -691,7 +697,8 @@ def prepareListwiseDataset(data_json,dataset, tokenizer, topk = 50, sort_by_len 
                     "avg_err": avg_errs,
                     "nbest": nbest,
                     "max_len": max_len,
-                    "min_len": min_len
+                    "min_len": min_len,
+                    "wer_rank": wers_rank
                 }
             )
             if (get_num > 0 and i > get_num):

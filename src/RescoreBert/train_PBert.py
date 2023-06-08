@@ -18,7 +18,7 @@ from utils.CollateFunc import NBestSampler, BatchSampler
 from torch.optim import Adam
 from torch.optim.lr_scheduler import OneCycleLR
 from src_utils.get_recog_set import get_valid_set
-from utils.PrepareModel import preparePBert
+from utils.PrepareModel import preparePBert, prepareContrastBert
 from utils.CollateFunc import PBertBatch, PBertBatchWithHardLabel
 from utils.PrepareScoring import prepare_score_dict, calculate_cer
 # from accelerate import Accelerator
@@ -28,20 +28,23 @@ torch.manual_seed(42)
 torch.cuda.manual_seed(42)
 
 checkpoint = None
-if (len(sys.argv) == 2):
-    checkpoint = sys.argv[1]
-
-elif (len(sys.argv) >= 3):
-    assert(len(sys.argv) == 2)
+if (len(sys.argv) >= 2):
+    mode = sys.argv[1].upper() # pbert or contrast
+    assert (mode in ['PBERT', 'CONTRAST']), "mode must in PBERT or CONTRAST"
+    if (len(sys.argv) >= 3):
+        checkpoint_path = sys.argv[2]
 
 if (torch.cuda.is_available()):
     device = torch.device('cuda')
 else:
     device = torch.device('cpu')
 
-config_path = "./config/PBert.yaml"
+if (mode == 'PBERT'):
+    config_path = "./config/PBert.yaml"
+else:
+    config_path = "./config/contrastBert.yaml"
+
 args, train_args, recog_args = load_config(config_path)
-mode = "PBERT"
 
 setting = 'withLM' if (args['withLM']) else 'noLM'
 
@@ -53,15 +56,13 @@ if (train_args['hard_label']):
 else:
     run_name = run_name + train_args['loss_type']
 
-
-if (train_args['weightByWER']  != 'none'):
+if ('weightByWER' in train_args.keys() and train_args['weightByWER']  != 'none'):
     run_name = run_name + f"_weightByWER{train_args['weightByWER']}"
     log_path = log_path + "/weightByWER"
 else:
     log_path = log_path + "/normal"
 
-
-log_path = Path(f"./log/P_BERT/{args['dataset']}/{setting}/{mode}")
+log_path = Path(f"./log/RescoreBERT/{args['dataset']}/{setting}/{mode}")
 log_path.mkdir(parents = True, exist_ok = True)
 
 FORMAT = "%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s"
@@ -74,12 +75,16 @@ logging.basicConfig(
 
 valid_set = get_valid_set(args['dataset'])
 
-model, tokenizer = preparePBert(
-    args['dataset'], 
-    device,
-    train_args['hard_label'],
-    train_args['weightByWER']
-)
+if (mode == 'PBERT'):
+    model, tokenizer = preparePBert(
+        args['dataset'], 
+        device,
+        train_args['hard_label'],
+        train_args['weightByWER']
+    )
+elif (mode == 'CONTRAST'):
+    model, tokenizer = prepareContrastBert(args, train_args)
+
 print(type(model))
 model = model.to(device)
 if (torch.cuda.device_count() > 1):
@@ -102,9 +107,21 @@ if ('WANDB_MODE' in os.environ.keys() and os.environ['WANDB_MODE'] == 'disabled'
     get_num = 550
 
 print(f"tokenizing Train")
-train_dataset = prepareListwiseDataset(data_json = train_json, dataset = args['dataset'], tokenizer = tokenizer, sort_by_len = True, get_num=get_num)
+train_dataset = prepareListwiseDataset(
+    data_json = train_json, 
+    dataset = args['dataset'], 
+    tokenizer = tokenizer, 
+    sort_by_len = True, 
+    get_num=get_num
+)
 print(f"tokenizing Validation")
-valid_dataset = prepareListwiseDataset(data_json = valid_json, dataset = args['dataset'], tokenizer = tokenizer, sort_by_len = True, get_num=get_num)
+valid_dataset = prepareListwiseDataset(
+    data_json = valid_json, 
+    dataset = args['dataset'], 
+    tokenizer = tokenizer, 
+    sort_by_len = True, 
+    get_num=get_num
+)
 
 print(f"Prepare Sampler")
 train_sampler = NBestSampler(train_dataset)
@@ -124,7 +141,7 @@ train_loader = DataLoader(
     dataset = train_dataset,
     batch_sampler = train_batch_sampler,
     collate_fn = collate_func,
-    num_workers=8,
+    num_workers=16,
     pin_memory=True
 )
 
@@ -132,7 +149,7 @@ valid_loader = DataLoader(
     dataset = valid_dataset,
     batch_sampler = valid_batch_sampler,
     collate_fn = collate_func,
-    num_workers=8,
+    num_workers=16,
     pin_memory=True
 )
 
@@ -149,7 +166,7 @@ lr_scheduler = OneCycleLR(
     max_lr = float(train_args['lr']) * 10, 
     epochs = int(train_args['epoch']), 
     steps_per_epoch = len(train_batch_sampler),
-    pct_start = 0.02
+    pct_start = 0.01
 )
 
 index_dict, inverse_dict,am_scores, ctc_scores, lm_scores, rescores, wers, hyps, refs = prepare_score_dict(valid_json, nbest = args['nbest'])
@@ -203,22 +220,17 @@ for e in range(start_epoch, train_args['epoch']):
         print("Freeze BERT")
 
     for i, data in enumerate(tqdm(train_loader, ncols = 100)):
-        # print(f"i:{i}, input_ids:{data['input_ids'].shape}")
+        # print(f"data:{data['wers']}")
         for key in data.keys():
             if (key not in ['name', 'indexes']):
                 # print(f"{key}:{type(data[key])}")
                 data[key] = data[key].to(device)
         
-        # print(f"am_score:{data['am_score'].shape}")
-        # print(f"ctc_score:{data['ctc_score'].shape}")
+        if (mode == "CONTRAST" or ('weightByWER' in train_args.keys() and train_args['weightByWER'] == 'none')):
+            data['wers'] = None
+
         output = model.forward(
-            input_ids = data['input_ids'],
-            attention_mask = data['attention_mask'],
-            N_best_index = data['nBestIndex'],
-            am_score = data['am_score'],
-            ctc_score = data['ctc_score'],
-            labels = data['label'],
-            wers = data['wers'] if (train_args['weightByWER']) else None
+            **data
         )
 
         loss = output['loss']
@@ -280,13 +292,11 @@ for e in range(start_epoch, train_args['epoch']):
 
                     data[key] = data[key].to(device)
 
+            if (mode == "CONTRAST" or ('weightByWER' in train_args.keys() and train_args['weightByWER'] == 'none')):
+                data['wers'] = None
+
             output = model.forward(
-                input_ids = data['input_ids'],
-                attention_mask = data['attention_mask'],
-                N_best_index= data['nBestIndex'],
-                am_score = data['am_score'],
-                ctc_score = data['ctc_score'],
-                labels = data['label'],
+                **data
             )
 
             loss = output['loss']
