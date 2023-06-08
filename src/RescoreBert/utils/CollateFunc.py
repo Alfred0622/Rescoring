@@ -214,12 +214,13 @@ def PBertBatch(batch):
     attention_mask = []
     nBest = []
     indexes = []
+    
 
     am_scores = torch.as_tensor([], dtype = torch.float32)
     ctc_scores = torch.as_tensor([], dtype = torch.float32)
     wer = torch.as_tensor([], dtype = torch.float32)
-
     errors = torch.as_tensor([] , dtype = torch.float32)
+    wers_rank = torch.as_tensor([], dtype = torch.long)
 
     for sample in batch:
         # print(f"nbest:{sample['nbest']}")
@@ -242,6 +243,7 @@ def PBertBatch(batch):
             label_score[index] += (1 / ((2 * rank) + 1))
         label_score = softmax(label_score, dim = -1)
         wer = torch.cat([wer, label_score])
+        wers_rank = torch.cat([wers_rank, sample['wer_rank']])
 
         nBest.append(sample['nbest'])
         indexes += [rank for rank in range(sample['nbest'])]
@@ -256,12 +258,13 @@ def PBertBatch(batch):
         "name": names,
         "input_ids": input_ids,
         "attention_mask": attention_mask,
-        "am_score": am_scores,
-        "ctc_score": ctc_scores,
-        "label": wer,
+        "am_scores": am_scores,
+        "ctc_scores": ctc_scores,
+        "labels": wer,
         'wers': errors,
         'nBestIndex': nBest,
         'indexes': indexes,
+        'wer_rank': wers_rank
     }
 
 def PBertBatchWithHardLabel(batch):

@@ -567,11 +567,13 @@ class pBert(torch.nn.Module):
             self, 
             input_ids, 
             attention_mask, 
-            N_best_index,
+            nBestIndex,
             am_score = None, 
             ctc_score = None, 
             labels = None,
             wers = None, # not None if weightByWER = True
+            *args,
+            **kwargs
         ):
         bert_output = self.bert(
             input_ids = input_ids,
@@ -590,15 +592,15 @@ class pBert(torch.nn.Module):
         loss = None
         if (labels is not None):
             if (self.hardLabel):
-                scores = self.activation_fn(scores, N_best_index, log_score = False)
+                scores = self.activation_fn(scores, nBestIndex, log_score = False)
                 loss = labels * torch.log(scores)
                 loss = torch.neg(loss)
             else:
                 if (self.loss_type == 'KL'):
-                    scores = self.activation_fn(scores, N_best_index, log_score = True) # Log_Softmax
+                    scores = self.activation_fn(scores, nBestIndex, log_score = True) # Log_Softmax
                     loss = self.loss(scores, labels)
                 else:
-                    scores = self.activation_fn(scores, N_best_index, log_score = False)
+                    scores = self.activation_fn(scores, nBestIndex, log_score = False)
                     loss = torch.sum(labels * torch.log(scores)) / input_ids.shape[0] # batch_mean
                     loss = torch.neg(loss)
 
