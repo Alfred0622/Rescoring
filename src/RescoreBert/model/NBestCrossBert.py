@@ -296,11 +296,11 @@ class nBestCrossBert(torch.nn.Module):
 
                     if (wers is not None):
                         cls_loss = labels * torch.log(cls_prob)
-                        cls_loss = torch.sum(torch.neg(cls_loss))
+                        cls_loss = torch.sum(torch.neg(cls_loss)).float()
 
-                        mask_loss = self.l2Loss(wers, mask_score)
+                        mask_loss = self.l2Loss(wers, mask_score).float()
 
-                        loss = 0.7 * cls_loss + 0.3 *  mask_loss
+                        loss = cls_loss + mask_loss
 
                         if (not self.useRank):
                             logits = cls_score - mask_score
