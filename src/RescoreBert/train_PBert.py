@@ -141,7 +141,7 @@ train_loader = DataLoader(
     dataset = train_dataset,
     batch_sampler = train_batch_sampler,
     collate_fn = collate_func,
-    num_workers=16,
+    num_workers=32,
     pin_memory=True
 )
 
@@ -149,7 +149,7 @@ valid_loader = DataLoader(
     dataset = valid_dataset,
     batch_sampler = valid_batch_sampler,
     collate_fn = collate_func,
-    num_workers=16,
+    num_workers=32,
     pin_memory=True
 )
 

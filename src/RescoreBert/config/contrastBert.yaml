@@ -1,11 +1,11 @@
 args:
   nbest: 50 # max: 50
-  withLM: True
+  withLM: False
   dataset: aishell
 
 train:
   epoch: 10
-  batch_size: 256
+  batch_size: 1024
   accumgrad: 1
   print_loss: 5000
   lr: 1e-7

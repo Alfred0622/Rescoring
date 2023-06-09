@@ -157,7 +157,7 @@ for e in range(train_args['epoch']):
         "scheduler": scheduler.state_dict()
     }
 
-    savePath = Path(f"./checkpoint/{args['dataset']}/{setting}/Bert_alsem_batch{train_args['train_batch']}_lr{train_args['lr']}/")
+    savePath = Path(f"./checkpoint/{args['dataset']}/{setting}/{args['nBest']}Best/Bert_alsem_batch{train_args['train_batch']}_lr{train_args['lr']}/")
     savePath.mkdir(parents=True, exist_ok=True)
 
     torch.save(checkpoint, f"{savePath}/checkpoint_train_{e + 1}.pt")

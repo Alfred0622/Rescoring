@@ -1,6 +1,6 @@
 args:
   nbest: 50 # max: 50
-  withLM: False
+  withLM: True
   dataset: aishell2
 train:
   epoch: 10

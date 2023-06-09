@@ -4,7 +4,7 @@ args:
   dataset: aishell
 
 train:
-  epoch: 10
+  epoch: 30
   batch_size: 256
   accumgrad: 1
   print_loss: 5000
@@ -13,7 +13,7 @@ train:
   hard_label: True
   warmup_step: 10000
   loss_type: Entropy
-  weightByWER: none # positive, inverse, square, none
+  weightByWER: inverse # positive, inverse, square, none
 recog:
   batch: 1
   find_weight: True 
