@@ -5,7 +5,7 @@ args:
 
 train:
   epoch: 10
-  batch_size: 1024
+  batch_size: 256
   accumgrad: 1
   print_loss: 5000
   lr: 1e-7
@@ -16,4 +16,4 @@ train:
 
 recog:
   batch: 1
-  find_weight: True 
+  find_weight: True

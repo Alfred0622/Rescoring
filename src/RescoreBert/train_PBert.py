@@ -135,7 +135,8 @@ valid_batch_sampler = BatchSampler(valid_sampler, train_args['batch_size'])
 print(f"len of batch sampler:{len(train_batch_sampler)}")
 
 collate_func = PBertBatch
-
+if (train_args['hard_label']):
+    collate_func = PBertBatchWithHardLabel
 
 train_loader = DataLoader(
     dataset = train_dataset,
@@ -177,7 +178,7 @@ Initialize wandb
 config = {
     "args": args,
     "train_args": train_args,
-    "Bert_config": model.bert.config if (torch.cuda.device_count() <= 1) else model.module.model.config
+    "Bert_config": model.bert.config if (torch.cuda.device_count() <= 1) else model.module.bert.config
 }
 
 wandb.init(
