@@ -121,6 +121,7 @@ model, tokenizer = prepareNBestCrossBert(
     trainAttendWeight=False,
     addRes=train_args["addRes"],
     fuseType=train_args["fuseType"],
+    taskType=train_args["2ndTask"],
     lossType="Entropy" if train_args["hardLabel"] else train_args["lossType"],
     concatCLS=train_args["concatCLS"],
     dropout=dropout,
@@ -135,8 +136,8 @@ if torch.cuda.device_count() > 1:
 # optimizer = AdamW(model.parameters(), lr = float(train_args['lr']))
 optimizer = Adam(model.parameters(), lr=float(train_args["lr"]))
 
-with open(f"/tmp/{args['dataset']}/data/{setting}/train/data.json") as f, open(
-    f"/tmp/{args['dataset']}/data/{setting}/{valid_set}/data.json"
+with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, open(
+    f"../../data/{args['dataset']}/data/{setting}/{valid_set}/data.json"
 ) as dev:
     train_json = json.load(f)
     valid_json = json.load(dev)
@@ -314,16 +315,9 @@ for e in range(start_epoch, train_args["epoch"]):
                 data[key] = data[key].to(device)
 
         output = model.forward(
-            input_ids=data["input_ids"],
-            attention_mask=data["attention_mask"],
-            batch_attention_matrix=data["crossAttentionMask"],
-            am_score=data["am_score"],
-            ctc_score=data["ctc_score"],
-            labels=data["label"],
-            N_best_index=data["nBestIndex"],
+            **data,
             use_cls_loss=get_cls_loss,
             use_mask_loss=get_mask_loss,
-            wers=data["wers"] if (train_args["sepTask"]) else None,
         )
 
         loss = output["loss"]
@@ -428,11 +422,11 @@ for e in range(start_epoch, train_args["epoch"]):
             output = model.forward(
                 input_ids=data["input_ids"],
                 attention_mask=data["attention_mask"],
-                batch_attention_matrix=data["crossAttentionMask"],
+                crossAttentionMask=data["crossAttentionMask"],
                 am_score=data["am_score"],
                 ctc_score=data["ctc_score"],
                 labels=data["label"],
-                N_best_index=data["nBestIndex"],
+                nBestIndex=data["nBestIndex"],
                 use_cls_loss=get_cls_loss,
                 use_mask_loss=get_mask_loss,
                 wers=data["wers"] if (train_args["sepTask"]) else None,
