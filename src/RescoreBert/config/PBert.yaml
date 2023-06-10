@@ -13,7 +13,7 @@ train:
   hard_label: True
   warmup_step: 10000
   loss_type: Entropy
-  weightByWER: inverse # positive, inverse, square, none
+  weightByWER: positive # positive, inverse, square, none
 recog:
   batch: 1
   find_weight: True 

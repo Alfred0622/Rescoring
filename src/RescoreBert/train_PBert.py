@@ -91,8 +91,8 @@ if torch.cuda.device_count() > 1:
 # optimizer = AdamW(model.parameters(), lr = float(train_args['lr']))
 optimizer = Adam(model.parameters(), lr=float(train_args["lr"]))
 
-with open(f"/tmp/{args['dataset']}/data/{setting}/train/data.json") as f, open(
-    f"/tmp/{args['dataset']}/data/{setting}/{valid_set}/data.json"
+with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, open(
+    f"../../data/{args['dataset']}/data/{setting}/{valid_set}/data.json"
 ) as dev:
     train_json = json.load(f)
     valid_json = json.load(dev)
@@ -104,7 +104,7 @@ start_epoch = 0
 
 get_num = -1
 if "WANDB_MODE" in os.environ.keys() and os.environ["WANDB_MODE"] == "disabled":
-    get_num = 2048
+    get_num = 50
 
 print(f"tokenizing Train")
 train_dataset = prepareListwiseDataset(
@@ -275,7 +275,7 @@ for e in range(start_epoch, train_args["epoch"]):
 
         logging_loss += loss.item()
         train_epoch_loss += loss.item()
-
+    
     if e == 0 or (e + 1) % 5 == 0:
         checkpoint = {
             "epoch": e,
@@ -328,6 +328,12 @@ for e in range(start_epoch, train_args["epoch"]):
                 rescores[index_dict[name]][index] += score.item()
 
         print(f"Validation: Calcuating CER")
+        # best_am = 0.0
+        # best_ctc = 0.0
+        # best_lm = 0.0
+        # best_rescore = 0.0
+        # min_cer = 100.0
+
         best_am, best_ctc, best_lm, best_rescore, min_cer = calculate_cer(
             am_scores,
             ctc_scores,
@@ -341,7 +347,7 @@ for e in range(start_epoch, train_args["epoch"]):
             search_step=0.1,
             recog_mode=False,
         )
-
+    
         eval_loss = eval_loss / len(valid_batch_sampler)
         print(f"epoch:{e + 1},Validation loss:{eval_loss}")
         print(
