@@ -21,8 +21,8 @@ class selfMarginLoss(nn.Module):
         final_loss = torch.tensor(0.0, device = scores.device)
 
         for N, nBestRank in zip(nBestIndex, werRank): # i-th werRank
-            for rank in nBestRank :
-                compare = scores[start_index + rank + 1 : start_index + N] - scores[start_index + rank]
+            for i,rank in enumerate(nBestRank) :
+                compare = scores[start_index + nBestRank[i + 1:]] - scores[start_index + rank] # take every index after the present rank
                 # should be scores[rank] - scores[rank:] , so multiply -1
                 compare = compare + self.margin
 
@@ -32,7 +32,7 @@ class selfMarginLoss(nn.Module):
                 final_loss += loss
 
             start_index += N
-        
+    
         return final_loss
 
 class ContrastBert(nn.Module):
@@ -54,6 +54,7 @@ class ContrastBert(nn.Module):
             ctc_score,
             nBestIndex,
             wer_rank,
+            labels,
             *args,
             **kwargs
     ):
@@ -66,11 +67,16 @@ class ContrastBert(nn.Module):
         concat_state = torch.cat([bert_output, am_score], dim = -1)
         concat_state = torch.cat([concat_state, ctc_score], dim = -1)
 
-        final_score = self.linear(concat_state)        
+        final_score = self.linear(concat_state).squeeze(-1)      
         # if (self.training):
         final_prob = self.activation_fn(final_score, nBestIndex)
+        ce_loss = labels * torch.log(final_prob)
+        ce_loss = torch.neg(torch.sum(ce_loss)) / final_score.shape[0]
         # Margin Loss
-        loss = self.loss(final_prob, nBestIndex, wer_rank)
+
+        margin_loss = self.loss(final_prob, nBestIndex, wer_rank) / final_score.shape[0]
+
+        loss = ce_loss + margin_loss
 
 
         return {
