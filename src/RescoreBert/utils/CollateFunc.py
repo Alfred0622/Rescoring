@@ -135,6 +135,9 @@ def crossNBestBatch(batch, hard_label = False):
     min_lens = []
     max_lens = []
 
+    ref_ids = []
+    ref_mask = []
+
     am_scores = torch.as_tensor([], dtype = torch.float32)
     ctc_scores = torch.as_tensor([], dtype = torch.float32)
     labels = torch.as_tensor([], dtype = torch.float32)
@@ -151,11 +154,10 @@ def crossNBestBatch(batch, hard_label = False):
         ctc_scores = torch.cat([ctc_scores, sample['ctc_score']], dim = -1)
 
         sort_index = torch.argsort(sample['wer']) # sort index
-        if (hard_label):
+        if (hard_label): # Hard Label
             label_score = torch.zeros((sample['nbest']), dtype = torch.float32)
             label_score[sort_index[0]] = 1.0
-        # rank_scale = torch.as_tensor([(1 / ((2 * rank) + 1)) for rank in range(sample['nbest'])])
-        else:
+        else: # Soft Label
             label_score = torch.reciprocal(1 + sample['wer'])
             label_score[label_score == 1.00] += 10 #extra bonus for correct answer
 
@@ -172,6 +174,10 @@ def crossNBestBatch(batch, hard_label = False):
         min_lens.append(sample['min_len'])
         max_lens.append(sample['max_len'])
 
+        ref_ids += [torch.as_tensor(sample['ref_tokens']['input_ids'])]
+        ref_mask += [torch.as_tensor(sample['ref_tokens']['attention_mask'])]
+
+
         if (utt_count % 2 == 0):
             NBestTokenTypeId += [0 for _ in range(sample['nbest'])]
         else:
@@ -181,10 +187,13 @@ def crossNBestBatch(batch, hard_label = False):
     attention_mask = pad_sequence(attention_mask, batch_first = True)
     am_scores = am_scores.unsqueeze(-1)
     ctc_scores = ctc_scores.unsqueeze(-1)
-    nBest = torch.as_tensor(nBest, dtype = torch.int64)
+    nBest = torch.as_tensor(nBest, dtype = torch.long)
 
-    NBestTokenTypeId = torch.as_tensor(NBestTokenTypeId, dtype = torch.int64)
+    NBestTokenTypeId = torch.as_tensor(NBestTokenTypeId, dtype = torch.long)
     cross_attention_mask = torch.zeros(size = (input_ids.shape[0], input_ids.shape[0]), dtype = torch.bool)
+
+    ref_ids = pad_sequence(ref_ids, batch_first = True)
+    ref_mask = pad_sequence(ref_mask, batch_first = True)
     
     start_index = 0
     for length in nBest:
@@ -200,12 +209,14 @@ def crossNBestBatch(batch, hard_label = False):
         "attention_mask": attention_mask,
         "am_score": am_scores,
         "ctc_score": ctc_scores,
-        "label": labels,
+        "labels": labels,
         'wers': wers,
         'nBestIndex': nBest,
         'indexes': indexes,
         "NBestTokenTypeId": NBestTokenTypeId,
-        'crossAttentionMask': cross_attention_mask
+        'crossAttentionMask': cross_attention_mask,
+        "ref_ids": ref_ids,
+        "ref_masks": ref_mask
     }
 
 def PBertBatch(batch):

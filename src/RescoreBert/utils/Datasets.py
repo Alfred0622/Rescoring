@@ -613,6 +613,9 @@ def prepareListwiseDataset(data_json,dataset, tokenizer, topk = 50, sort_by_len 
                     min_len = len(hyp)
             
             nbest = len(data_json[key]['hyps'])
+
+            ref = data_json[key]['ref']
+            ref_ids = tokenizer(preprocess_string(ref, dataset))
             
             data_list.append(
                 {
@@ -624,12 +627,13 @@ def prepareListwiseDataset(data_json,dataset, tokenizer, topk = 50, sort_by_len 
                     "am_score": am_scores,
                     "ctc_score": ctc_scores,
                     'errs':data_json[key]['err'],
-                    "wer": wers_tensor,
+                    "wer": wers_tensor.float(),
                     "avg_err": avg_errs,
                     "nbest": nbest,
                     "max_len": max_len,
                     "min_len": min_len,
-                    "wer_rank": wers_rank
+                    "wer_rank": wers_rank,
+                    "ref_tokens": ref_ids
                 }
             )
             if (get_num > 0 and i > get_num):
@@ -683,6 +687,9 @@ def prepareListwiseDataset(data_json,dataset, tokenizer, topk = 50, sort_by_len 
             
             nbest = len(data['hyps'])
 
+            ref = data['ref']
+            ref_tokens = tokenizer(preprocess_string(ref, dataset))
+
             data_list.append(
                 {
                     "hyps":data['hyps'], 
@@ -693,12 +700,13 @@ def prepareListwiseDataset(data_json,dataset, tokenizer, topk = 50, sort_by_len 
                     "am_score": am_scores,
                     "ctc_score": ctc_scores,
                     'errs':data['err'],
-                    "wer": wers_tensor,
+                    "wer": wers_tensor.float(),
                     "avg_err": avg_errs,
                     "nbest": nbest,
                     "max_len": max_len,
                     "min_len": min_len,
-                    "wer_rank": wers_rank
+                    "wer_rank": wers_rank,
+                    "ref_tokens":ref_tokens
                 }
             )
             if (get_num > 0 and i > get_num):

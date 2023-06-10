@@ -7,7 +7,7 @@ args:
 train:
   epoch: 10
   AttLayer: 1
-  batch_size: 1024
+  batch_size: 100
   valid_batch: 1
   accumgrad: 1
   print_loss: 5000
@@ -21,7 +21,7 @@ train:
   addRes: True
   hardLabel: True
   logSoftmax: False
-  lossType: 'KL'
+  lossType: 'Entropy'
   sortByLen: True
   concatCLS: False
   concatMaskAfter: True # if True [CLS] tokens [SEP] [MASK]  else [CLS] tokens [MASK] [SEP]
@@ -29,6 +29,7 @@ train:
   weightByGrad: False
   train_cls_first: False
   sepTask: True
+  2ndTask: "GT" # "GT" or "WER"
   scoreByRank: False
   noCLS: False
   noSEP: False
