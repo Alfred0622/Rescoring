@@ -19,9 +19,9 @@ train:
   useNBestCross: False
   trainAttendWeight: False
   addRes: True
-  hardLabel: True
+  hardLabel: False
   logSoftmax: False
-  lossType: 'KL'
+  lossType: 'Entropy'
   sortByLen: True
   concatCLS: False
   concatMaskAfter: True # if True [CLS] tokens [SEP] [MASK]  else [CLS] tokens [MASK] [SEP]

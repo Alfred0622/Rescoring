@@ -355,7 +355,6 @@ class nBestCrossBert(torch.nn.Module):
                             cls_rank = torch.zeros(cls_score.shape)
                             mask_rank = torch.zeros(mask_score.shape)
                             for index in N_best_index:
-
                                 (
                                     _,
                                     cls_rank[start_index : start_index + index],
@@ -367,6 +366,7 @@ class nBestCrossBert(torch.nn.Module):
                                     descending=True,
                                     stable=True,
                                 )
+
                                 (
                                     _,
                                     mask_rank[start_index : start_index + index],

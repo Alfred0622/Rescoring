@@ -67,6 +67,9 @@ if train_args["useNBestCross"]:
 mode = mode + f"_{train_args['fuseType']}"
 
 mode = mode + f"_{train_args['lossType']}"
+
+if train_args["hardLabel"]:
+    mode = mode + "_hardLabel"
 if train_args["sortByLen"]:
     mode = mode + "_sortByLength"
 if train_args["concatCLS"]:
@@ -192,7 +195,7 @@ train_loader = DataLoader(
     dataset=train_dataset,
     batch_sampler=train_batch_sampler,
     collate_fn=partial(crossNBestBatch, hard_label=train_args["hardLabel"]),
-    num_workers=4,
+    num_workers=16,
     pin_memory=True,
 )
 
@@ -200,7 +203,7 @@ valid_loader = DataLoader(
     dataset=valid_dataset,
     batch_sampler=valid_batch_sampler,
     collate_fn=partial(crossNBestBatch, hard_label=train_args["hardLabel"]),
-    num_workers=4,
+    num_workers=16,
     pin_memory=True,
 )
 
