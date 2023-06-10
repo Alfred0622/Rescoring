@@ -7,7 +7,7 @@ args:
 train:
   epoch: 10
   AttLayer: 1
-  batch_size: 100
+  batch_size: 768
   valid_batch: 1
   accumgrad: 1
   print_loss: 5000
@@ -19,7 +19,7 @@ train:
   useNBestCross: False
   trainAttendWeight: False
   addRes: True
-  hardLabel: False
+  hardLabel: True
   logSoftmax: False
   lossType: 'Entropy'
   sortByLen: True
