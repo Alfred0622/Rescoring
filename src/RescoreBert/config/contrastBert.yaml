@@ -16,4 +16,4 @@ train:
 
 recog:
   batch: 1
-  find_weight: True 
+  find_weight: True

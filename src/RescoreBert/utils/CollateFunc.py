@@ -281,8 +281,8 @@ def PBertBatch(batch):
         "name": names,
         "input_ids": input_ids,
         "attention_mask": attention_mask,
-        "am_scores": am_scores,
-        "ctc_scores": ctc_scores,
+        "am_score": am_scores,
+        "ctc_score": ctc_scores,
         "labels": wer,
         "wers": errors,
         "nBestIndex": nBest,
@@ -297,10 +297,12 @@ def PBertBatchWithHardLabel(batch):
     attention_mask = []
     nBest = []
     indexes = []
+    wers_rank = []
 
     am_scores = torch.as_tensor([], dtype=torch.float32)
     ctc_scores = torch.as_tensor([], dtype=torch.float32)
     wer = torch.as_tensor([], dtype=torch.float32)
+    errors = torch.as_tensor([], dtype=torch.float32)
 
     for sample in batch:
         # print(f"nbest:{sample['nbest']}")
@@ -319,6 +321,8 @@ def PBertBatchWithHardLabel(batch):
         label_score = torch.zeros((sample["nbest"]), dtype=torch.float32)  #
         label_score[sort_index[0]] = 1  # Add hard label 1
         wer = torch.cat([wer, label_score])
+        errors = torch.cat([errors, sample["wer"]], dim=-1)
+        wers_rank.append(sample["wer_rank"])
 
         nBest.append(sample["nbest"])
         indexes += [rank for rank in range(sample["nbest"])]
@@ -328,6 +332,7 @@ def PBertBatchWithHardLabel(batch):
     am_scores = am_scores.unsqueeze(-1)
     ctc_scores = ctc_scores.unsqueeze(-1)
     nBest = torch.as_tensor(nBest, dtype=torch.int64)
+    wers_rank = torch.stack(wers_rank).long()
 
     return {
         "name": names,
@@ -335,9 +340,11 @@ def PBertBatchWithHardLabel(batch):
         "attention_mask": attention_mask,
         "am_score": am_scores,
         "ctc_score": ctc_scores,
-        "label": wer,
+        "labels": wer,
+        "wers": errors,
         "nBestIndex": nBest,
         "indexes": indexes,
+        "wer_rank": wers_rank,
     }
 
 
