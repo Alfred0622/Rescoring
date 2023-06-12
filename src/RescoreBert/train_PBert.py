@@ -82,7 +82,7 @@ if mode == "PBERT":
         args["dataset"], device, train_args["hard_label"], train_args["weightByWER"]
     )
 elif mode == "CONTRAST":
-    model, tokenizer = prepareContrastBert(args, train_args)
+    model, tokenizer = prepareContrastBert(args, train_args, mode)
 
 print(type(model))
 model = model.to(device)
@@ -101,6 +101,8 @@ with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, 
 Load checkpoint
 """
 start_epoch = 0
+print(f'\n train_args:{train_args} \n')
+
 
 get_num = -1
 if "WANDB_MODE" in os.environ.keys() and os.environ["WANDB_MODE"] == "disabled":

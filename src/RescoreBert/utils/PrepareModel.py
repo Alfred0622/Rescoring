@@ -4,7 +4,7 @@ sys.path.append("../")
 import torch
 from model.RescoreBert import RescoreBertAlsem
 from model.NBestCrossBert import nBestCrossBert, pBert
-from model.ContrastBERT import ContrastBert
+from model.ContrastBERT import marginalBert, contrastBert
 from transformers import (
     AutoModelForCausalLM,
     AutoModelForMaskedLM,
@@ -185,13 +185,20 @@ def preparePBert(dataset, device, hardLabel = False, loss_type = 'KL', weightByW
 
     return model, tokenizer
 
-def prepareContrastBert(args, train_args):
+def prepareContrastBert(args, train_args, mode = 'CONTRAST'):
     pretrain_name = getBertPretrainName(args['dataset'])
 
-    model = ContrastBert(
-        args,
-        margin = float(train_args['margin'])
-    )
+    if (mode == 'CONTRAST'):
+        model = contrastBert(
+            args,
+            margin = float(train_args['margin'])
+        )
+    elif (mode == "MARGIN"):
+        model = marginalBert(
+            args,
+            margin = float(train_args['margin'])
+        )
+
 
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 

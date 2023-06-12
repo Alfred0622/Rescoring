@@ -726,3 +726,95 @@ class pBert(torch.nn.Module):
             "score": final_score,
             "attention_weight": bert_output.attentions,
         }
+
+class inter_pBert(torch.nn.Module):
+    def __init__(
+        self,
+        dataset,
+        device,
+        hardLabel=False,
+        output_attention=True,
+        loss_type="KL",
+        weightByWER="postive",
+    ):
+        super().__init__()
+        pretrain_name = getBertPretrainName(dataset)
+        config = BertConfig.from_pretrained(pretrain_name)
+        config.output_attentions = True
+        config.output_hidden_states = True
+
+        self.bert = BertModel(config=config).from_pretrained(pretrain_name).to(device)
+        self.linear = torch.nn.Linear(770, 1).to(device)
+
+        self.hardLabel = hardLabel
+        self.loss_type = loss_type
+        self.loss = torch.nn.KLDivLoss(reduction="batchmean")
+
+        self.output_attention = output_attention
+
+        self.activation_fn = SoftmaxOverNBest()
+        self.weightByWER = weightByWER
+
+        print(f"output_attention:{self.output_attention}")
+        print(f"weightByWER:{self.weightByWER}")
+
+    def forward(
+        self,
+        input_ids,
+        attention_mask,
+        nBestIndex,
+        am_score=None,
+        ctc_score=None,
+        labels=None,
+        wers=None,  # not None if weightByWER = True
+        *args,
+        **kwargs,
+    ):
+        bert_output = self.bert(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_attentions=self.output_attention,
+        )
+
+        output = bert_output.pooler_output
+
+        clsConcatoutput = torch.cat([output, am_score], dim=-1)
+        clsConcatoutput = torch.cat([clsConcatoutput, ctc_score], dim=-1)
+
+        scores = self.linear(clsConcatoutput).squeeze(-1)
+        final_score = scores.clone().detach()
+
+        loss = None
+        if labels is not None:
+            if self.hardLabel:
+                scores = self.activation_fn(scores, nBestIndex, log_score=False)
+                loss = labels * torch.log(scores)
+                loss = torch.neg(loss)
+            else:
+                if self.loss_type == "KL":
+                    scores = self.activation_fn(
+                        scores, nBestIndex, log_score=True
+                    )  # Log_Softmax
+                    loss = self.loss(scores, labels)
+                else:
+                    scores = self.activation_fn(scores, nBestIndex, log_score=False)
+                    loss = (
+                        torch.sum(labels * torch.log(scores)) / input_ids.shape[0]
+                    )  # batch_mean
+                    loss = torch.neg(loss)
+
+            if wers is not None:
+                if self.weightByWER == "inverse":  # Lower WER get larger Weight
+                    wers = torch.reciprocal(1 + 10 * wers)
+                elif self.weightByWER == "positive":  # Higher WER get higher weight
+                    wers = 0.5 + (wers * 5)
+                elif self.weightByWER == "square":  # WER
+                    wers = 1 / ((wers - 0.2) + 1) ** 2  #
+                loss = loss * wers
+                loss = torch.sum(loss) / input_ids.shape[0]  # batch_mean
+
+        return {
+            "loss": loss,
+            "score": final_score,
+            "attention_weight": bert_output.attentions,
+        }

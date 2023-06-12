@@ -12,7 +12,7 @@ train:
   freeze_epoch: -1
   hard_label: False
   warmup_step: 10000
-  loss_type: KL
+  loss_type: Entropy
   weightByWER: none # positive, inverse, square, none
 recog:
   batch: 1
