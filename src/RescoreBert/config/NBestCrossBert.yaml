@@ -28,8 +28,8 @@ train:
   dropout: 0.3
   weightByGrad: False
   train_cls_first: False
-  sepTask: True
-  2ndTask: "GT" # "GT" or "WER"
+  sepTask: False
+  2ndTask: "WER" # "GT" or "WER"
   scoreByRank: False
   noCLS: False
   noSEP: False

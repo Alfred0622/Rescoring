@@ -10,6 +10,7 @@ import torch.nn as nn
 from transformers import BertModel
 from src_utils.getPretrainName import getBertPretrainName
 from utils.activation_function import SoftmaxOverNBest
+from utils.Pooling import AvgPooling
 
 class selfMarginLoss(nn.Module):
     def __init__(self, margin = 0.0):
@@ -35,7 +36,7 @@ class selfMarginLoss(nn.Module):
     
         return final_loss
 
-class ContrastBert(nn.Module):
+class marginalBert(nn.Module):
     def __init__(self, args ,margin = 0.1):
         super().__init__()
 
@@ -78,6 +79,77 @@ class ContrastBert(nn.Module):
 
         loss = ce_loss + margin_loss
 
+
+        return {
+            'score': final_score,
+            'loss': loss
+        }
+
+    def parameters(self):
+        parameters = list(self.bert.parameters()) + list(self.linear.parameters())
+
+        return parameters
+
+    def state_dict(self):
+        return{
+            "bert": self.bert.state_dict(),
+            "linear": self.linear.state_dict()
+        }
+
+    def load_state_dict(self, checkpoint):
+        self.bert.load_state_dict(checkpoint['bert'])
+        self.linear.load_state_dict(checkpoint['linear'])
+
+class contrastBert(nn.Module):
+    def __init__(self, args):
+        super().__init__()
+
+        pretrain_name = getBertPretrainName(args['dataset'])
+        self.bert = BertModel.from_pretrained(pretrain_name)
+        self.linear = nn.Linear(770, 1)
+
+        self.activation_fn = SoftmaxOverNBest()
+
+        self.pooling = AvgPooling()
+
+    def forward(
+            self,
+            input_ids,
+            attention_mask,
+            am_score,
+            ctc_score,
+            nBestIndex,
+            labels,
+            *args,
+            **kwargs
+    ):
+        # input_ids, attention_mask , am_score and ctc_score are all sorted by WER and rank
+        output = self.bert(
+            input_ids = input_ids,
+            attention_mask = attention_mask
+        )
+
+        bert_output = output.pooler_output #(B, 768)
+        bert_embedding = output.last_hidden_state 
+        pooled_embedding = self.pooling(bert_embedding, attention_mask) # (B, 768)
+
+        concat_state = torch.cat([bert_output, am_score], dim = -1)
+        concat_state = torch.cat([concat_state, ctc_score], dim = -1)
+
+        final_score = self.linear(concat_state).squeeze(-1)      
+        # if (self.training):
+        final_prob = self.activation_fn(final_score, nBestIndex)
+        ce_loss = labels * torch.log(final_prob)
+        ce_loss = torch.neg(torch.sum(ce_loss)) / final_score.shape[0]
+        # Margin Loss
+
+        sim_matrix = torch.tensordot(bert_output, pooled_embedding, dims = 1)
+        for i, sim in enumerate(sim_matrix):
+            sim_matrix[i] = self.activation_fn(sim, nBestIndex)
+        
+        contrastLoss = torch.neg(torch.sum(torch.diag(sim_matrix, 0)))
+        contrastLoss = contrastLoss / len(nBestIndex)
+        loss = ce_loss + contrastLoss
 
         return {
             'score': final_score,
