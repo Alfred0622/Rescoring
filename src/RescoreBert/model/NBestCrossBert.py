@@ -124,7 +124,7 @@ class nBestCrossBert(torch.nn.Module):
         super().__init__()
         pretrain_name = getBertPretrainName(dataset)
 
-        self.activation_func = SoftmaxOverNBest()
+        self.activation_fn = SoftmaxOverNBest()
 
         self.addRes = addRes
         self.resCLS = concatCLS
@@ -225,6 +225,8 @@ class nBestCrossBert(torch.nn.Module):
             print(f"NBestAttention Layer:{self.fuseAttention}")
 
             self.finalLinear = torch.nn.Linear(768, 1)
+        else:
+            self.fuseAttention = None
 
     def forward(
         self,
@@ -310,7 +312,7 @@ class nBestCrossBert(torch.nn.Module):
                     cls_score = self.finalLinear(cls_concat).squeeze(-1)
                     mask_score = self.finalExLinear(mask_concat).squeeze(-1)
 
-                    cls_prob = self.activation_func(cls_score, nBestIndex)
+                    cls_prob = self.activation_fn(cls_score, nBestIndex)
 
                     if self.taskType == "GT":
                         cls_loss = labels * torch.log(cls_prob)
@@ -453,7 +455,7 @@ class nBestCrossBert(torch.nn.Module):
                 if labels is not None:
                     start_index = 0
 
-                    cls_score = self.activation_func(
+                    cls_score = self.activation_fn(
                         cls_score, nBestIndex, log_score=False
                     )  # softmax Over NBest
 

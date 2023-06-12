@@ -142,7 +142,7 @@ train_loader = DataLoader(
     dataset=train_dataset,
     batch_sampler=train_batch_sampler,
     collate_fn=collate_func,
-    num_workers=4,
+    num_workers=16,
     pin_memory=True,
 )
 
@@ -150,7 +150,7 @@ valid_loader = DataLoader(
     dataset=valid_dataset,
     batch_sampler=valid_batch_sampler,
     collate_fn=collate_func,
-    num_workers=4,
+    num_workers=16,
     pin_memory=True,
 )
 
@@ -275,7 +275,7 @@ for e in range(start_epoch, train_args["epoch"]):
 
         logging_loss += loss.item()
         train_epoch_loss += loss.item()
-    
+
     if e == 0 or (e + 1) % 5 == 0:
         checkpoint = {
             "epoch": e,
@@ -347,7 +347,7 @@ for e in range(start_epoch, train_args["epoch"]):
             search_step=0.1,
             recog_mode=False,
         )
-    
+
         eval_loss = eval_loss / len(valid_batch_sampler)
         print(f"epoch:{e + 1},Validation loss:{eval_loss}")
         print(
