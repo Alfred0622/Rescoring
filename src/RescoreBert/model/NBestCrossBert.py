@@ -102,23 +102,23 @@ class NBestAttentionLayer(BertModel):
 
 class nBestCrossBert(torch.nn.Module):
     def __init__(
-            self, 
-            dataset, 
-            device, 
-            lstm_dim = 512, 
-            use_fuseAttention = False,
-            use_learnAttnWeight = False,
-            addRes = False,
-            fuseType = 'None',
-            lossType = 'KL',
-            concatCLS = False,
-            dropout = 0.1,
-            sepTask = False,
-            taskType = 'WER',
-            useRank = False,
-            noCLS = True,
-            noSEP = False
-        ):
+        self,
+        dataset,
+        device,
+        lstm_dim=512,
+        use_fuseAttention=False,
+        use_learnAttnWeight=False,
+        addRes=False,
+        fuseType="None",
+        lossType="KL",
+        concatCLS=False,
+        dropout=0.1,
+        sepTask=False,
+        taskType="WER",
+        useRank=False,
+        noCLS=True,
+        noSEP=False,
+    ):
 
         print(f"noCLS:{noCLS}, noSEP:{noSEP}")
         super().__init__()
@@ -138,7 +138,7 @@ class nBestCrossBert(torch.nn.Module):
         self.noCLS = noCLS
         self.noSEP = noSEP
 
-        print(f'taskType:{self.taskType}')
+        print(f"taskType:{self.taskType}")
 
         self.maxPool = MaxPooling(self.noCLS, self.noSEP)
         self.minPool = MinPooling(self.noCLS, self.noSEP)
@@ -227,34 +227,31 @@ class nBestCrossBert(torch.nn.Module):
             self.finalLinear = torch.nn.Linear(768, 1)
 
     def forward(
-            self, 
-            input_ids, 
-            attention_mask, 
-            crossAttentionMask,
-            am_score,
-            ctc_score,
-            ref_ids,
-            ref_masks,
-            labels = None, 
-            nBestIndex = None,
-            use_cls_loss = False,
-            use_mask_loss = False,
-            wers = None,
-            *args,
-            **kwargs
-        ):
+        self,
+        input_ids,
+        attention_mask,
+        crossAttentionMask,
+        am_score,
+        ctc_score,
+        ref_ids,
+        ref_masks,
+        labels=None,
+        nBestIndex=None,
+        use_cls_loss=False,
+        use_mask_loss=False,
+        wers=None,
+        *args,
+        **kwargs,
+    ):
 
-        output = self.bert(
-            input_ids = input_ids,
-            attention_mask = attention_mask
-        )
+        output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
 
-        cls = output.pooler_output # (B, 768)
+        cls = output.pooler_output  # (B, 768)
 
-        token_embeddings = output.last_hidden_state 
-        if (self.resCLS): # concat the CLS vector before and after the fusion
-            if (self.fuseType in ['lstm', 'attn']):
-                if (self.fuseType == 'lstm'):
+        token_embeddings = output.last_hidden_state
+        if self.resCLS:  # concat the CLS vector before and after the fusion
+            if self.fuseType in ["lstm", "attn"]:
+                if self.fuseType == "lstm":
                     fuse_state, (h, c) = self.lstm(token_embeddings)[:, 0, :]
 
                 elif self.fuseType == "attn":
@@ -315,16 +312,15 @@ class nBestCrossBert(torch.nn.Module):
 
                     cls_prob = self.activation_func(cls_score, nBestIndex)
 
-                    if (self.taskType == 'GT'):
+                    if self.taskType == "GT":
                         cls_loss = labels * torch.log(cls_prob)
                         cls_loss = torch.sum(torch.neg(cls_loss)).float()
 
                         ref_cls = self.bert(
-                            input_ids = ref_ids,
-                            attention_mask = ref_masks
+                            input_ids=ref_ids, attention_mask=ref_masks
                         ).pooler_output
 
-                        oracle_index = (labels == 1)
+                        oracle_index = labels == 1
                         oracle_cls = cls[oracle_index].clone()
 
                         mask_loss = self.l2Loss(oracle_cls, ref_cls)
@@ -333,7 +329,7 @@ class nBestCrossBert(torch.nn.Module):
 
                         logits = cls_score
 
-                    elif (self.taskType == 'WER'):
+                    elif self.taskType == "WER":
                         cls_loss = labels * torch.log(cls_prob)
                         cls_loss = torch.sum(torch.neg(cls_loss))
 
@@ -396,6 +392,7 @@ class nBestCrossBert(torch.nn.Module):
                                     descending=True,
                                     stable=True,
                                 )
+
                                 (
                                     _,
                                     mask_rank[start_index : start_index + index],
@@ -414,21 +411,40 @@ class nBestCrossBert(torch.nn.Module):
                             logits = cls_rank + mask_rank
 
                         else:
-                            if (self.useRank):
+                            if self.useRank:
                                 start_index = 0
                                 cls_rank = torch.zeros(cls_score.shape)
                                 mask_rank = torch.zeros(mask_score.shape)
                                 for index in nBestIndex:
 
-                                    _, cls_rank[start_index: start_index + index] = torch.sort(cls_score[start_index: start_index + index].clone(), dim = -1, descending = True, stable = True)
-                                    _, mask_rank[start_index: start_index + index] = torch.sort(mask_score[start_index: start_index + index].clone(), dim = -1, stable = True)
+                                    (
+                                        _,
+                                        cls_rank[start_index : start_index + index],
+                                    ) = torch.sort(
+                                        cls_score[
+                                            start_index : start_index + index
+                                        ].clone(),
+                                        dim=-1,
+                                        descending=True,
+                                        stable=True,
+                                    )
+                                    (
+                                        _,
+                                        mask_rank[start_index : start_index + index],
+                                    ) = torch.sort(
+                                        mask_score[
+                                            start_index : start_index + index
+                                        ].clone(),
+                                        dim=-1,
+                                        stable=True,
+                                    )
                                     start_index += index
 
                                 cls_rank = torch.reciprocal(1 + cls_rank)
                                 mask_rank = torch.reciprocal(1 + mask_rank)
 
                                 logits = cls_rank + mask_rank
-                            
+
                             else:
                                 logits = cls_score - mask_score
                 else:
@@ -437,7 +453,9 @@ class nBestCrossBert(torch.nn.Module):
                 if labels is not None:
                     start_index = 0
 
-                    cls_score = self.activation_func(cls_score, nBestIndex, log_score = False) # softmax Over NBest
+                    cls_score = self.activation_func(
+                        cls_score, nBestIndex, log_score=False
+                    )  # softmax Over NBest
 
                     cls_loss = torch.log(cls_score) * labels
                     cls_loss = torch.neg(torch.mean(cls_loss))
@@ -478,12 +496,13 @@ class nBestCrossBert(torch.nn.Module):
         clsConcatTrans = torch.cat([clsConcatTrans, ctc_score], dim=-1).float()
 
         # NBest Attention
-        attMap= None
-        if (self.fuseAttention is not None):
-            clsConcatTrans = clsConcatTrans.unsqueeze(0) #(B, D) -> (1, B ,D) here we take B as length
-            output  = self.fuseAttention(
-                inputs_embeds = clsConcatTrans, 
-                attention_matrix =  crossAttentionMask
+        attMap = None
+        if self.fuseAttention is not None:
+            clsConcatTrans = clsConcatTrans.unsqueeze(
+                0
+            )  # (B, D) -> (1, B ,D) here we take B as length
+            output = self.fuseAttention(
+                inputs_embeds=clsConcatTrans, attention_matrix=crossAttentionMask
             )
             scoreAtt = output.last_hidden_state
             attMap = output.attentions
@@ -502,11 +521,13 @@ class nBestCrossBert(torch.nn.Module):
         logits = finalScore.clone()
 
         loss = None
-        if (labels is not None):
-            assert(nBestIndex is not None), "Must have N-best Index"
+        if labels is not None:
+            assert nBestIndex is not None, "Must have N-best Index"
             start_index = 0
             for index in nBestIndex:
-                finalScore[start_index: start_index + index] = self.activation_fn(finalScore[start_index: start_index + index].clone())
+                finalScore[start_index : start_index + index] = self.activation_fn(
+                    finalScore[start_index : start_index + index].clone()
+                )
                 start_index += index
 
             if self.KL:

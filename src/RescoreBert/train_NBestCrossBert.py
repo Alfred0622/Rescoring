@@ -68,9 +68,9 @@ mode = mode + f"_{train_args['fuseType']}"
 
 mode = mode + f"_{train_args['lossType']}"
 
-if (train_args['hardLabel']):
+if train_args["hardLabel"]:
     mode = mode + "_hardLabel"
-if (train_args['sortByLen']):
+if train_args["sortByLen"]:
     mode = mode + "_sortByLength"
 if train_args["concatCLS"]:
     mode = mode + "_ResCLS"
@@ -116,14 +116,14 @@ model and Optimizer initilaization
 model, tokenizer = prepareNBestCrossBert(
     args["dataset"],
     device,
-    lstm_dim = train_args['lstm_embedding'], 
-    useNbestCross = train_args['useNBestCross'],
-    trainAttendWeight = False,
-    addRes = train_args['addRes'],
-    fuseType = train_args['fuseType'],
-    taskType = train_args['2ndTask'],
-    lossType="Entropy" if train_args['hardLabel'] else train_args['lossType'],
-    concatCLS = train_args['concatCLS'],
+    lstm_dim=train_args["lstm_embedding"],
+    useNbestCross=train_args["useNBestCross"],
+    trainAttendWeight=False,
+    addRes=train_args["addRes"],
+    fuseType=train_args["fuseType"],
+    taskType=train_args["2ndTask"],
+    lossType="Entropy" if train_args["hardLabel"] else train_args["lossType"],
+    concatCLS=train_args["concatCLS"],
     dropout=dropout,
     sepTask=train_args["sepTask"],
     noCLS=train_args["noCLS"],
@@ -136,8 +136,9 @@ if torch.cuda.device_count() > 1:
 # optimizer = AdamW(model.parameters(), lr = float(train_args['lr']))
 optimizer = Adam(model.parameters(), lr=float(train_args["lr"]))
 
-with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, \
-     open(f"../../data/{args['dataset']}/data/{setting}/{valid_set}/data.json") as dev:
+with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, open(
+    f"../../data/{args['dataset']}/data/{setting}/{valid_set}/data.json"
+) as dev:
     train_json = json.load(f)
     valid_json = json.load(dev)
 
@@ -195,7 +196,7 @@ train_loader = DataLoader(
     dataset=train_dataset,
     batch_sampler=train_batch_sampler,
     collate_fn=partial(crossNBestBatch, hard_label=train_args["hardLabel"]),
-    num_workers=4,
+    num_workers=16,
     pin_memory=True,
 )
 
@@ -203,7 +204,7 @@ valid_loader = DataLoader(
     dataset=valid_dataset,
     batch_sampler=valid_batch_sampler,
     collate_fn=partial(crossNBestBatch, hard_label=train_args["hardLabel"]),
-    num_workers=4,
+    num_workers=16,
     pin_memory=True,
 )
 
@@ -315,8 +316,8 @@ for e in range(start_epoch, train_args["epoch"]):
 
         output = model.forward(
             **data,
-            use_cls_loss = get_cls_loss,
-            use_mask_loss = get_mask_loss,
+            use_cls_loss=get_cls_loss,
+            use_mask_loss=get_mask_loss,
         )
 
         loss = output["loss"]
@@ -419,16 +420,16 @@ for e in range(start_epoch, train_args["epoch"]):
                     data[key] = data[key].to(device)
 
             output = model.forward(
-                input_ids = data['input_ids'],
-                attention_mask = data['attention_mask'],
-                crossAttentionMask= data['crossAttentionMask'],
-                am_score = data['am_score'],
-                ctc_score = data['ctc_score'],
-                labels = data['label'],
-                nBestIndex= data['nBestIndex'],
-                use_cls_loss = get_cls_loss,
-                use_mask_loss = get_mask_loss,
-                wers = data['wers'] if (train_args['sepTask']) else None
+                input_ids=data["input_ids"],
+                attention_mask=data["attention_mask"],
+                crossAttentionMask=data["crossAttentionMask"],
+                am_score=data["am_score"],
+                ctc_score=data["ctc_score"],
+                labels=data["label"],
+                nBestIndex=data["nBestIndex"],
+                use_cls_loss=get_cls_loss,
+                use_mask_loss=get_mask_loss,
+                wers=data["wers"] if (train_args["sepTask"]) else None,
             )
 
             loss = output["loss"]
