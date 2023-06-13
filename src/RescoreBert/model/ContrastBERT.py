@@ -28,6 +28,7 @@ class selfMarginLoss(nn.Module):
         final_loss = torch.tensor(0.0, device=scores.device)
 
         for N, nBestRank in zip(nBestIndex, werRank):  # i-th werRank ex.[50, 50, 50]
+            nBestRank = nBestRank.cuda()
             for i, rank in enumerate(nBestRank):
                 print(f"pos:{scores[start_index + rank]}")
                 print(f"neg:{scores[start_index + nBestRank[i + 1 :]]}")
