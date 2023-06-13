@@ -348,7 +348,7 @@ def PBertBatch(batch):
 #         wer = torch.cat([wer, label_score])
 
 
-def PBertBatchWithHardLabel(batch, use_Margin):
+def PBertBatchWithHardLabel(batch, use_Margin = False):
     names = []
     input_ids = []
     attention_mask = []
@@ -378,7 +378,15 @@ def PBertBatchWithHardLabel(batch, use_Margin):
         label_score[sample["wer_rank"][0]] = 1  # Add hard label 1
         wer = torch.cat([wer, label_score])
         errors = torch.cat([errors, sample["wer"]], dim=-1)
-        wers_rank.append(sample["wer_rank"])
+        rank_tensor = sample['wer_rank']
+        if (use_Margin):
+            oracle_index = (sample['wer'] == sample['wer'][sample['wer_rank'][0]])
+            oracle_index[sample['wer_rank'][0]] = False
+            filtered_index = oracle_index.nonzero().squeeze(-1)
+            filtered_index = torch.logical_not(torch.isin(rank_tensor, filtered_index))
+            rank_tensor = rank_tensor[filtered_index]
+
+        wers_rank.append(rank_tensor)
 
         nBest.append(sample["nbest"])
         indexes += [rank for rank in range(sample["nbest"])]
