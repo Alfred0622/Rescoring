@@ -714,6 +714,7 @@ def prepareListwiseDataset(
                     "ref_tokens": ref_ids
                 }
             )
+            
             if get_num > 0 and i > get_num:
                 break
 
@@ -769,6 +770,7 @@ def prepareListwiseDataset(
 
             ref = data['ref']
             ref_tokens = tokenizer(preprocess_string(ref, dataset))
+
 
             data_list.append(
                 {

@@ -33,7 +33,7 @@ torch.cuda.manual_seed(42)
 checkpoint = None
 assert len(sys.argv) >= 2, "need to input mode"
 if len(sys.argv) >= 2:
-    mode = sys.argv[1].upper()  # pbert or contrast
+    mode = sys.argv[1].upper().strip()  # pbert or contrast
 
     if len(sys.argv) >= 3:
         checkpoint_path = sys.argv[2]
@@ -43,6 +43,8 @@ assert mode in [
     "CONTRAST",
     "MARGIN",
 ], "mode must in PBERT, MARGIN or CONTRAST"
+
+print(f"mode:{mode}")
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
@@ -72,6 +74,9 @@ if "weightByWER" in train_args.keys() and train_args["weightByWER"] != "none":
 else:
     log_path = log_path + "/normal"
 
+if (mode == 'MARGIN'):
+    run_name = run_name + f"_Margin{train_args['margin_value']}" + f"_Converge{train_args['converge']}" + f"_MarginFirst{train_args['margin_first']}"
+
 log_path = Path(f"./log/RescoreBERT/{args['dataset']}/{setting}/{mode}")
 log_path.mkdir(parents=True, exist_ok=True)
 
@@ -89,7 +94,7 @@ if mode == "PBERT":
     model, tokenizer = preparePBert(
         args["dataset"], device, train_args["hard_label"], train_args["weightByWER"]
     )
-elif mode in ("CONTRAST", "MARGIN"):
+elif mode == "CONTRAST" or mode == "MARGIN":
     model, tokenizer = prepareContrastBert(args, train_args, mode)
 
 print(type(model))
@@ -114,8 +119,7 @@ print(f"\n train_args:{train_args} \n")
 
 get_num = -1
 if "WANDB_MODE" in os.environ.keys() and os.environ["WANDB_MODE"] == "disabled":
-    get_num = 50
-
+    get_num = 1000
 print(f"tokenizing Train")
 train_dataset = prepareListwiseDataset(
     data_json=train_json,
@@ -147,7 +151,7 @@ print(f"len of batch sampler:{len(train_batch_sampler)}")
 train_collate_func = PBertBatch
 valid_collate_func = PBertBatch
 if train_args["hard_label"]:
-    collate_func = partial(PBertBatchWithHardLabel, use_Margin = (mode == 'margin'))
+    train_collate_func = partial(PBertBatchWithHardLabel, use_Margin = (mode == 'MARGIN'))
     valid_collate_func = partial(PBertBatchWithHardLabel, use_Margin = False)
 
 train_loader = DataLoader(
@@ -161,7 +165,7 @@ train_loader = DataLoader(
 valid_loader = DataLoader(
     dataset=valid_dataset,
     batch_sampler=valid_batch_sampler,
-    collate_fn=collate_func,
+    collate_fn=valid_collate_func,
     num_workers=16,
     pin_memory=True,
 )
@@ -223,6 +227,8 @@ wandb.watch(model)
 step = 0
 min_val_loss = 1e8
 min_val_cer = 1e6
+last_val_cer = 1e6
+
 logging_loss = torch.tensor([0.0])
 logging_CE_loss = torch.tensor([0.0])
 logging_contrastive_loss = torch.tensor([0.0])
@@ -235,7 +241,7 @@ for param in model.bert.parameters():
 # model, optimizer, train_loader, lr_scheduler = accelerator.prepare(
 #     model, optimizer, train_loader, lr_scheduler
 # )
-
+use_margin = train_args['margin_first']
 for e in range(start_epoch, train_args["epoch"]):
     train_epoch_loss = torch.tensor([0.0])
     epoch_CE_loss = torch.tensor([0.0])
@@ -249,9 +255,11 @@ for e in range(start_epoch, train_args["epoch"]):
         print("Freeze BERT")
 
     for i, data in enumerate(tqdm(train_loader, ncols=100)):
-        # print(f"data:{data['wers']}")
+        # for rank in data['wer_rank']:
+        #     if (len(rank) < 50):
+        #         print(f'filtered:{rank}')
         for key in data.keys():
-            if key not in ["name", "indexes"]:
+            if key not in ["name", "indexes", 'wer_rank']:
                 # print(f"{key}:{type(data[key])}")
                 data[key] = data[key].to(device)
 
@@ -260,12 +268,12 @@ for e in range(start_epoch, train_args["epoch"]):
         ):
             data["wers"] = None
 
-        output = model.forward(**data)
+        output = model.forward(**data, add_margin = True)
 
         loss = output["loss"]
         loss = torch.mean(loss)
 
-        if mode in ["CONTRAST", "MARGIN"]:
+        if mode in ["CONTRAST", "MARGIN"] and output["contrast_loss"] is not None:
             epoch_CE_loss += output["CE_loss"].sum().item()
             epoch_contrast_loss += output["contrast_loss"].sum().item()
 
@@ -306,7 +314,7 @@ for e in range(start_epoch, train_args["epoch"]):
 
         torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_{e+1}.pt")
 
-    if mode in ["CONTRAST", "MARGIN"]:
+    if mode in ["CONTRAST", "MARGIN"] and output["contrast_loss"] is not None:
         wandb.log(
             {
                 "train_loss": train_epoch_loss,
@@ -333,7 +341,7 @@ for e in range(start_epoch, train_args["epoch"]):
     with torch.no_grad():
         for i, data in enumerate(tqdm(valid_loader, ncols=100)):
             for key in data.keys():
-                if key not in ["name", "indexes"]:
+                if key not in ["name", "indexes", 'wer_rank']:
 
                     data[key] = data[key].to(device)
 
@@ -348,7 +356,7 @@ for e in range(start_epoch, train_args["epoch"]):
             loss = output["loss"]
             scores = output["score"]
 
-            if mode in ["CONTRAST", "MARGIN"]:
+            if mode in ["CONTRAST", "MARGIN"] and output["contrast_loss"] is not None:
                 epoch_CE_loss += output["CE_loss"].sum().item()
                 epoch_contrast_loss += output["contrast_loss"].sum().item()
 
@@ -392,7 +400,7 @@ for e in range(start_epoch, train_args["epoch"]):
             f"epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}"
         )
 
-        if mode in ["CONTRAST", "MARGIN"]:
+        if mode in ["CONTRAST", "MARGIN"] and output["contrast_loss"] is not None:
             wandb.log(
                 {
                     "eval_loss": eval_loss,
@@ -410,8 +418,14 @@ for e in range(start_epoch, train_args["epoch"]):
             )
         logging.warning(f"epoch:{e + 1},validation loss:{eval_loss}")
         logging.warning(
-            f"epoch:{e + 1},validation CER:{min_cer}, , weight = {[best_am, best_ctc, best_lm, best_rescore]}"
+            f"epoch:{e + 1},validation CER:{min_cer} , weight = {[best_am, best_ctc, best_lm, best_rescore]}"
         )
+
+        if (last_val_cer - min_cer < train_args['converge'] and use_margin == train_args['margin_first']):
+            use_margin = not(train_args['margin_first'])
+            print(f"Switch use_margin: {train_args['margin_first']} -> {use_margin}")
+        
+        last_val_cer = min_cer
 
         rescores = np.zeros(rescores.shape, dtype=float)
 

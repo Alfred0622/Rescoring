@@ -23,14 +23,12 @@ class selfMarginLoss(nn.Module):
 
     def forward(self, scores, nBestIndex, werRank):
         # nBestIndex = a list of number of N-best e.x
-        print(f"my")
         start_index = 0
         final_loss = torch.tensor(0.0, device=scores.device)
 
         for N, nBestRank in zip(nBestIndex, werRank):  # i-th werRank ex.[50, 50, 50]
-            for i, rank in enumerate(nBestRank):
-                print(f"pos:{scores[start_index + rank]}")
-                print(f"neg:{scores[start_index + nBestRank[i + 1 :]]}")
+            nBestRank = nBestRank.cuda()
+            for i, rank in enumerate(nBestRank[:-1]):
                 compare = (
                     scores[start_index + nBestRank[i + 1 :]]  # x2
                     - scores[start_index + rank]  # x1
@@ -70,9 +68,12 @@ class marginalBert(nn.Module):
         nBestIndex,
         wer_rank,
         labels,
+        add_margin = False,
         *args,
         **kwargs,
     ):
+        for wer in wer_rank:
+            if (len(wer) < 0): print(wer)
         # input_ids, attention_mask , am_score and ctc_score are all sorted by WER and rank
         bert_output = self.bert(
             input_ids=input_ids, attention_mask=attention_mask
@@ -88,9 +89,13 @@ class marginalBert(nn.Module):
         ce_loss = torch.neg(torch.sum(ce_loss)) / final_score.shape[0]
         # Margin Loss
 
-        margin_loss = self.loss(final_prob, nBestIndex, wer_rank) / final_score.shape[0]
+        if (self.training and add_margin):
+            margin_loss = self.loss(final_prob, nBestIndex, wer_rank)
 
-        loss = ce_loss + margin_loss
+            loss = ce_loss + margin_loss
+        else:
+            loss = ce_loss
+            margin_loss = None
 
         return {
             "score": final_score,

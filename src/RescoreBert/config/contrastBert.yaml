@@ -12,7 +12,9 @@ train:
   freeze_epoch: -1
   hard_label: True
   warmup_step: 10000
-  margin: 0.1
+  margin_value: 0.05
+  converge: 0.1
+  margin_first: False
 
 recog:
   batch: 1
