@@ -30,11 +30,18 @@ torch.manual_seed(42)
 torch.cuda.manual_seed(42)
 
 checkpoint = None
+assert len(sys.argv) >= 2, "need to input mode"
 if len(sys.argv) >= 2:
     mode = sys.argv[1].upper()  # pbert or contrast
-    assert mode in ["PBERT", "CONTRAST"], "mode must in PBERT or CONTRAST"
+
     if len(sys.argv) >= 3:
         checkpoint_path = sys.argv[2]
+
+assert mode in [
+    "PBERT",
+    "CONTRAST",
+    "MARGIN",
+], "mode must in PBERT, MARGIN or CONTRAST"
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
@@ -81,7 +88,7 @@ if mode == "PBERT":
     model, tokenizer = preparePBert(
         args["dataset"], device, train_args["hard_label"], train_args["weightByWER"]
     )
-elif mode == "CONTRAST":
+elif mode in ("CONTRAST", "MARGIN"):
     model, tokenizer = prepareContrastBert(args, train_args, mode)
 
 print(type(model))
@@ -101,7 +108,7 @@ with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, 
 Load checkpoint
 """
 start_epoch = 0
-print(f'\n train_args:{train_args} \n')
+print(f"\n train_args:{train_args} \n")
 
 
 get_num = -1
@@ -169,7 +176,7 @@ lr_scheduler = OneCycleLR(
     max_lr=float(train_args["lr"]) * 10,
     epochs=int(train_args["epoch"]),
     steps_per_epoch=len(train_batch_sampler),
-    pct_start=0.01,
+    pct_start=0.02,
 )
 
 (
@@ -214,6 +221,8 @@ step = 0
 min_val_loss = 1e8
 min_val_cer = 1e6
 logging_loss = torch.tensor([0.0])
+logging_CE_loss = torch.tensor([0.0])
+logging_contrastive_loss = torch.tensor([0.0])
 
 for param in model.bert.parameters():
     param.requires_grad = False
@@ -226,6 +235,8 @@ for param in model.bert.parameters():
 
 for e in range(start_epoch, train_args["epoch"]):
     train_epoch_loss = torch.tensor([0.0])
+    epoch_CE_loss = torch.tensor([0.0])
+    epoch_contrast_loss = torch.tensor([0.0])
     model.train()
     if e >= int(train_args["freeze_epoch"]):
         print("Unfreeze BERT")
@@ -241,7 +252,7 @@ for e in range(start_epoch, train_args["epoch"]):
                 # print(f"{key}:{type(data[key])}")
                 data[key] = data[key].to(device)
 
-        if mode == "CONTRAST" or (
+        if mode in ["CONTRAST", "MARGIN"] or (
             "weightByWER" in train_args.keys() and train_args["weightByWER"] == "none"
         ):
             data["wers"] = None
@@ -250,6 +261,10 @@ for e in range(start_epoch, train_args["epoch"]):
 
         loss = output["loss"]
         loss = torch.mean(loss)
+
+        if mode in ["CONTRAST", "MARGIN"]:
+            epoch_CE_loss += output["CE_loss"].sum().item()
+            epoch_contrast_loss += output["contrast_loss"].sum().item()
 
         if torch.cuda.device_count() > 1:
             loss = loss.sum()
@@ -277,7 +292,7 @@ for e in range(start_epoch, train_args["epoch"]):
 
         logging_loss += loss.item()
         train_epoch_loss += loss.item()
-    
+
     if e == 0 or (e + 1) % 5 == 0:
         checkpoint = {
             "epoch": e,
@@ -288,10 +303,21 @@ for e in range(start_epoch, train_args["epoch"]):
 
         torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_{e+1}.pt")
 
-    wandb.log(
-        {"train_loss": train_epoch_loss, "epoch": e + 1},
-        step=(i + 1) + e * len(train_batch_sampler),
-    )
+    if mode in ["CONTRAST", "MARGIN"]:
+        wandb.log(
+            {
+                "train_loss": train_epoch_loss,
+                "CE_loss": epoch_CE_loss,
+                "contrast_loss": epoch_contrast_loss,
+                "epoch": e + 1,
+            },
+            step=(i + 1) + e * len(train_batch_sampler),
+        )
+    else:
+        wandb.log(
+            {"train_loss": train_epoch_loss, "epoch": e + 1},
+            step=(i + 1) + e * len(train_batch_sampler),
+        )
 
     """
     Validation
@@ -299,6 +325,8 @@ for e in range(start_epoch, train_args["epoch"]):
     model.eval()
     valid_len = len(valid_batch_sampler)
     eval_loss = torch.tensor([0.0])
+    epoch_CE_loss = torch.tensor([0.0])
+    epoch_contrast_loss = torch.tensor([0.0])
     with torch.no_grad():
         for i, data in enumerate(tqdm(valid_loader, ncols=100)):
             for key in data.keys():
@@ -316,6 +344,11 @@ for e in range(start_epoch, train_args["epoch"]):
 
             loss = output["loss"]
             scores = output["score"]
+
+            if mode in ["CONTRAST", "MARGIN"]:
+                epoch_CE_loss += output["CE_loss"].sum().item()
+                epoch_contrast_loss += output["contrast_loss"].sum().item()
+
             loss = torch.mean(loss)
             if torch.cuda.device_count() > 1:
                 loss = loss.sum()
@@ -349,16 +382,29 @@ for e in range(start_epoch, train_args["epoch"]):
             search_step=0.1,
             recog_mode=False,
         )
-    
+
         eval_loss = eval_loss / len(valid_batch_sampler)
         print(f"epoch:{e + 1},Validation loss:{eval_loss}")
         print(
             f"epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}"
         )
-        wandb.log(
-            {"eval_loss": eval_loss, "eval_CER": min_cer, "epoch": (e + 1)},
-            step=((e + 1) * len(train_batch_sampler)),
-        )
+
+        if mode in ["CONTRAST", "MARGIN"]:
+            wandb.log(
+                {
+                    "eval_loss": eval_loss,
+                    "eval_CER": min_cer,
+                    "CE_loss": epoch_CE_loss,
+                    "contrast_loss": epoch_contrast_loss,
+                    "epoch": e + 1,
+                },
+                step= (e + 1) * len(train_batch_sampler),
+            )
+        else:
+            wandb.log(
+                {"eval_loss": eval_loss, "eval_CER": min_cer, "epoch": (e + 1)},
+                step=((e + 1) * len(train_batch_sampler)),
+            )
         logging.warning(f"epoch:{e + 1},validation loss:{eval_loss}")
         logging.warning(
             f"epoch:{e + 1},validation CER:{min_cer}, , weight = {[best_am, best_ctc, best_lm, best_rescore]}"

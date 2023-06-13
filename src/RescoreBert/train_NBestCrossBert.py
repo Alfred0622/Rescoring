@@ -74,12 +74,14 @@ if train_args["sortByLen"]:
     mode = mode + "_sortByLength"
 if train_args["concatCLS"]:
     mode = mode + "_ResCLS"
-if train_args["concatMaskAfter"]:
-    mode = mode + "_concatMaskAfter"
 if train_args["weightByGrad"]:
     mode = mode + "_weightByGrad"
 if train_args["sepTask"]:
     mode = mode + "_sepMaskTask"
+    mode = mode + f"_{train_args['2ndTask']}"
+    if train_args["fuseType"] == "query":
+        if train_args["concatMaskAfter"]:
+            mode = mode + "_concatMaskAfter"
 if train_args["noCLS"]:
     mode = mode + "_noCLS"
 if train_args["noSEP"]:
@@ -420,16 +422,9 @@ for e in range(start_epoch, train_args["epoch"]):
                     data[key] = data[key].to(device)
 
             output = model.forward(
-                input_ids=data["input_ids"],
-                attention_mask=data["attention_mask"],
-                crossAttentionMask=data["crossAttentionMask"],
-                am_score=data["am_score"],
-                ctc_score=data["ctc_score"],
-                labels=data["label"],
-                nBestIndex=data["nBestIndex"],
+                **data,
                 use_cls_loss=get_cls_loss,
                 use_mask_loss=get_mask_loss,
-                wers=data["wers"] if (train_args["sepTask"]) else None,
             )
 
             loss = output["loss"]
