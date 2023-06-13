@@ -715,7 +715,7 @@ class pBert(torch.nn.Module):
                 elif self.weightByWER == "positive":  # Higher WER get higher weight
                     wers = 0.5 + (wers * 5)
                 elif self.weightByWER == "square":  # WER
-                    wers = 1 / ((wers - 0.2) + 1) ** 2  #
+                    wers = ((wers - 0.2) + 1) ** 2  #
                 loss = loss * wers
                 loss = torch.sum(loss) / input_ids.shape[0]  # batch_mean
 
