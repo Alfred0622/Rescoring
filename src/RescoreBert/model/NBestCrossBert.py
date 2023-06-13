@@ -528,7 +528,7 @@ class nBestCrossBert(torch.nn.Module):
             start_index = 0
             for index in nBestIndex:
                 finalScore[start_index : start_index + index] = self.activation_fn(
-                    finalScore[start_index : start_index + index].clone()
+                    finalScore[start_index : start_index + index].clone(), nBestIndex
                 )
                 start_index += index
 
@@ -717,7 +717,7 @@ class pBert(torch.nn.Module):
                 elif self.weightByWER == "positive":  # Higher WER get higher weight
                     wers = 0.5 + (wers * 5)
                 elif self.weightByWER == "square":  # WER
-                    wers = 1 / ((wers - 0.2) + 1) ** 2  #
+                    wers = ((wers - 0.2) + 1) ** 2  #
                 loss = loss * wers
                 loss = torch.sum(loss) / input_ids.shape[0]  # batch_mean
 
@@ -726,6 +726,7 @@ class pBert(torch.nn.Module):
             "score": final_score,
             "attention_weight": bert_output.attentions,
         }
+
 
 class inter_pBert(torch.nn.Module):
     def __init__(
@@ -809,7 +810,7 @@ class inter_pBert(torch.nn.Module):
                 elif self.weightByWER == "positive":  # Higher WER get higher weight
                     wers = 0.5 + (wers * 5)
                 elif self.weightByWER == "square":  # WER
-                    wers = 1 / ((wers - 0.2) + 1) ** 2  #
+                    wers = ((wers - 0.2) + 1) ** 2  #
                 loss = loss * wers
                 loss = torch.sum(loss) / input_ids.shape[0]  # batch_mean
 
