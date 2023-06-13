@@ -200,7 +200,7 @@ def prepareContrastBert(args, train_args, mode="CONTRAST"):
             args,
         )
     elif mode == "MARGIN":
-        model = marginalBert(args, margin=float(train_args["margin"]))
+        model = marginalBert(args, margin=float(train_args["margin_value"]))
 
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 

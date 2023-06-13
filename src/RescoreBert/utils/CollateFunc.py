@@ -348,7 +348,7 @@ def PBertBatch(batch):
 #         wer = torch.cat([wer, label_score])
 
 
-def PBertBatchWithHardLabel(batch, use_Margin = False):
+def PBertBatchWithHardLabel(batch, use_Margin):
     names = []
     input_ids = []
     attention_mask = []
@@ -384,10 +384,11 @@ def PBertBatchWithHardLabel(batch, use_Margin = False):
             oracle_index[sample['wer_rank'][0]] = False
             filtered_index = oracle_index.nonzero().squeeze(-1)
             filtered_index = torch.logical_not(torch.isin(rank_tensor, filtered_index))
+            # if (rank_tensor[filtered_index].shape != rank_tensor.shape): 
+            #     print(f'Filtered {rank_tensor.shape} -> {rank_tensor[filtered_index].shape}:{rank_tensor[filtered_index]}')
             rank_tensor = rank_tensor[filtered_index]
 
-        wers_rank.append(rank_tensor)
-
+        wers_rank.append(rank_tensor.long())
         nBest.append(sample["nbest"])
         indexes += [rank for rank in range(sample["nbest"])]
 
@@ -396,7 +397,6 @@ def PBertBatchWithHardLabel(batch, use_Margin = False):
     am_scores = am_scores.unsqueeze(-1)
     ctc_scores = ctc_scores.unsqueeze(-1)
     nBest = torch.as_tensor(nBest, dtype=torch.int64)
-    wers_rank = torch.stack(wers_rank).long()
 
     return {
         "name": names,
