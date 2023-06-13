@@ -2,12 +2,12 @@ args:
   nBest: 20
   withLM: True
   model_name: alsem
-  dataset: tedlium2
+  dataset: aishell
 
 train: 
   epoch: 4
-  train_batch: 64
-  valid_batch: 64
+  train_batch: 128
+  valid_batch: 128
   accum_grads: 4
   print_loss: 5000
   lr: 1e-5

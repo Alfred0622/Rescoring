@@ -12,6 +12,7 @@ import random
 from tqdm import tqdm
 from pathlib import Path
 import numpy as np
+from functools import partial
 from torch.utils.data import DataLoader
 from src_utils.LoadConfig import load_config
 from utils.Datasets import prepareListwiseDataset
@@ -143,14 +144,16 @@ valid_batch_sampler = BatchSampler(valid_sampler, train_args["batch_size"])
 
 print(f"len of batch sampler:{len(train_batch_sampler)}")
 
-collate_func = PBertBatch
+train_collate_func = PBertBatch
+valid_collate_func = PBertBatch
 if train_args["hard_label"]:
-    collate_func = PBertBatchWithHardLabel
+    collate_func = partial(PBertBatchWithHardLabel, use_Margin = (mode == 'margin'))
+    valid_collate_func = partial(PBertBatchWithHardLabel, use_Margin = False)
 
 train_loader = DataLoader(
     dataset=train_dataset,
     batch_sampler=train_batch_sampler,
-    collate_fn=collate_func,
+    collate_fn=train_collate_func,
     num_workers=16,
     pin_memory=True,
 )
