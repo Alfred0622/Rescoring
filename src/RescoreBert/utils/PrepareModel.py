@@ -196,9 +196,7 @@ def prepareContrastBert(args, train_args, mode="CONTRAST"):
     pretrain_name = getBertPretrainName(args["dataset"])
 
     if mode == "CONTRAST":
-        model = contrastBert(
-            args,
-        )
+        model = contrastBert(args, train_args)
     elif mode == "MARGIN":
         model = marginalBert(args, margin=float(train_args["margin_value"]))
 
