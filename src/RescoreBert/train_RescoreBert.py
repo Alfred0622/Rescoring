@@ -107,10 +107,15 @@ with open(f"./data/{args['dataset']}/{setting}/50best/MLM/train/rescore_data.jso
     train_json = json.load(f)
     valid_json = json.load(dev)
 
+if ('WANDB_MODE' in os.environ.keys() and os.environ['WANDB_MODE'] == 'disabled'):
+    fetch_num = -1
+else:
+    fetch_num = -1
+
 print(f" Tokenization : train")
-train_dataset = getRescoreDataset(train_json, args['dataset'], tokenizer, topk = args['nbest'], mode = mode)
+train_dataset = getRescoreDataset(train_json, args['dataset'], tokenizer, topk = args['nbest'], mode = mode, fetch_num = fetch_num)
 print(f" Tokenization : valid")
-valid_dataset = getRescoreDataset(valid_json, args['dataset'], tokenizer, topk = args['nbest'], mode = mode)
+valid_dataset = getRescoreDataset(valid_json, args['dataset'], tokenizer, topk = args['nbest'], mode = mode, fetch_num = fetch_num)
 
 
 index_dict, inverse_dict,am_scores, ctc_scores, lm_scores, rescores, wers, hyps, refs = prepare_score_dict(valid_json, nbest = args['nbest'])
@@ -284,7 +289,11 @@ for e in range(start_epoch, train_args['epoch']):
             loss_MWED = loss_MWED.sum()
             loss_MWED = torch.neg(loss_MWED)
 
+            assert(not (torch.isnan(loss) or torch.isnan(loss_MWED))), f"loss:{loss}, loss_MWED{loss_MWED}, T:{T}"
+            
             loss = loss_MWED + 1e-4 * loss
+
+            
 
         if (torch.cuda.device_count() > 1):
             loss = loss.sum()

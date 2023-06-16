@@ -20,6 +20,7 @@ from utils.PrepareModel import prepare_model
 import wandb
 from transformers import Trainer, TrainingArguments, DataCollator
 from torch.optim.lr_scheduler import OneCycleLR
+import gc
 
 random.seed(42)
 torch.manual_seed(42)
@@ -74,20 +75,23 @@ valid_loader = DataLoader(
 
 min_val = 1e8
 
+del train_json
+del valid_json
+
 wandb_config = wandb.config
 wandb_config = model.bert.config if (torch.cuda.device_count() == 1) else model.module.bert.config
 wandb_config.learning_rate = float(train_args['lr'])
 wandb_config.batch_size = train_args['train_batch']
 cal_batch = int(train_args['train_batch']) * train_args['accum_grads']
 
-scheduler = OneCycleLR(
-    model.optimizer, 
-    max_lr = float(train_args['lr']), 
-    steps_per_epoch = int(len(train_loader) / train_args['accum_grads']) + 1,
-    epochs = train_args['epoch'],
-    pct_start = 0.02,
-    anneal_strategy = 'linear'
-)
+# scheduler = OneCycleLR(
+#     model.optimizer, 
+#     max_lr = float(train_args['lr']), 
+#     steps_per_epoch = int(len(train_loader) / train_args['accum_grads']) + 1,
+#     epochs = train_args['epoch'],
+#     pct_start = 0.02,
+#     anneal_strategy = 'linear'
+# )
 
 wandb.init( 
     project = f"Bertsem_{args['dataset']}",
@@ -131,9 +135,8 @@ for e in range(train_args['epoch']):
 
         if ((i + 1) % train_args['accum_grads'] == 0):
             model.optimizer.step()
-            scheduler.step()
+            # scheduler.step()
             model.optimizer.zero_grad(set_to_none=True)
-
             step += 1
 
         if ((step > 0) and step % train_args['print_loss'] == 0):
@@ -145,6 +148,7 @@ for e in range(train_args['epoch']):
             logging.warning(
                 f"train_epoch:{e + 1}, step:{i + 1}, loss:{accum_loss / train_args['print_loss']}")
             accum_loss = 0.0
+            step = 0
 
 
     checkpoint = {
@@ -154,7 +158,7 @@ for e in range(train_args['epoch']):
         "fc1": model.fc1.state_dict(),
         "fc2": model.fc2.state_dict(),
         "optimizer": model.optimizer.state_dict(),
-        "scheduler": scheduler.state_dict()
+        # "scheduler": scheduler.state_dict()
     }
 
     savePath = Path(f"./checkpoint/{args['dataset']}/{setting}/{args['nBest']}Best/Bert_alsem_batch{train_args['train_batch']}_lr{train_args['lr']}/")

@@ -2,12 +2,12 @@ args:
   stage: 0 
   stop_stage: 1
   nbest: 4
-  withLM: False
+  withLM: True
   dataset: librispeech
 
 train:
   start_epoch: 0
-  epoch: 30
+  epoch: 10
   train_batch: 8
   valid_batch: 8
   accumgrad: 32

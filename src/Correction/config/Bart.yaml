@@ -1,13 +1,13 @@
 args:
   stage: 0 
   stop_stage: 1
-  nbest: 1
+  nbest: 10
   withLM: True
-  dataset: csj
+  dataset: librispeech
 
 train:
   start_epoch: 0
-  epoch: 30
+  epoch: 10
   train_batch: 32
   valid_batch: 32
   accumgrad: 8

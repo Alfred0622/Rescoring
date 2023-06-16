@@ -10,7 +10,7 @@ from transformers import BertTokenizer
 random.seed(42)
 nbest = 20
 
-name = 'librispeech'
+name = 'aishell'
 setting = ['noLM', 'withLM']
 
 if (name in ['tedlium2', 'librispeech']):

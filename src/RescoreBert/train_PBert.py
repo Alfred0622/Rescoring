@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 from src_utils.LoadConfig import load_config
 from utils.Datasets import prepareListwiseDataset
 from utils.CollateFunc import NBestSampler, BatchSampler
-from torch.optim import Adam
+from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 from src_utils.get_recog_set import get_valid_set
 from utils.PrepareModel import preparePBert, prepareContrastBert
