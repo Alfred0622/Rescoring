@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 from src_utils.LoadConfig import load_config
 from utils.Datasets import prepareListwiseDataset
 from utils.CollateFunc import NBestSampler, BatchSampler
-from torch.optim import Adam
+from torch.optim import AdamW, Adam
 from torch.optim.lr_scheduler import OneCycleLR
 from src_utils.get_recog_set import get_valid_set
 from utils.PrepareModel import preparePBert, prepareContrastBert
@@ -74,8 +74,15 @@ if "weightByWER" in train_args.keys() and train_args["weightByWER"] != "none":
 else:
     log_path = log_path + "/normal"
 
-if (mode == 'MARGIN'):
-    run_name = run_name + f"_Margin{train_args['margin_value']}" + f"_Converge{train_args['converge']}" + f"_MarginFirst{train_args['margin_first']}"
+if mode == "MARGIN":
+    run_name = (
+        run_name
+        + f"_Margin{train_args['margin_value']}"
+        + f"_Converge{train_args['converge']}"
+        + f"_MarginFirst{train_args['margin_first']}"
+    )
+elif mode == "CONTRAST":
+    run_name = run_name + f"contrastWeight{train_args['contrast_weight']}"
 
 log_path = Path(f"./log/RescoreBERT/{args['dataset']}/{setting}/{mode}")
 log_path.mkdir(parents=True, exist_ok=True)
@@ -101,8 +108,8 @@ print(type(model))
 model = model.to(device)
 if torch.cuda.device_count() > 1:
     model = torch.nn.DataParallel(model)
-# optimizer = AdamW(model.parameters(), lr = float(train_args['lr']))
 optimizer = Adam(model.parameters(), lr=float(train_args["lr"]))
+# optimizer = Adam(model.parameters(), lr=float(train_args["lr"]))
 
 with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, open(
     f"../../data/{args['dataset']}/data/{setting}/{valid_set}/data.json"
@@ -151,8 +158,8 @@ print(f"len of batch sampler:{len(train_batch_sampler)}")
 train_collate_func = PBertBatch
 valid_collate_func = PBertBatch
 if train_args["hard_label"]:
-    train_collate_func = partial(PBertBatchWithHardLabel, use_Margin = (mode == 'MARGIN'))
-    valid_collate_func = partial(PBertBatchWithHardLabel, use_Margin = False)
+    train_collate_func = partial(PBertBatchWithHardLabel, use_Margin=(mode == "MARGIN"))
+    valid_collate_func = partial(PBertBatchWithHardLabel, use_Margin=False)
 
 train_loader = DataLoader(
     dataset=train_dataset,
@@ -170,7 +177,7 @@ valid_loader = DataLoader(
     pin_memory=True,
 )
 
-warmup_step = int(train_args["warmup_step"])
+# warmup_step = int(train_args["warmup_step"])
 total_step = len(train_batch_sampler) * int(train_args["epoch"])
 
 print(f"single step : {len(train_batch_sampler)}")
@@ -183,7 +190,7 @@ lr_scheduler = OneCycleLR(
     max_lr=float(train_args["lr"]) * 10,
     epochs=int(train_args["epoch"]),
     steps_per_epoch=len(train_batch_sampler),
-    pct_start=0.02,
+    pct_start=float(train_args["warmup_ratio"]),
 )
 
 (
@@ -241,7 +248,10 @@ for param in model.bert.parameters():
 # model, optimizer, train_loader, lr_scheduler = accelerator.prepare(
 #     model, optimizer, train_loader, lr_scheduler
 # )
-use_margin = train_args['margin_first']
+if mode == "MARGIN" and float(train_args["converge"]) >= 0:
+    use_margin = train_args["margin_first"]
+else:
+    use_margin = None
 for e in range(start_epoch, train_args["epoch"]):
     train_epoch_loss = torch.tensor([0.0])
     epoch_CE_loss = torch.tensor([0.0])
@@ -259,7 +269,7 @@ for e in range(start_epoch, train_args["epoch"]):
         #     if (len(rank) < 50):
         #         print(f'filtered:{rank}')
         for key in data.keys():
-            if key not in ["name", "indexes", 'wer_rank']:
+            if key not in ["name", "indexes", "wer_rank"]:
                 # print(f"{key}:{type(data[key])}")
                 data[key] = data[key].to(device)
 
@@ -268,7 +278,7 @@ for e in range(start_epoch, train_args["epoch"]):
         ):
             data["wers"] = None
 
-        output = model.forward(**data, add_margin = True)
+        output = model.forward(**data, add_margin=True)
 
         loss = output["loss"]
         loss = torch.mean(loss)
@@ -341,7 +351,7 @@ for e in range(start_epoch, train_args["epoch"]):
     with torch.no_grad():
         for i, data in enumerate(tqdm(valid_loader, ncols=100)):
             for key in data.keys():
-                if key not in ["name", "indexes", 'wer_rank']:
+                if key not in ["name", "indexes", "wer_rank"]:
 
                     data[key] = data[key].to(device)
 
@@ -409,7 +419,7 @@ for e in range(start_epoch, train_args["epoch"]):
                     "contrast_loss": epoch_contrast_loss,
                     "epoch": e + 1,
                 },
-                step= (e + 1) * len(train_batch_sampler),
+                step=(e + 1) * len(train_batch_sampler),
             )
         else:
             wandb.log(
@@ -421,10 +431,13 @@ for e in range(start_epoch, train_args["epoch"]):
             f"epoch:{e + 1},validation CER:{min_cer} , weight = {[best_am, best_ctc, best_lm, best_rescore]}"
         )
 
-        if (last_val_cer - min_cer < train_args['converge'] and use_margin == train_args['margin_first']):
-            use_margin = not(train_args['margin_first'])
+        if (
+            last_val_cer - min_cer < train_args["converge"]
+            and use_margin == train_args["margin_first"]
+        ):
+            use_margin = not (train_args["margin_first"])
             print(f"Switch use_margin: {train_args['margin_first']} -> {use_margin}")
-        
+
         last_val_cer = min_cer
 
         rescores = np.zeros(rescores.shape, dtype=float)

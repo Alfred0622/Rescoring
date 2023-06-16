@@ -88,8 +88,8 @@ class marginalBert(nn.Module):
         final_prob = self.activation_fn(final_score, nBestIndex)
         ce_loss = labels * torch.log(final_prob)
         ce_loss = torch.neg(torch.sum(ce_loss)) / final_score.shape[0]
-        # Margin Loss
 
+        # Margin Loss
         if self.training and add_margin:
             margin_loss = self.loss(final_prob, nBestIndex, wer_rank)
 
@@ -119,12 +119,13 @@ class marginalBert(nn.Module):
 
 
 class contrastBert(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args, train_args):
         super().__init__()
 
         pretrain_name = getBertPretrainName(args["dataset"])
         self.bert = BertModel.from_pretrained(pretrain_name)
         self.linear = nn.Linear(770, 1)
+        self.contrast_weight = torch.tensor(train_args["contrast_weight"]).float()
 
         self.activation_fn = SoftmaxOverNBest()
 
@@ -162,8 +163,8 @@ class contrastBert(nn.Module):
         sim_matrix = self.activation_fn(sim_matrix, nBestIndex)
 
         contrastLoss = torch.neg(torch.sum(torch.log(torch.diag(sim_matrix, 0))))
-        contrastLoss = contrastLoss
-        loss = ce_loss + contrastLoss
+        contrastLoss = contrastLoss / input_ids.shape[0]  # batch_mean
+        loss = ce_loss + self.contrast_weight * contrastLoss
 
         return {
             "score": final_score,

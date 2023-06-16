@@ -378,14 +378,12 @@ def PBertBatchWithHardLabel(batch, use_Margin):
         label_score[sample["wer_rank"][0]] = 1  # Add hard label 1
         wer = torch.cat([wer, label_score])
         errors = torch.cat([errors, sample["wer"]], dim=-1)
-        rank_tensor = sample['wer_rank']
-        if (use_Margin):
-            oracle_index = (sample['wer'] == sample['wer'][sample['wer_rank'][0]])
-            oracle_index[sample['wer_rank'][0]] = False
+        rank_tensor = sample["wer_rank"]
+        if use_Margin:
+            oracle_index = sample["wer"] == sample["wer"][sample["wer_rank"][0]]
+            oracle_index[sample["wer_rank"][0]] = False
             filtered_index = oracle_index.nonzero().squeeze(-1)
             filtered_index = torch.logical_not(torch.isin(rank_tensor, filtered_index))
-            # if (rank_tensor[filtered_index].shape != rank_tensor.shape): 
-            #     print(f'Filtered {rank_tensor.shape} -> {rank_tensor[filtered_index].shape}:{rank_tensor[filtered_index]}')
             rank_tensor = rank_tensor[filtered_index]
 
         wers_rank.append(rank_tensor.long())
