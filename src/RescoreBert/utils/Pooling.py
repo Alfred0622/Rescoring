@@ -62,6 +62,6 @@ class MinPooling(torch.nn.Module):
         
         weight = attention_mask.clone()
         weight[weight == 0] = 1e9
-        min_embedding = torch.min(input_ids * weight.unsqueeze(-1), dim = 1)
+        min_embedding, _ = torch.min(input_ids * weight.unsqueeze(-1), dim = 1)
 
         return min_embedding

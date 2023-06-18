@@ -343,6 +343,9 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode, topk=50, fetch_num=-1
                     }
                 )
 
+                if (fetch_num > 0 and i > fetch_num):
+                    break
+
         elif isinstance(data_json, list):
             for i, data in enumerate(tqdm(data_json, ncols=100)):
                 wers = []
@@ -380,6 +383,9 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode, topk=50, fetch_num=-1
                         "nbest": nbest,
                     }
                 )
+
+                if (fetch_num > 0 and i > fetch_num):
+                    break
 
     return LM_Dataset(data_list)
 

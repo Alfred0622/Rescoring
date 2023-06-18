@@ -137,21 +137,6 @@ for task in recog_set:
         
         data_json[index_dict[data['name']]]['rescore'] = [0.0 for _ in range(topk)]
 
-            # score_dict[data['name']] = dict()
-            # score_dict[data['name']]['hyps'] = data['hyps'][:topk]
-            # score_dict[data['name']]['ref'] = data['ref']
-            # score_dict[data['name']]['rescore'] = [0 for _ in range(topk)]
-            # score_dict[data['name']]['err'] = data['err']
-            
-            # if ('am_score' in data.keys() and (data['am_score'] is not None)):
-            #     score_dict[data['name']]['am_score'] = data['am_score'][:topk]
-            # if ('ctc_score' in data.keys() and (data['ctc_score'] is not None)):
-            #     score_dict[data['name']]['ctc_score'] = data['ctc_score'][:topk]
-            # if ('lm_score' in data.keys() and (data['lm_score'] is not None) ):
-            #     score_dict[data['name']]['lm_score'] = data['lm_score'][:topk]
-            # if ('score' in data.keys() and data['score'] is not None):
-            #     score_dict[data['name']]['score'] = data['score'][:topk]
-
     with torch.no_grad():
         for data in tqdm(dataloader, ncols = 100):
             # print(data['input_ids'].shape)
@@ -163,11 +148,8 @@ for task in recog_set:
                 attention_mask = attention_mask,
                 return_dict = True
             ).logits
-            
-            # print(f'input_ids.shape:{input_ids.shape}')
 
             score = log_softmax(score, dim = -1)
-
 
             for i, (name, seq_index, masked_token ,nbest_index, length) in enumerate(
                 zip(

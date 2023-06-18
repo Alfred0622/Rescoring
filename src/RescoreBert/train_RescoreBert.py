@@ -119,6 +119,11 @@ with open(
     train_json = json.load(f)
     valid_json = json.load(dev)
 
+if "WANDB_MODE" in os.environ.keys() and os.environ["WANDB_MODE"] == "disabled":
+    fetch_num = -1
+else:
+    fetch_num = -1
+
 print(f" Tokenization : train")
 train_dataset = getRescoreDataset(
     train_json, args["dataset"], tokenizer, topk=args["nbest"], mode=mode
@@ -334,6 +339,10 @@ for e in range(start_epoch, train_args["epoch"]):
             loss_MWED = wer * torch.log(combined_score)
             loss_MWED = loss_MWED.sum()
             loss_MWED = torch.neg(loss_MWED)
+
+            assert not (
+                torch.isnan(loss) or torch.isnan(loss_MWED)
+            ), f"name:{data['name']}, \nloss:{loss}, \nloss_MWED:{loss_MWED}, \nT:{T}, score:{combined_score}, wer:{wer}"
 
             loss = loss_MWED + 1e-4 * loss
 

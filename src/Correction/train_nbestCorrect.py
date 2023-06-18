@@ -24,9 +24,9 @@ tqdm = partial(tqdm, ncols=100)
 
 task_name = sys.argv[1]
 
-if (task_name == 'align_concat'):
+if (task_name == 'align'):
     config_name = './config/nBestAlign.yaml'
-    topk = 1
+    topk = -1
 elif (task_name == 'plain'):
     config_name = './config/nBestPlain.yaml'
     topk = -1
@@ -77,7 +77,7 @@ setting = 'withLM' if args['withLM'] else 'noLM'
 if (args['dataset'] == 'old_aishell'):
     setting = ""
 
-sep_token = train_args['sep_token'] if train_args['sep_token'] is not None else tokenizer.eos_token
+sep_token = train_args['sep_token'] if ('sep_token' in train_args.keys() and train_args['sep_token'] is not None )else tokenizer.eos_token
 print(f'sep_token:{sep_token}')
 
 if (args['dataset'] in ['aishell2']):
@@ -118,19 +118,44 @@ with open(train_path) as train, open(valid_path) as valid:
 if (topk < 0):
     topk = args['nbest']
 
+print(f"data_type:{train_args['data_type']}")
+
 if (train_args['data_type'] == 'single'):
     valid_topk = 1
 else:
     valid_topk = topk
 
+print(valid_topk)
+
+if ('WANDB_MODE' in os.environ.keys and os.environ['WANDB_MODE'] == 'disabled'):
+    fetch_num = 500
+else:
+    fetch_num = -1
+
 print(f'prepare data & tokenization')
-valid_dataset = get_dataset(valid_json, args['dataset'], tokenizer, data_type = train_args['data_type'], sep_token = sep_token, topk = valid_topk, for_train = True)
-train_dataset = get_dataset(train_json, args['dataset'], tokenizer, data_type = train_args['data_type'], sep_token = sep_token, topk = topk, for_train = True)
+valid_dataset = get_dataset(
+    valid_json, args['dataset'], 
+    tokenizer, 
+    data_type = train_args['data_type'], 
+    sep_token = sep_token, 
+    topk = valid_topk, 
+    for_train = True,
+    fetch_num = fetch_num
+)
+train_dataset = get_dataset(
+    train_json, 
+    args['dataset'], 
+    tokenizer, 
+    data_type = train_args['data_type'], 
+    sep_token = sep_token, 
+    topk = topk, 
+    for_train = True,
+    fetch_num  = fetch_num
+)
 
 
 del train_json
 del valid_json
-gc.collect()
 
 training_args = Seq2SeqTrainingArguments(
             output_dir=f"./checkpoint/{args['dataset']}/{args['nbest']}_{task_name}/{setting}/result",

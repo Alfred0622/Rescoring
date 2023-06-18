@@ -106,6 +106,7 @@ valid_dataset = get_Dataset(
 print(len(train_dataset))
 print(len(valid_dataset))
 
+optimizer = torch.optim.Adam(model.parameters(), lr=float(train_args["lr"]))
 
 training_args = TrainingArguments(
     output_dir=checkpoint_name,
@@ -115,7 +116,7 @@ training_args = TrainingArguments(
     per_device_train_batch_size=train_args["train_batch"],
     per_device_eval_batch_size=train_args["valid_batch"],
     num_train_epochs=train_args["epoch"],
-    warmup_ratio=0.1,
+    warmup_ratio=0.01,
     lr_scheduler_type="linear",
     seed=42,
     logging_dir=log_name,
@@ -129,6 +130,7 @@ training_args = TrainingArguments(
     dataloader_num_workers=1,
     greater_is_better=False,
     gradient_accumulation_steps=int(train_args["accumgrad"]),
+    run_name=f"{args['dataset']}/{lm_name}",
 )
 
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm=args["MLM"])
@@ -140,6 +142,7 @@ trainer = Trainer(
     eval_dataset=valid_dataset,
     data_collator=data_collator,
     tokenizer=tokenizer,
+    optimizers=[optimizer, None],
 )
 
 trainer.train()
