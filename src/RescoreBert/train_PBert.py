@@ -327,9 +327,9 @@ for e in range(start_epoch, train_args["epoch"]):
     if mode in ["CONTRAST", "MARGIN"] and output["contrast_loss"] is not None:
         wandb.log(
             {
-                "train_loss": train_epoch_loss,
-                "CE_loss": epoch_CE_loss,
-                "contrast_loss": epoch_contrast_loss,
+                "train_loss": train_epoch_loss / len(train_batch_sampler),
+                "CE_loss": epoch_CE_loss / len(train_batch_sampler),
+                "contrast_loss": epoch_contrast_loss / len(train_batch_sampler),
                 "epoch": e + 1,
             },
             step=(i + 1) + e * len(train_batch_sampler),
@@ -404,7 +404,6 @@ for e in range(start_epoch, train_args["epoch"]):
             recog_mode=False,
         )
 
-        eval_loss = eval_loss / len(valid_batch_sampler)
         print(f"epoch:{e + 1},Validation loss:{eval_loss}")
         print(
             f"epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}"
@@ -413,17 +412,17 @@ for e in range(start_epoch, train_args["epoch"]):
         if mode in ["CONTRAST", "MARGIN"] and output["contrast_loss"] is not None:
             wandb.log(
                 {
-                    "eval_loss": eval_loss,
+                    "eval_loss": eval_loss / len(valid_batch_sampler),
                     "eval_CER": min_cer,
-                    "CE_loss": epoch_CE_loss,
-                    "contrast_loss": epoch_contrast_loss,
+                    "CE_loss": epoch_CE_loss / len(valid_batch_sampler),
+                    "contrast_loss": epoch_contrast_loss / len(valid_batch_sampler),
                     "epoch": e + 1,
                 },
                 step=(e + 1) * len(train_batch_sampler),
             )
         else:
             wandb.log(
-                {"eval_loss": eval_loss, "eval_CER": min_cer, "epoch": (e + 1)},
+                {"CE_loss": eval_loss, "eval_CER": min_cer, "epoch": (e + 1)},
                 step=((e + 1) * len(train_batch_sampler)),
             )
         logging.warning(f"epoch:{e + 1},validation loss:{eval_loss}")
@@ -434,6 +433,7 @@ for e in range(start_epoch, train_args["epoch"]):
         if (
             last_val_cer - min_cer < train_args["converge"]
             and use_margin == train_args["margin_first"]
+            and mode == "MARGIN"
         ):
             use_margin = not (train_args["margin_first"])
             print(f"Switch use_margin: {train_args['margin_first']} -> {use_margin}")

@@ -401,7 +401,7 @@ for e in range(start_epoch, train_args["epoch"]):
     else:
         wandb.log(
             {
-                "train_loss_per_epoch": (epoch_loss / len(train_batch_sampler)),
+                "cls_loss_per_epoch": (epoch_loss / len(train_batch_sampler)),
                 "epoch": (e + 1),
             }
         )
@@ -442,9 +442,6 @@ for e in range(start_epoch, train_args["epoch"]):
                 zip(data["name"], data["indexes"], scores)
             ):
                 rescores[index_dict[name]][index] += score.item()
-
-        cls_loss = cls_loss / len(valid_batch_sampler)
-        mask_loss = mask_loss / len(valid_batch_sampler)
         if "cls_loss" in output.keys() and train_args["weightByGrad"]:
             model.set_weight(cls_loss, mask_loss)
 
@@ -476,19 +473,16 @@ for e in range(start_epoch, train_args["epoch"]):
                 am_scores, ctc_scores, lm_scores, rescores, wers, withLM=args["withLM"]
             )
             print(f"epoch:{e + 1},Validation CER:{min_cer}")
-
-        eval_loss = eval_loss / len(valid_batch_sampler)
-
         print(f"epoch:{e + 1},Validation loss:{eval_loss}")
 
         if "cls_loss" in output.keys():
             wandb.log(
                 {
-                    "eval_loss": eval_loss,
+                    "eval_loss": eval_loss / len(valid_batch_sampler),
                     "eval_CER": min_cer,
                     "epoch": (e + 1),
-                    "eval_cls_loss": cls_loss,
-                    "eval_mask_loss": mask_loss,
+                    "eval_cls_loss": cls_loss / len(valid_batch_sampler),
+                    "eval_mask_loss": mask_loss / len(valid_batch_sampler),
                     "clsWeight": model.clsWeight
                     if (hasattr(model, "clsWeight"))
                     else None,
@@ -501,7 +495,11 @@ for e in range(start_epoch, train_args["epoch"]):
 
         else:
             wandb.log(
-                {"eval_loss": eval_loss, "eval_CER": min_cer, "epoch": (e + 1)},
+                {
+                    "eval_loss": eval_loss / len(valid_batch_sampler),
+                    "eval_CER": min_cer,
+                    "epoch": (e + 1),
+                },
                 step=((e + 1) * len(train_batch_sampler)),
             )
         logging.warning(f"epoch:{e + 1},validation loss:{eval_loss}")

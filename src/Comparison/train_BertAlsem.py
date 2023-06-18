@@ -85,7 +85,7 @@ scheduler = OneCycleLR(
     max_lr = float(train_args['lr']), 
     steps_per_epoch = int(len(train_loader) / train_args['accum_grads']) + 1,
     epochs = train_args['epoch'],
-    pct_start = 0.02,
+    pct_start = 0.1,
     anneal_strategy = 'linear'
 )
 
