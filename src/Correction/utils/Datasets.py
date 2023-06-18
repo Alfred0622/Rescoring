@@ -45,7 +45,7 @@ def preprocess_string(string, dataset):
     
     return string
 
-def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_type = 'single', for_train = True):
+def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_type = 'single', for_train = True,fetch_num = -1):
     """
     data_type: str. can be "single" or "concat"
     """
@@ -144,31 +144,37 @@ def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_t
             """
             Since the data file here is tghe string after align, we should get top hypothesis from "top_hyp" key made by gen_align.py
             """
+
             bos_token_id = tokenizer.bos_token_id if tokenizer.bos_token_id is not None else tokenizer.cls_token_id
             eos_token_id = tokenizer.sep_token_id if tokenizer.sep_token_id is not None else tokenizer.eos_token_id
-
             for i, data in enumerate(tqdm(data_json, ncols = 80)):
                 input_ids = []
-                input_ids.append([bos_token_id for _ in range(topk)])
-                for token in data['hyps']:
-                    token_ids = tokenizer.convert_tokens_to_ids(token)
-                    convert_ids = [token for token in token_ids] # [token for ids in token_ids for token in ids]
-                    assert(len(convert_ids) == topk), f"token:{token}, token_ids:{token_ids}, convert_ids:{convert_ids}"
-                    input_ids.append(convert_ids)
+                for hyp in data['hyps'][:topk]:
+                    hyp = preprocess_string(hyp, dataset)
+                    token_ids = tokenizer(hyp)['input_ids'][:-1]
+                    input_ids.append(token_ids)
+                # print(f'input_ids:{input_ids}')
+                align_hyp_ids = align(input_ids, nBest = topk, placeholder = tokenizer.convert_tokens_to_ids(sep_token))
                 
+                input_ids = alignNbest(align_hyp_ids, placeholder = tokenizer.convert_tokens_to_ids(sep_token))
+                # print(f'align_hyp_ids:{input_ids}')
+ 
                 input_ids.append([eos_token_id for _ in range(topk)])
-
-                # print(input_ids)
-                
-                label = tokenizer(data['ref'])["input_ids"]
-                top_hyp = data['top_hyp']
+                ref = preprocess_string(data['ref'], dataset)
+                label = tokenizer(ref)["input_ids"]
+                top_hyp = data['hyps'][0]
                 data_list.append(
                     {
                         "input_ids": input_ids,
                         "labels": label,
-                        "top_hyp": top_hyp
+                        "top_hyp": top_hyp,
+                        "ref_text": ref
                     }
+                    
                 )
+
+                if (fetch_num > 0 and i > fetch_num):
+                    break
         data_list = sorted(data_list, key = lambda x: len(x['input_ids']))
                 
         return correctTrainerDataset(data_list)

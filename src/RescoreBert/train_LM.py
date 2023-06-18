@@ -91,6 +91,8 @@ valid_dataset = get_Dataset(valid_json, tokenizer, lm = lm_name, dataset = args[
 print(len(train_dataset))
 print(len(valid_dataset))
 
+optimizer = torch.optim.Adam(model.parameters(), lr=float(train_args["lr"]))
+
 training_args = TrainingArguments(
     output_dir = checkpoint_name,
     overwrite_output_dir= True,
@@ -99,7 +101,7 @@ training_args = TrainingArguments(
     per_device_train_batch_size= train_args['train_batch'],
     per_device_eval_batch_size = train_args['valid_batch'],
     num_train_epochs = train_args['epoch'],
-    warmup_ratio = 0.1 ,
+    warmup_ratio = 0.01 ,
     lr_scheduler_type = 'linear',
     seed = 42,
 
@@ -126,7 +128,8 @@ trainer = Trainer(
     train_dataset= train_dataset,
     eval_dataset = valid_dataset,
     data_collator = data_collator,
-    tokenizer = tokenizer
+    tokenizer = tokenizer,
+    optimizers = [optimizer, None],
 )
 
 trainer.train()

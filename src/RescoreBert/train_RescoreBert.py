@@ -118,8 +118,12 @@ print(f" Tokenization : valid")
 valid_dataset = getRescoreDataset(valid_json, args['dataset'], tokenizer, topk = args['nbest'], mode = mode, fetch_num = fetch_num)
 
 
+
 index_dict, inverse_dict,am_scores, ctc_scores, lm_scores, rescores, wers, hyps, refs = prepare_score_dict(valid_json, nbest = args['nbest'])
 valid_name_index, valid_name_inverse, hyps_dict ,valid_score, valid_rescore, eval_wers = prepareRescoreDict(valid_json)
+
+del train_json
+del valid_json
 
 if (use_MWED or use_MWER):
     train_sampler = NBestSampler(train_dataset)
@@ -267,7 +271,7 @@ for e in range(start_epoch, train_args['epoch']):
                 index = index + nbest
 
             assert(scoreSum.shape == combined_score.shape), f"combined_score:{combined_score.shape}, scoreSum:{scoreSum.shape}"
-
+ 
             index = 0
             T = scoreSum / werSum # Temperature T
 
@@ -289,11 +293,9 @@ for e in range(start_epoch, train_args['epoch']):
             loss_MWED = loss_MWED.sum()
             loss_MWED = torch.neg(loss_MWED)
 
-            assert(not (torch.isnan(loss) or torch.isnan(loss_MWED))), f"loss:{loss}, loss_MWED{loss_MWED}, T:{T}"
+            assert(not (torch.isnan(loss) or torch.isnan(loss_MWED))), f"name:{data['name']}, \nloss:{loss}, \nloss_MWED:{loss_MWED}, \nT:{T}, score:{combined_score}, wer:{wer}"
             
             loss = loss_MWED + 1e-4 * loss
-
-            
 
         if (torch.cuda.device_count() > 1):
             loss = loss.sum()

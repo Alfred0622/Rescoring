@@ -3,15 +3,15 @@ args:
   stop_stage: 100
   nbest: 50
   withLM: False
-  dataset: aishell2
+  dataset: librispeech
   MLM: False
   jp_split: False
 
 train:
   epoch: 10
-  train_batch: 256
-  valid_batch: 256
-  accumgrad: 1
+  train_batch: 64
+  valid_batch: 64
+  accumgrad: 4
   print_loss: 200
   lr: 1e-5
   mode: scoring

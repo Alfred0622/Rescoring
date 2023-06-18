@@ -11,12 +11,12 @@ train:
   lr: 1e-7
   freeze_epoch: -1
   hard_label: True
-  warmup_step: 10000
   loss_type: Entropy
   weightByWER: none # positive, inverse, square, none
   warmup_ratio: 0.1
-  margin_first: False
-  converge: 0.01
+  pooling_type: min max avg
+  noCLS: False
+  noSEP: False
 
 recog:
   batch: 1

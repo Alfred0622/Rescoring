@@ -1,10 +1,10 @@
 args:
   nbest: 50 # max: 50
-  withLM: True
+  withLM: False
   dataset: aishell2
 train:
   epoch: 10
-  train_batch: 128
+  train_batch: 256
   accumgrad: 2
   print_loss: 5000
   lr: 1e-6
