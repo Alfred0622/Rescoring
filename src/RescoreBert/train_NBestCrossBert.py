@@ -215,7 +215,7 @@ lr_scheduler = OneCycleLR(
     max_lr=10 * float(train_args["lr"]),
     epochs=int(train_args["epoch"]),
     steps_per_epoch=len(train_batch_sampler),
-    pct_start=0.02,
+    pct_start=float(train_args["warmup_ratio"]),  # 0.02,
 )
 
 (
@@ -257,11 +257,11 @@ else:
 wandb.init(
     project=f"NBestBert_{args['dataset']}_{setting}",
     config=config,
-    name=f"RescoreBert_{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_freeze{train_args['freeze_epoch']}",
+    name=f"RescoreBert_{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_freeze{train_args['freeze_epoch']}_warmup{train_args['warmup_ratio']}",
 )
 
 checkpoint_path = Path(
-    f"./checkpoint/{args['dataset']}/NBestCrossBert/{setting}/{mode}/{args['nbest']}best/batch{train_args['batch_size']}_lr{train_args['lr']}_freeze{train_args['freeze_epoch']}"
+    f"./checkpoint/{args['dataset']}/NBestCrossBert/{setting}/{mode}/{args['nbest']}best/batch{train_args['batch_size']}_lr{train_args['lr']}_warmup{train_args['warmup_ratio']}_freeze{train_args['freeze_epoch']}"
 )
 checkpoint_path.mkdir(parents=True, exist_ok=True)
 """
@@ -401,7 +401,7 @@ for e in range(start_epoch, train_args["epoch"]):
     else:
         wandb.log(
             {
-                "train_loss_per_epoch": (epoch_loss / len(train_batch_sampler)),
+                "cls_loss_per_epoch": (epoch_loss / len(train_batch_sampler)),
                 "epoch": (e + 1),
             }
         )
@@ -442,9 +442,6 @@ for e in range(start_epoch, train_args["epoch"]):
                 zip(data["name"], data["indexes"], scores)
             ):
                 rescores[index_dict[name]][index] += score.item()
-
-        cls_loss = cls_loss / len(valid_batch_sampler)
-        mask_loss = mask_loss / len(valid_batch_sampler)
         if "cls_loss" in output.keys() and train_args["weightByGrad"]:
             model.set_weight(cls_loss, mask_loss)
 
@@ -476,19 +473,16 @@ for e in range(start_epoch, train_args["epoch"]):
                 am_scores, ctc_scores, lm_scores, rescores, wers, withLM=args["withLM"]
             )
             print(f"epoch:{e + 1},Validation CER:{min_cer}")
-
-        eval_loss = eval_loss / len(valid_batch_sampler)
-
         print(f"epoch:{e + 1},Validation loss:{eval_loss}")
 
         if "cls_loss" in output.keys():
             wandb.log(
                 {
-                    "eval_loss": eval_loss,
+                    "eval_loss": eval_loss / len(valid_batch_sampler),
                     "eval_CER": min_cer,
                     "epoch": (e + 1),
-                    "eval_cls_loss": cls_loss,
-                    "eval_mask_loss": mask_loss,
+                    "eval_cls_loss": cls_loss / len(valid_batch_sampler),
+                    "eval_mask_loss": mask_loss / len(valid_batch_sampler),
                     "clsWeight": model.clsWeight
                     if (hasattr(model, "clsWeight"))
                     else None,
@@ -501,7 +495,11 @@ for e in range(start_epoch, train_args["epoch"]):
 
         else:
             wandb.log(
-                {"eval_loss": eval_loss, "eval_CER": min_cer, "epoch": (e + 1)},
+                {
+                    "eval_loss": eval_loss / len(valid_batch_sampler),
+                    "eval_CER": min_cer,
+                    "epoch": (e + 1),
+                },
                 step=((e + 1) * len(train_batch_sampler)),
             )
         logging.warning(f"epoch:{e + 1},validation loss:{eval_loss}")

@@ -14,7 +14,7 @@ train:
   loss_type: Entropy
   weightByWER: none # positive, inverse, square, none
   warmup_ratio: 0.1
-  pooling_type: min max avg
+  pooling_type: max avg
   noCLS: False
   noSEP: False
 

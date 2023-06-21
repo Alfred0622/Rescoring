@@ -42,7 +42,7 @@ assert mode in [
     "PBERT",
     "CONTRAST",
     "MARGIN",
-    "N-FUSE"
+    "N-FUSE",
 ], "mode must in PBERT, MARGIN or CONTRAST"
 
 print(f"mode:{mode}")
@@ -52,7 +52,7 @@ if torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
-if mode in ["PBERT","N-FUSE"] :
+if mode in ["PBERT", "N-FUSE"]:
     config_path = "./config/PBert.yaml"
 else:
     config_path = "./config/contrastBert.yaml"
@@ -76,12 +76,13 @@ else:
     log_path = log_path + "/normal"
 
 if mode == "MARGIN":
-    run_name = (
-        run_name
-        + f"_Margin{train_args['margin_value']}"
-        + f"_Converge{train_args['converge']}"
-        + f"_MarginFirst{train_args['margin_first']}"
-    )
+    run_name = run_name + f"_Margin{train_args['margin_value']}"
+    if "margin_first" in train_args.keys() and train_args["margin_first"] is not None:
+        run_name = (
+            run_name
+            + f"_converge{train_args['converge']}"
+            + f"_MarginFirst{train_args['margin_first']}"
+        )
 elif mode == "CONTRAST":
     run_name = run_name + f"contrastWeight{train_args['contrast_weight']}"
 
@@ -115,6 +116,9 @@ if torch.cuda.device_count() > 1:
 optimizer = AdamW(model.parameters(), lr=float(train_args["lr"]))
 # optimizer = Adam(model.parameters(), lr=float(train_args["lr"]))
 
+if "margin_first" in train_args.keys():
+    print(f"margina_first:{train_args['margin_first']}")
+
 with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, open(
     f"../../data/{args['dataset']}/data/{setting}/{valid_set}/data.json"
 ) as dev:
@@ -138,7 +142,7 @@ train_dataset = prepareListwiseDataset(
     tokenizer=tokenizer,
     sort_by_len=True,
     get_num=get_num,
-    paddingNBest=(mode == 'N-FUSE')
+    paddingNBest=(mode == "N-FUSE"),
 )
 print(f"tokenizing Validation")
 valid_dataset = prepareListwiseDataset(
@@ -147,7 +151,7 @@ valid_dataset = prepareListwiseDataset(
     tokenizer=tokenizer,
     sort_by_len=True,
     get_num=get_num,
-    paddingNBest=(mode == 'N-FUSE')
+    paddingNBest=(mode == "N-FUSE"),
 )
 
 print(f"Prepare Sampler")
@@ -257,7 +261,7 @@ for param in model.bert.parameters():
 # model, optimizer, train_loader, lr_scheduler = accelerator.prepare(
 #     model, optimizer, train_loader, lr_scheduler
 # )
-if mode == "MARGIN" and float(train_args["converge"]) >= 0:
+if mode == "MARGIN" and train_args["margin_first"] is not None:
     use_margin = train_args["margin_first"]
 else:
     use_margin = None
@@ -287,7 +291,10 @@ for e in range(start_epoch, train_args["epoch"]):
         ):
             data["wers"] = None
 
-        output = model.forward(**data, add_margin= use_margin if use_margin is not None else (mode == 'MARGIN'))
+        output = model.forward(
+            **data,
+            add_margin=use_margin if use_margin is not None else (mode == "MARGIN"),
+        )
 
         loss = output["loss"]
         loss = torch.mean(loss)
@@ -336,9 +343,9 @@ for e in range(start_epoch, train_args["epoch"]):
     if mode in ["CONTRAST", "MARGIN"] and output["contrast_loss"] is not None:
         wandb.log(
             {
-                "train_loss": train_epoch_loss,
-                "CE_loss": epoch_CE_loss,
-                "contrast_loss": epoch_contrast_loss,
+                "train_loss": train_epoch_loss / len(train_batch_sampler),
+                "CE_loss": epoch_CE_loss / len(train_batch_sampler),
+                "contrast_loss": epoch_contrast_loss / len(train_batch_sampler),
                 "epoch": e + 1,
             },
             step=(i + 1) + e * len(train_batch_sampler),
@@ -413,7 +420,6 @@ for e in range(start_epoch, train_args["epoch"]):
             recog_mode=False,
         )
 
-        eval_loss = eval_loss / len(valid_batch_sampler)
         print(f"epoch:{e + 1},Validation loss:{eval_loss}")
         print(
             f"epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}"
@@ -422,17 +428,17 @@ for e in range(start_epoch, train_args["epoch"]):
         if mode in ["CONTRAST", "MARGIN"] and output["contrast_loss"] is not None:
             wandb.log(
                 {
-                    "eval_loss": eval_loss,
+                    "eval_loss": eval_loss / len(valid_batch_sampler),
                     "eval_CER": min_cer,
-                    "CE_loss": epoch_CE_loss,
-                    "contrast_loss": epoch_contrast_loss,
+                    "CE_loss": epoch_CE_loss / len(valid_batch_sampler),
+                    "contrast_loss": epoch_contrast_loss / len(valid_batch_sampler),
                     "epoch": e + 1,
                 },
                 step=(e + 1) * len(train_batch_sampler),
             )
         else:
             wandb.log(
-                {"eval_loss": eval_loss, "eval_CER": min_cer, "epoch": (e + 1)},
+                {"CE_loss": eval_loss, "eval_CER": min_cer, "epoch": (e + 1)},
                 step=((e + 1) * len(train_batch_sampler)),
             )
         logging.warning(f"epoch:{e + 1},validation loss:{eval_loss}")
@@ -441,8 +447,10 @@ for e in range(start_epoch, train_args["epoch"]):
         )
 
         if (
-            last_val_cer - min_cer < train_args["converge"]
+            "margin_first" in train_args.keys() and train_args["margin_first"] is not None
             and use_margin == train_args["margin_first"]
+            and mode == "MARGIN"
+            and last_val_cer - min_cer < float(train_args["converge"])
         ):
             use_margin = not (train_args["margin_first"])
             print(f"Switch use_margin: {train_args['margin_first']} -> {use_margin}")

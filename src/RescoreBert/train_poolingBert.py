@@ -42,7 +42,7 @@ args, train_args, recog_args = load_config(config_path)
 setting = "withLM" if (args["withLM"]) else "noLM"
 
 log_path = f"./log/poolingBert/{args['dataset']}/{setting}"
-run_name = f"NLP3090_poolingBert_batch{train_args['batch_size']}_lr{train_args['lr']}_Freeze{train_args['freeze_epoch']}"
+run_name = f"TWCC_poolingBert_batch{train_args['batch_size']}_lr{train_args['lr']}_Freeze{train_args['freeze_epoch']}"
 if train_args["hard_label"]:
     collate_func = PBertBatchWithHardLabel
     run_name = run_name + "_HardLabel_Entropy"
@@ -55,8 +55,10 @@ if "weightByWER" in train_args.keys() and train_args["weightByWER"] != "none":
 else:
     log_path = log_path + "/normal"
 
-pooling_type = train_args['pooling_type'].strip().split()
+pooling_type = train_args["pooling_type"].strip().split()
 pooling_str = "_".join(pooling_type)
+
+run_name = run_name + f"_{pooling_str}"
 
 log_path = Path(f"./log/poolBert/{args['dataset']}/{setting}/{pooling_str}")
 log_path.mkdir(parents=True, exist_ok=True)
@@ -71,9 +73,7 @@ logging.basicConfig(
 
 valid_set = get_valid_set(args["dataset"])
 
-model, tokenizer = preparePoolingBert(
-        args, train_args
-    )
+model, tokenizer = preparePoolingBert(args, train_args)
 
 
 print(type(model))
@@ -195,6 +195,8 @@ wandb.init(
 checkpoint_path = Path(
     f"./checkpoint/{args['dataset']}/poolingBert/{setting}/{args['nbest']}best/{run_name}"
 )
+
+print(f"run_name:{run_name}")
 checkpoint_path.mkdir(parents=True, exist_ok=True)
 """
 Start Training
@@ -301,7 +303,6 @@ for e in range(start_epoch, train_args["epoch"]):
 
                     data[key] = data[key].to(device)
 
-
             output = model.forward(**data)
 
             loss = output["loss"]
@@ -346,7 +347,6 @@ for e in range(start_epoch, train_args["epoch"]):
         print(
             f"epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}"
         )
-
 
         wandb.log(
             {"eval_loss": eval_loss, "eval_CER": min_cer, "epoch": (e + 1)},

@@ -1,5 +1,6 @@
 import sys
 import os
+
 sys.path.append("..")
 sys.path.append("../..")
 import json
@@ -13,41 +14,39 @@ from utils.CollateFunc import recogBatch
 from src_utils.LoadConfig import load_config
 from utils.PrepareModel import prepare_model
 from models.nBestAligner.nBestTransformer import nBestAlignBart
-from utils.Datasets import  get_dataset
+from utils.Datasets import get_dataset
 from utils.CollateFunc import nBestAlignBatch
 from pathlib import Path
 
 from jiwer import wer, cer
 from tqdm import tqdm
 
+assert (
+    len(sys.argv) == 3
+), "Usage: python ./predict_nBestAlign.py <checkpoint_path> <name>"
+
 checkpoint = sys.argv[1]
+save_name = sys.argv[2]
 
-args, train_args, recog_args = load_config(f'./config/nBestAlign.yaml')
+args, train_args, recog_args = load_config(f"./config/nBestAlign.yaml")
 
-setting = 'withLM' if args['withLM'] else 'noLM'
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+setting = "withLM" if args["withLM"] else "noLM"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-model, tokenizer = prepare_model(
-    args['dataset']
-)
-
-model = nBestAlignBart(
-    args,
-    train_args,
-    tokenizer = tokenizer
-).to(device)
+_, tokenizer = prepare_model(args["dataset"])
+model = nBestAlignBart(args, train_args)
 
 checkpoint = torch.load(checkpoint)
 model.load_state_dict(checkpoint['checkpoint'])
 
-if (args['dataset'] in ['aishell', 'aishell_nbest']):
-    recog_set = ['dev', 'test']
-elif (args['dataset'] in ['aishell2']):
-    recog_set = ['dev_ios', 'test_android', 'test_ios', 'test_mic']
-elif (args['dataset'] in ['tedlium2']):
-    recog_set = ['dev', 'test']
-elif (args['dataset'] in ['csj']):
-    recog_set = ['dev', 'eval1', 'eval2', 'eval3']
+if args["dataset"] in ["aishell", "aishell_nbest"]:
+    recog_set = ["dev", "test"]
+elif args["dataset"] in ["aishell2"]:
+    recog_set = ["dev_ios", "test_android", "test_ios", "test_mic"]
+elif args["dataset"] in ["tedlium2"]:
+    recog_set = ["dev", "test"]
+elif args["dataset"] in ["csj"]:
+    recog_set = ["dev", "eval1", "eval2", "eval3"]
 
 model.eval()
 for task in recog_set:
@@ -69,10 +68,10 @@ for task in recog_set:
     )
 
     dataloader = DataLoader(
-        dataset = dataset,
-        batch_size = recog_args['batch'],
-        collate_fn = nBestAlignBatch,
-        num_workers = 4
+        dataset=dataset,
+        batch_size=recog_args["batch"],
+        collate_fn=nBestAlignBatch,
+        num_workers=4,
     )
 
     result_dict = list()
@@ -146,15 +145,15 @@ for task in recog_set:
     print(f"top_hyp:{top_hyps[-1]}")
     print(f"ref:{refs[-1]}")
 
-    if (args['dataset'] in ['aishell', 'aishell2', 'csj', 'aishell_nbest']):
+    if args["dataset"] in ["aishell", "aishell2", "csj", "aishell_nbest"]:
         print(f"{args['dataset']} {setting} {task} -- ORG CER = {wer(refs, top_hyps)}")
         print(f"{args['dataset']} {setting} {task} -- CER = {wer(refs, hyps)}")
-    elif (args['dataset'] in ['tedlium2', 'librispeech']):
+    elif args["dataset"] in ["tedlium2", "librispeech"]:
         print(f"{args['dataset']} {setting} {task} -- ORG WER = {wer(refs, top_hyps)}")
         print(f"{args['dataset']} {setting} {task} -- WER = {wer(refs, hyps)}")
-    
-    save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}/")
-    save_path.mkdir(parents = True, exist_ok = True)
 
-    with open(f"{save_path}/{args['nbest']}Align_result.json", 'w') as f:
-        json.dump(result_dict, f, ensure_ascii = False, indent = 1)
+    save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}/")
+    save_path.mkdir(parents=True, exist_ok=True)
+
+    with open(f"{save_path}/{args['nbest']}Align_result.json", "w") as f:
+        json.dump(result_dict, f, ensure_ascii=False, indent=1)
