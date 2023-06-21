@@ -20,7 +20,7 @@ class SoftmaxOverNBest(torch.nn.Module):
                     scores[start_index : start_index + index] = self._logSoftmax(
                         scores[start_index : start_index + index].clone()
                     )
-                if paddindNbest:
+                if paddingNbest:
                     start_index += topk
                 else:
                     start_index += index
@@ -40,7 +40,7 @@ class SoftmaxOverNBest(torch.nn.Module):
                             start_index : start_index + index,
                         ].clone(),
                     )
-                if paddindNbest:
+                if paddingNbest:
                     start_index += topk
                 else:
                     start_index += index
