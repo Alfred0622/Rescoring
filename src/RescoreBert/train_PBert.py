@@ -20,7 +20,7 @@ from utils.CollateFunc import NBestSampler, BatchSampler
 from torch.optim import AdamW, Adam
 from torch.optim.lr_scheduler import OneCycleLR
 from src_utils.get_recog_set import get_valid_set
-from utils.PrepareModel import preparePBert, prepareContrastBert
+from utils.PrepareModel import preparePBert, prepareContrastBert, prepareFuseBert
 from utils.CollateFunc import PBertBatch, PBertBatchWithHardLabel
 from utils.PrepareScoring import prepare_score_dict, calculate_cer
 
@@ -42,6 +42,7 @@ assert mode in [
     "PBERT",
     "CONTRAST",
     "MARGIN",
+    "N-FUSE"
 ], "mode must in PBERT, MARGIN or CONTRAST"
 
 print(f"mode:{mode}")
@@ -51,7 +52,7 @@ if torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
-if mode == "PBERT":
+if mode in ["PBERT","N-FUSE"] :
     config_path = "./config/PBert.yaml"
 else:
     config_path = "./config/contrastBert.yaml"
@@ -104,6 +105,9 @@ if mode == "PBERT":
 elif mode == "CONTRAST" or mode == "MARGIN":
     model, tokenizer = prepareContrastBert(args, train_args, mode)
 
+elif mode == "N-FUSE":
+    model, tokenizer = prepareFuseBert(args, train_args)
+
 print(type(model))
 model = model.to(device)
 if torch.cuda.device_count() > 1:
@@ -134,6 +138,7 @@ train_dataset = prepareListwiseDataset(
     tokenizer=tokenizer,
     sort_by_len=True,
     get_num=get_num,
+    paddingNBest=(mode == 'N-FUSE')
 )
 print(f"tokenizing Validation")
 valid_dataset = prepareListwiseDataset(
@@ -142,6 +147,7 @@ valid_dataset = prepareListwiseDataset(
     tokenizer=tokenizer,
     sort_by_len=True,
     get_num=get_num,
+    paddingNBest=(mode == 'N-FUSE')
 )
 
 print(f"Prepare Sampler")
@@ -272,7 +278,7 @@ for e in range(start_epoch, train_args["epoch"]):
         #     if (len(rank) < 50):
         #         print(f'filtered:{rank}')
         for key in data.keys():
-            if key not in ["name", "indexes", "wer_rank"]:
+            if key not in ["name", "indexes", "wer_rank"] and data[key] is not None:
                 # print(f"{key}:{type(data[key])}")
                 data[key] = data[key].to(device)
 
@@ -281,7 +287,7 @@ for e in range(start_epoch, train_args["epoch"]):
         ):
             data["wers"] = None
 
-        output = model.forward(**data, add_margin=True)
+        output = model.forward(**data, add_margin= use_margin if use_margin is not None else (mode == 'MARGIN'))
 
         loss = output["loss"]
         loss = torch.mean(loss)
@@ -354,7 +360,7 @@ for e in range(start_epoch, train_args["epoch"]):
     with torch.no_grad():
         for i, data in enumerate(tqdm(valid_loader, ncols=100)):
             for key in data.keys():
-                if key not in ["name", "indexes", "wer_rank"]:
+                if key not in ["name", "indexes", "wer_rank"] and data[key] is not None:
 
                     data[key] = data[key].to(device)
 

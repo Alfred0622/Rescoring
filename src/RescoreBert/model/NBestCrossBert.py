@@ -734,6 +734,80 @@ class pBert(torch.nn.Module):
             "attention_weight": bert_output.attentions,
         }
 
+class nBestfuseBert(torch.nn.Module):
+    def __init__(self, args, train_args, **kwargs):
+        super().__init__()
+        pretrain_name = getBertPretrainName(args["dataset"])
+        self.nBest = args["nbest"]
+        self.bert = BertModel.from_pretrained(pretrain_name)
+        self.fuse_config = BertConfig.from_pretrained(pretrain_name)
+        self.fuse_config.num_hidden_layers = 1
+        # self.fuse_config.hidden_size = 770
+        self.fuse_model = BertModel(self.fuse_config)
+        self.finalLinear = torch.nn.Linear(770, 1)
+
+        self.activation_fn = SoftmaxOverNBest()
+
+        # print(f'bert:{self.bert.config}')
+        # print(f"fuse:{self.fuse_config}")
+
+    def forward(
+        self,
+        input_ids,
+        attention_mask,
+        nBestMask,
+        am_score,
+        ctc_score,
+        nBestIndex,
+        labels=None,
+        *args,
+        **kwargs
+    ):
+        output = self.bert(
+            input_ids = input_ids,
+            attention_mask = attention_mask,
+        )
+        batch_size = input_ids.shape[0] // self.nBest
+
+        cls = output.pooler_output
+
+
+        cls = cls.view(batch_size, self.nBest, -1)
+        nBestFuseCLS = self.fuse_model(inputs_embeds=cls, attention_mask=nBestMask).last_hidden_state
+
+        am_score = am_score.view(batch_size, -1 , 1)
+        ctc_score = ctc_score.view(batch_size, -1 , 1)
+        nBestFuseCLS = torch.cat([nBestFuseCLS, am_score], dim=-1)
+        nBestFuseCLS = torch.cat([nBestFuseCLS, ctc_score], dim=-1)
+        
+        nBestScore = self.finalLinear(nBestFuseCLS).flatten(0)
+        # print(f"nBestScore:{nBestScore.shape}")
+        nBestProb = self.activation_fn(nBestScore, nBestIndex)
+
+        if labels is not None:
+            loss = labels * torch.log(nBestProb)
+            loss = torch.neg(torch.sum(loss))
+
+        return {"score": nBestScore, "loss": loss}
+
+    def parameters(self):
+        return (
+            list(self.bert.parameters())
+            + list(self.fuse_model.parameters())
+            + list(self.finalLinear.parameters())
+        )
+
+    def state_dict(self):
+        return {
+            "bert": self.bert.state_dict(),
+            "fuse_model":self.fuse_model.state_dict(),
+            "finalLinear": self.finalLinear.state_dict()
+        }
+
+    def load_state_dict(self, checkpoint):
+        self.bert.load_state_dict(checkpoint['bert'])
+        self.fuse_model.load_state_dict(checkpoint['fuse_model'])
+        self.finalLinear.load_state_dict(checkpoint['finalLinear'])
 
 class inter_pBert(torch.nn.Module):
     def __init__(

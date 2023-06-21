@@ -29,6 +29,7 @@ class nBestAlignBart(nn.Module):
         self,
         args,
         train_args,
+        tokenizer,
         **kwargs
     ):
         super().__init__()
@@ -38,8 +39,18 @@ class nBestAlignBart(nn.Module):
         self.model = BartForConditionalGeneration.from_pretrained(
             pretrain_name
         )
+        self.embeddding_dim = 768
+        # self.pad = tokenizer.convert_tokens_to_ids("[PAD]")
+        # self.embedding = nn.Embedding(
+        #     num_embeddings = self.model.config.vocab_size, 
+        #     embedding_dim = self.embeddding_dim, 
+        #     padding_idx=self.pad
+        # )
 
-        self.alignLinear = nn.Linear(768 * self.nBest, 768)
+        self.alignLinear = torch.nn.Sequential(
+            nn.Linear(self.embeddding_dim * self.nBest, 768),
+            # nn.ReLU()
+        )
     
     def forward(self, input_ids, attention_mask, labels):
         """
@@ -47,9 +58,10 @@ class nBestAlignBart(nn.Module):
         attention_mask: [B, L]
         """
         aligned_embedding = self.model.model.shared(input_ids) # [B,L ,nBest, 768]
-        aligned_embedding = aligned_embedding.view(input_ids.shape[0],  768 * self.nBest, -1).transpose(1,2)
+        aligned_embedding = aligned_embedding.view(input_ids.shape[0],  self.embeddding_dim * self.nBest, -1).transpose(1,2)
+        # aligned_embedding = self.embedding(input_ids)
+        # aligned_embedding = aligned_embedding.flatten(start_dim=2)
         aligned_embedding = self.alignLinear(aligned_embedding) # [B, nBest * 768, L] -> [B, 768, L]
-
 
         output = self.model(
             inputs_embeds = aligned_embedding,
@@ -60,28 +72,35 @@ class nBestAlignBart(nn.Module):
 
         return output
 
-    def recognize(self, input_ids, attention_mask, max_lens = 150):
+    def recognize(self, input_ids, attention_mask,num_beams = 1 ,max_lens = 150):
         batch_size = input_ids.shape[0]
-        aligned_embedding = self.model.model.shared(input_ids)  # (L, N, 768)
-
-        aligned_embedding = aligned_embedding.flatten(start_dim=2)  # (L, 768 * N)
-        proj_embedding = self.embeddingLinear(
+        # aligned_embedding = self.model.model.shared(input_ids)  # (L, N, 768)
+        # aligned_embedding = aligned_embedding.view(input_ids.shape[0],  self.embeddding_dim * self.nBest, -1).transpose(1,2)  # (L, 768 * N)
+        aligned_embedding = self.embedding(input_ids)
+        aligned_embedding = aligned_embedding.flatten(start_dim=2)
+        proj_embedding = self.alignLinear(
             aligned_embedding
         )  # (L, 768 * N) -> (L, 768)
+
+        # print(f'proj_embedding:{proj_embedding.shape}')
 
         decoder_ids = torch.tensor(
             [self.model.config.decoder_start_token_id for _ in range(batch_size)], 
             dtype = torch.int64
-        ).unsqueeze(1).to(self.device)
-    
+        ).unsqueeze(-1).to(input_ids.device)
 
+        # decoder_ids = torch.tensor(
+        #     [[] for _ in range(batch_size)], 
+        #     dtype = torch.int64
+        # ).to(input_ids.device)
 
         output = self.model.generate(
             inputs_embeds=proj_embedding,
             attention_mask=attention_mask,
             decoder_input_ids=decoder_ids,
-            num_beams=5,
+            num_beams=num_beams,
             max_length=max_lens,
+            # early_stopping = True
         )
 
         return output
@@ -105,6 +124,7 @@ class nBestAlignBart(nn.Module):
         """
         self.model.load_state_dict(checkpoint['model'])
         self.alignLinear.load_state_dict(checkpoint['alignLinear'])
+
 
 class nBestTransformer(nn.Module):
     def __init__(
@@ -213,7 +233,6 @@ class nBestTransformer(nn.Module):
             dtype = torch.int64
         ).unsqueeze(1).to(self.device)
     
-
 
         output = self.model.generate(
             inputs_embeds=proj_embedding,

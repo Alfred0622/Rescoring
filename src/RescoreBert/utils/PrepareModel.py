@@ -4,7 +4,7 @@ import sys
 sys.path.append("../")
 import torch
 from model.RescoreBert import RescoreBertAlsem
-from model.NBestCrossBert import nBestCrossBert, pBert, poolingBert
+from model.NBestCrossBert import nBestCrossBert, pBert, poolingBert, nBestfuseBert
 from model.ContrastBERT import marginalBert, contrastBert
 from transformers import (
     AutoModelForCausalLM,
@@ -213,6 +213,15 @@ def preparePoolingBert(args, train_args):
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 
     return model, tokenizer
-    
+
+def prepareFuseBert(args, train_args):
+    pretrain_name = getBertPretrainName(args['dataset'])
+
+    model = nBestfuseBert(
+        args, train_args
+    )
+    tokenizer = BertTokenizer.from_pretrained(pretrain_name)
+
+    return model, tokenizer
 
     

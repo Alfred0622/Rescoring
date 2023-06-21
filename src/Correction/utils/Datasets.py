@@ -144,13 +144,16 @@ def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_t
             """
             Since the data file here is tghe string after align, we should get top hypothesis from "top_hyp" key made by gen_align.py
             """
-
+            
             bos_token_id = tokenizer.bos_token_id if tokenizer.bos_token_id is not None else tokenizer.cls_token_id
             eos_token_id = tokenizer.sep_token_id if tokenizer.sep_token_id is not None else tokenizer.eos_token_id
             for i, data in enumerate(tqdm(data_json, ncols = 80)):
                 input_ids = []
+                hyps_text = []
                 for hyp in data['hyps'][:topk]:
+                    # print(f'hyp:{hyp}')
                     hyp = preprocess_string(hyp, dataset)
+                    hyps_text.append(hyp)
                     token_ids = tokenizer(hyp)['input_ids'][:-1]
                     input_ids.append(token_ids)
                 # print(f'input_ids:{input_ids}')
@@ -160,17 +163,22 @@ def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_t
                 # print(f'align_hyp_ids:{input_ids}')
  
                 input_ids.append([eos_token_id for _ in range(topk)])
+
+                # for ids in input_ids:
+                #     print(f'{tokenizer.batch_decode(ids)}')
                 ref = preprocess_string(data['ref'], dataset)
+                # print(f'ref:{ref}\n')
                 label = tokenizer(ref)["input_ids"]
-                top_hyp = data['hyps'][0]
+                top_hyp = preprocess_string(data['hyps'][0], dataset)
                 data_list.append(
                     {
+                        "name": data['name'],
+                        "hyps_text": hyps_text,
                         "input_ids": input_ids,
                         "labels": label,
                         "top_hyp": top_hyp,
                         "ref_text": ref
                     }
-                    
                 )
 
                 if (fetch_num > 0 and i > fetch_num):

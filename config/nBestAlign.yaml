@@ -1,13 +1,13 @@
 stage: 0
 
 train: 
-  epoch: 3
-  train_batch: 4
-  valid_batch: 1
+  epoch: 30
+  train_batch: 256
+  valid_batch: 128
   accumgrad: 1
   print_loss: 200
   mode: align
-  lr: 1e-6
+  lr: 1e-4
   align_embedding: 512
   train_json: /mnt/nas3/Alfred/RescoreBert/data/aishell_train/10_best/bart_token/align_token.json
   dev_json: /mnt/nas3/Alfred/RescoreBert/data/aishell_dev/10_best/bart_token/align_token.json

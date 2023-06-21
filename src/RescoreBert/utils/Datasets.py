@@ -628,6 +628,7 @@ def prepareListwiseDataset(
     get_num=-1,
     maskEmbedding=False,
     concatMask=False,
+    paddingNBest = False
 ):
     """
     The purpose of the function is to get the complete dataset. Includes:
@@ -649,6 +650,17 @@ def prepareListwiseDataset(
     if isinstance(data_json, dict):
         for i, key in enumerate(tqdm(data_json.keys(), ncols=100)):
             wers = []
+            if (paddingNBest):
+                hyp_len = len(data_json[key]["hyps"])
+                nBestMask = [1 for _ in range(hyp_len)]
+                if (hyp_len < topk):
+                    pad_len = topk - hyp_len
+                    data_json[key]["hyps"] += ["" for _ in range(pad_len)]
+                    nBestMask += [0 for _ in range(pad_len)]
+                    data_json[key]['score'] += [0.0 for _ in range(pad_len)]
+                    data_json[key]['am_score'] += [0.0 for _ in range(pad_len)]
+                    data_json[key]['ctc_score'] += [0.0 for _ in range(pad_len)]
+    
             for err in data_json[key]["err"]:
                 wers.append(err["err"])
             # print(f'wers:{wers}')
@@ -675,7 +687,6 @@ def prepareListwiseDataset(
 
             for hyp in data_json[key]["hyps"]:
                 hyp = preprocess_string(hyp, dataset)
-
                 if maskEmbedding and not concatMask:
                     hyp = hyp + "[MASK]"
 
@@ -717,7 +728,8 @@ def prepareListwiseDataset(
                     "max_len": max_len,
                     "min_len": min_len,
                     "wer_rank": wers_rank,
-                    "ref_tokens": ref_ids
+                    "ref_tokens": ref_ids,
+                    "nBestMask": nBestMask if paddingNBest else None
                 }
             )
             
@@ -731,6 +743,19 @@ def prepareListwiseDataset(
                 wers.append(err["err"])
             # print(f'wers:{wers}')
             wers_tensor = np.array(wers)
+
+            if (paddingNBest):
+                hyp_len = len(data["hyps"])
+                nBestMask = [1 for _ in range(hyp_len)]
+                if (hyp_len < topk):
+                    pad_len = topk - hyp_len
+                    data["hyps"] += ["" for _ in range(pad_len)]
+                    nBestMask += [0 for _ in range(pad_len)]
+                    data['score'] += [0.0 for _ in range(pad_len)]
+                    data['am_score'] += [0.0 for _ in range(pad_len)]
+                    data['ctc_score'] += [0.0 for _ in range(pad_len)]
+                    print(f"input_ids:{input_ids}")
+                    print(f"attention_mask:{attention_masks}")
 
             wers_rank = np.argsort(wers_tensor, kind="stable")
             wers_rank = torch.from_numpy(wers_rank).type(torch.int32)
@@ -778,6 +803,7 @@ def prepareListwiseDataset(
             ref_tokens = tokenizer(preprocess_string(ref, dataset))
 
 
+
             data_list.append(
                 {
                     "hyps": data["hyps"],
@@ -794,7 +820,8 @@ def prepareListwiseDataset(
                     "max_len": max_len,
                     "min_len": min_len,
                     "wer_rank": wers_rank,
-                    "ref_tokens":ref_tokens
+                    "ref_tokens":ref_tokens,
+                    "nBestMask": nBestMask if paddingNBest else None
                 }
             )
             if get_num > 0 and i > get_num:
