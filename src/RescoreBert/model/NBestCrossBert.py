@@ -771,7 +771,6 @@ class nBestfuseBert(torch.nn.Module):
 
         cls = output.pooler_output
 
-
         cls = cls.view(batch_size, self.nBest, -1)
         nBestFuseCLS = self.fuse_model(inputs_embeds=cls, attention_mask=nBestMask).last_hidden_state
 
@@ -782,7 +781,7 @@ class nBestfuseBert(torch.nn.Module):
         
         nBestScore = self.finalLinear(nBestFuseCLS).flatten(0)
         # print(f"nBestScore:{nBestScore.shape}")
-        nBestProb = self.activation_fn(nBestScore, nBestIndex)
+        nBestProb = self.activation_fn(nBestScore, nBestIndex, paddingNbest = True, topk = 50)
 
         if labels is not None:
             loss = labels * torch.log(nBestProb)

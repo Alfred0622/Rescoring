@@ -127,7 +127,7 @@ else:
 
 print(valid_topk)
 
-if ('WANDB_MODE' in os.environ.keys and os.environ['WANDB_MODE'] == 'disabled'):
+if ('WANDB_MODE' in os.environ.keys() and os.environ['WANDB_MODE'] == 'disabled'):
     fetch_num = 500
 else:
     fetch_num = -1

@@ -15,7 +15,7 @@ train:
   loss_type: Entropy
   weightByWER: none # positive, inverse, square, none
   warmup_ratio: 0.1
-  margin_first: False
+  margin_first: True
   converge: 0.01
 
 recog:

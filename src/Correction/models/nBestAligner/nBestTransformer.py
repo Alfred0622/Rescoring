@@ -74,10 +74,10 @@ class nBestAlignBart(nn.Module):
 
     def recognize(self, input_ids, attention_mask,num_beams = 1 ,max_lens = 150):
         batch_size = input_ids.shape[0]
-        # aligned_embedding = self.model.model.shared(input_ids)  # (L, N, 768)
-        # aligned_embedding = aligned_embedding.view(input_ids.shape[0],  self.embeddding_dim * self.nBest, -1).transpose(1,2)  # (L, 768 * N)
-        aligned_embedding = self.embedding(input_ids)
-        aligned_embedding = aligned_embedding.flatten(start_dim=2)
+        aligned_embedding = self.model.model.shared(input_ids)  # (L, N, 768)
+        aligned_embedding = aligned_embedding.view(input_ids.shape[0],  self.embeddding_dim * self.nBest, -1).transpose(1,2)  # (L, 768 * N)
+        # aligned_embedding = self.embedding(input_ids)
+        # aligned_embedding = aligned_embedding.flatten(start_dim=2)
         proj_embedding = self.alignLinear(
             aligned_embedding
         )  # (L, 768 * N) -> (L, 768)
