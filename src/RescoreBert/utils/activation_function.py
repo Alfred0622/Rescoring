@@ -7,7 +7,7 @@ class SoftmaxOverNBest(torch.nn.Module):
         self._softmax = torch.nn.Softmax(dim=-1)
         self._logSoftmax = torch.nn.LogSoftmax(dim=-1)
 
-    def forward(self, scores, nBestIndex, log_score=False):
+    def forward(self, scores, nBestIndex, log_score=False, paddindNbest=False, topk=50):
         start_index = 0
         if len(scores.shape) == 1:
             for index in nBestIndex:
@@ -20,12 +20,10 @@ class SoftmaxOverNBest(torch.nn.Module):
                     scores[start_index : start_index + index] = self._logSoftmax(
                         scores[start_index : start_index + index].clone()
                     )
-
-                # print(
-                #     f"scores after softmax:{scores[start_index : start_index + index]}"
-                # )
-
-                start_index += index
+                if paddindNbest:
+                    start_index += topk
+                else:
+                    start_index += index
         elif len(scores.shape) == 2:
             for index in nBestIndex:
                 if not log_score:
@@ -42,7 +40,9 @@ class SoftmaxOverNBest(torch.nn.Module):
                             start_index : start_index + index,
                         ].clone(),
                     )
-
-                start_index += index
+                if paddindNbest:
+                    start_index += topk
+                else:
+                    start_index += index
 
         return scores

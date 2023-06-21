@@ -751,9 +751,9 @@ def prepareListwiseDataset(
                     pad_len = topk - hyp_len
                     data["hyps"] += ["" for _ in range(pad_len)]
                     nBestMask += [0 for _ in range(pad_len)]
-                    data['score'] += [0.0 for _ in range(pad_len)]
-                    data['am_score'] += [0.0 for _ in range(pad_len)]
-                    data['ctc_score'] += [0.0 for _ in range(pad_len)]
+                    data['score'] += [-1e9 for _ in range(pad_len)]
+                    data['am_score'] += [-1e9 for _ in range(pad_len)]
+                    data['ctc_score'] += [-1e9 for _ in range(pad_len)]
                     print(f"input_ids:{input_ids}")
                     print(f"attention_mask:{attention_masks}")
 
