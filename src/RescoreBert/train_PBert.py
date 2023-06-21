@@ -75,12 +75,13 @@ else:
     log_path = log_path + "/normal"
 
 if mode == "MARGIN":
-    run_name = (
-        run_name
-        + f"_Margin{train_args['margin_value']}"
-        + f"_Converge{train_args['converge']}"
-        + f"_MarginFirst{train_args['margin_first']}"
-    )
+    run_name = run_name + f"_Margin{train_args['margin_value']}"
+    if train_args["margin_first"] is not None:
+        run_name = (
+            run_name
+            + f"_converge{train_args['converge']}"
+            + f"_MarginFirst{train_args['margin_first']}"
+        )
 elif mode == "CONTRAST":
     run_name = run_name + f"contrastWeight{train_args['contrast_weight']}"
 
@@ -110,6 +111,8 @@ if torch.cuda.device_count() > 1:
     model = torch.nn.DataParallel(model)
 optimizer = AdamW(model.parameters(), lr=float(train_args["lr"]))
 # optimizer = Adam(model.parameters(), lr=float(train_args["lr"]))
+
+print(f"margina_first:{train_args['margin_first']}")
 
 with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, open(
     f"../../data/{args['dataset']}/data/{setting}/{valid_set}/data.json"
@@ -251,7 +254,7 @@ for param in model.bert.parameters():
 # model, optimizer, train_loader, lr_scheduler = accelerator.prepare(
 #     model, optimizer, train_loader, lr_scheduler
 # )
-if mode == "MARGIN" and float(train_args["converge"]) >= 0:
+if mode == "MARGIN" and train_args["margin_first"] is not None:
     use_margin = train_args["margin_first"]
 else:
     use_margin = None
@@ -281,7 +284,10 @@ for e in range(start_epoch, train_args["epoch"]):
         ):
             data["wers"] = None
 
-        output = model.forward(**data, add_margin=True)
+        output = model.forward(
+            **data,
+            add_margin=use_margin if use_margin is not None else (mode == "MARGIN"),
+        )
 
         loss = output["loss"]
         loss = torch.mean(loss)
@@ -434,7 +440,7 @@ for e in range(start_epoch, train_args["epoch"]):
         )
 
         if (
-            last_val_cer - min_cer < train_args["converge"]
+            last_val_cer - min_cer < float(train_args["converge"])
             and use_margin == train_args["margin_first"]
             and mode == "MARGIN"
         ):

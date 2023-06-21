@@ -13,8 +13,8 @@ train:
   hard_label: True
   warmup_ratio: 0.1
   margin_value: 0.1
-  converge: 0.1
-  margin_first: False
+  converge: 0.00005
+  margin_first:
   contrast_weight: 10.0
 
 recog:

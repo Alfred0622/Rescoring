@@ -215,7 +215,7 @@ lr_scheduler = OneCycleLR(
     max_lr=10 * float(train_args["lr"]),
     epochs=int(train_args["epoch"]),
     steps_per_epoch=len(train_batch_sampler),
-    pct_start=0.02,
+    pct_start=float(train_args["warmup_ratio"]),  # 0.02,
 )
 
 (
@@ -257,11 +257,11 @@ else:
 wandb.init(
     project=f"NBestBert_{args['dataset']}_{setting}",
     config=config,
-    name=f"RescoreBert_{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_freeze{train_args['freeze_epoch']}",
+    name=f"RescoreBert_{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_freeze{train_args['freeze_epoch']}_warmup{train_args['warmup_ratio']}",
 )
 
 checkpoint_path = Path(
-    f"./checkpoint/{args['dataset']}/NBestCrossBert/{setting}/{mode}/{args['nbest']}best/batch{train_args['batch_size']}_lr{train_args['lr']}_freeze{train_args['freeze_epoch']}"
+    f"./checkpoint/{args['dataset']}/NBestCrossBert/{setting}/{mode}/{args['nbest']}best/batch{train_args['batch_size']}_lr{train_args['lr']}_warmup{train_args['warmup_ratio']}_freeze{train_args['freeze_epoch']}"
 )
 checkpoint_path.mkdir(parents=True, exist_ok=True)
 """

@@ -23,11 +23,12 @@ from transformers import BertModel, BertConfig
 from torch.nn import TransformerEncoder, TransformerEncoderLayer, KLDivLoss
 from utils.activation_function import SoftmaxOverNBest
 
+
 def check_sublist(src, target):
     for element in src:
-        if (not (element in target)):
+        if not (element in target):
             return False
-    
+
     return True
 
 
@@ -287,6 +288,7 @@ class nBestCrossBert(torch.nn.Module):
             if self.fuseType in ["lstm", "attn", "none"]:
                 if self.fuseType == "lstm":
                     fuse_state, (h, c) = self.lstm(token_embeddings)  # (B, L, 768)
+                    attn_mask = attention_mask.clone()
 
                 elif self.fuseType == "attn":
                     attn_mask = attention_mask.clone()
@@ -829,116 +831,119 @@ class inter_pBert(torch.nn.Module):
 
 
 class poolingBert(torch.nn.Module):
-    def __init__(
-        self,
-        args,
-        train_args,
-        **kwargs
-    ):
+    def __init__(self, args, train_args, **kwargs):
         super().__init__()
 
-        pretrain_name = getBertPretrainName(args['dataset'])
+        pretrain_name = getBertPretrainName(args["dataset"])
 
         self.bert = BertModel.from_pretrained(pretrain_name)
-        
-        self.minPooling = MinPooling(train_args['noCLS'], train_args['noSEP'])
-        self.maxPooling = MaxPooling(train_args['noCLS'], train_args['noSEP'])
-        self.avgPooling = AvgPooling(train_args['noCLS'], train_args['noSEP'])
 
-        self.pooling_type = train_args['pooling_type'].split()
+        self.minPooling = MinPooling(train_args["noCLS"], train_args["noSEP"])
+        self.maxPooling = MaxPooling(train_args["noCLS"], train_args["noSEP"])
+        self.avgPooling = AvgPooling(train_args["noCLS"], train_args["noSEP"])
 
-        assert(1 <= len(self.pooling_type) and len(self.pooling_type) <= 3), "1 ~ 3 Pooling method"
-        assert(check_sublist(self.pooling_type, ['min', 'max', 'avg'])), "only may have 'min', 'max' or 'mean' "
+        self.pooling_type = train_args["pooling_type"].split()
+
+        assert (
+            1 <= len(self.pooling_type) and len(self.pooling_type) <= 3
+        ), "1 ~ 3 Pooling method"
+        assert check_sublist(
+            self.pooling_type, ["min", "max", "avg"]
+        ), "only may have 'min', 'max' or 'mean' "
 
         self.pooling_type = self.pooling_type
         self.concat_linear = torch.nn.Sequential(
-            torch.nn.Linear(768 * len(self.pooling_type), 768),
-            torch.nn.ReLU()
+            torch.nn.Linear(768 * len(self.pooling_type), 768), torch.nn.ReLU()
         )
         self.cls_concat_linear = torch.nn.Sequential(
-            torch.nn.Linear(768 * 2, 768),
-            torch.nn.ReLU()
+            torch.nn.Linear(768 * 2, 768), torch.nn.ReLU()
         )
         self.final_linear = torch.nn.Linear(770, 1)
 
         self.activation_fn = SoftmaxOverNBest()
-    
+
     def forward(
-            self,
-            input_ids,
-            attention_mask,
-            am_score,
-            ctc_score,
-            nBestIndex,
-            labels = None,
-            wers = None,
-            *args,
-            **kwargs
+        self,
+        input_ids,
+        attention_mask,
+        am_score,
+        ctc_score,
+        nBestIndex,
+        labels=None,
+        wers=None,
+        *args,
+        **kwargs,
     ):
-        bert_output = self.bert(
-            input_ids = input_ids,
-            attention_mask = attention_mask
-        )
+        bert_output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
 
         cls = bert_output.pooler_output
 
         token_embeddings = bert_output.last_hidden_state
-        if ('min' in self.pooling_type):
+        if "min" in self.pooling_type:
             pooling_vector = self.minPooling(token_embeddings, attention_mask)
-            if ('max' in self.pooling_type):
-                pooling_vector = torch.cat([pooling_vector, self.maxPooling(token_embeddings , attention_mask)], dim = -1)
-            if ('avg' in self.pooling_type):
-                pooling_vector = torch.cat([pooling_vector, self.avgPooling(token_embeddings, attention_mask)], dim = -1)
-        elif ('max' in self.pooling_type):
+            if "max" in self.pooling_type:
+                pooling_vector = torch.cat(
+                    [pooling_vector, self.maxPooling(token_embeddings, attention_mask)],
+                    dim=-1,
+                )
+            if "avg" in self.pooling_type:
+                pooling_vector = torch.cat(
+                    [pooling_vector, self.avgPooling(token_embeddings, attention_mask)],
+                    dim=-1,
+                )
+        elif "max" in self.pooling_type:
             pooling_vector = self.maxPooling(token_embeddings, attention_mask)
-            if ('avg' in self.pooling_type):
-                pooling_vector = torch.cat([pooling_vector, self.avgPooling(token_embeddings, attention_mask)], dim = -1)
-        elif ('avg' in self.pooling_type):
+            if "avg" in self.pooling_type:
+                pooling_vector = torch.cat(
+                    [pooling_vector, self.avgPooling(token_embeddings, attention_mask)],
+                    dim=-1,
+                )
+        elif "avg" in self.pooling_type:
             pooling_vector = self.avgPooling(token_embeddings, attention_mask)
         # (768 * number of pooling -> 768)
 
         project_vector = self.concat_linear(pooling_vector)
 
         # concatenate with CLS
-        cls_concat = torch.cat([cls, project_vector], dim = -1)
+        cls_concat = torch.cat([cls, project_vector], dim=-1)
         project_vector = self.cls_concat_linear(cls_concat)
 
-        score_concat = torch.cat([project_vector, am_score], dim = -1)
-        score_concat = torch.cat([score_concat, ctc_score], dim = -1)
+        score_concat = torch.cat([project_vector, am_score], dim=-1)
+        score_concat = torch.cat([score_concat, ctc_score], dim=-1)
 
         final_score = self.final_linear(score_concat).squeeze(1)
-        final_prob = self.activation_fn(final_score, nBestIndex)
+        final_prob = self.activation_fn(final_score.clone(), nBestIndex)
 
-        if (labels is not None):
+        if labels is not None:
 
             loss = labels * torch.log(final_prob)
             loss = torch.neg(torch.sum(loss))
+
+            assert not torch.isnan(loss), f"loss = Nan"
         else:
             loss = None
-        
-        return {
-            "logits": final_score,
-            "loss": loss
-        }
+
+        return {"score": final_score, "loss": loss}
+
     def parameters(self):
         parameters = (
-            list(self.bert.parameters()) + 
-            list(self.concat_linear.parameters()) +
-            list(self.final_linear.parameters())
+            list(self.bert.parameters())
+            + list(self.concat_linear.parameters())
+            + list(self.final_linear.parameters())
         )
 
         return parameters
-    
+
     def state_dict(self):
         return {
-            'bert': self.bert.state_dict(),
-            'pool_concat': self.concat_linear.state_dict(),
-            'cls_concat': self.cls_concat_linear.state_dict(),
-            'final': self.final_linear.state_dict()
+            "bert": self.bert.state_dict(),
+            "pool_concat": self.concat_linear.state_dict(),
+            "cls_concat": self.cls_concat_linear.state_dict(),
+            "final": self.final_linear.state_dict(),
         }
 
     def load_state_dict(self, checkpoint):
-        self.bert.load_state_dict(checkpoint['bert'])
-        self.concat_linear.load_state_dict(checkpoint['pool_concat'])
-        self.cls_concat_linear.load_state_dict(checkpoint['cls_concat'])
-        self.final_linear.load_state_dict(checkpoint['final'])
+        self.bert.load_state_dict(checkpoint["bert"])
+        self.concat_linear.load_state_dict(checkpoint["pool_concat"])
+        self.cls_concat_linear.load_state_dict(checkpoint["cls_concat"])
+        self.final_linear.load_state_dict(checkpoint["final"])

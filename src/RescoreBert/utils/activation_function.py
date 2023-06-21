@@ -11,6 +11,7 @@ class SoftmaxOverNBest(torch.nn.Module):
         start_index = 0
         if len(scores.shape) == 1:
             for index in nBestIndex:
+                # print(f"scores:{scores[start_index : start_index + index]}")
                 if not log_score:
                     scores[start_index : start_index + index] = self._softmax(
                         scores[start_index : start_index + index].clone()
@@ -19,6 +20,10 @@ class SoftmaxOverNBest(torch.nn.Module):
                     scores[start_index : start_index + index] = self._logSoftmax(
                         scores[start_index : start_index + index].clone()
                     )
+
+                # print(
+                #     f"scores after softmax:{scores[start_index : start_index + index]}"
+                # )
 
                 start_index += index
         elif len(scores.shape) == 2:
