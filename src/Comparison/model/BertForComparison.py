@@ -1,3 +1,5 @@
+import sys
+sys.path.append("../")
 import torch
 import logging
 from torch.nn.functional import softmax

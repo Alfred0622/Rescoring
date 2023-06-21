@@ -17,6 +17,7 @@ from torch.optim.lr_scheduler import OneCycleLR
 from torch.optim import AdamW
 import wandb
 from pathlib import Path
+from jiwer import wer, cer
 
 random.seed(42)
 torch.manual_seed(42)
@@ -95,7 +96,7 @@ if __name__ == "__main__":
 
     dev_loader = DataLoader(
         dataset=dev_set,
-        batch_size=recog_args["batch"],
+        batch_size=train_args["valid_batch"],
         collate_fn=nBestAlignBatch,
         # num_workers=4,
         shuffle=False,
@@ -104,10 +105,7 @@ if __name__ == "__main__":
     logging.warning(f"device:{device}")
     device = torch.device(device)
 
-    model = nBestAlignBart(
-        args,
-        train_args,
-    ).to(device)
+    model = nBestAlignBart(args, train_args, tokenizer).to(device)
 
     if train_args["from_pretrain"]:
         pretrain_name = "Pretrain"
@@ -126,6 +124,7 @@ if __name__ == "__main__":
     print(f"training")
 
     min_val = 1e8
+    min_cer = 1e6
 
     config = {
         "args": args,
@@ -191,7 +190,7 @@ if __name__ == "__main__":
         checkpoint = {"epoch": e + 1, "checkpoint": model.state_dict()}
 
         checkpoint_path = Path(
-            f"./checkpoint/{args['dataset']}/{args['nbest']}Align/{setting}"
+            f"./checkpoint/{args['dataset']}/{args['nbest']}Align_{train_args['epoch']}/{setting}"
         )
         checkpoint_path.mkdir(parents=True, exist_ok=True)
         torch.save(
@@ -201,20 +200,32 @@ if __name__ == "__main__":
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
+            hyps = []
+            refs = []
             for n, data in enumerate(tqdm(dev_loader, ncols=100)):
                 token = data["input_ids"].to(device)
                 mask = data["attention_mask"].to(device)
                 label = data["labels"].to(device)
 
                 loss = model(token, mask, label)
+
+                output = model.recognize(token, mask)
+                # output = tokenizer.batch_decode(output, skip_special_tokens= True)
+                # hyps += output
+                # refs += data['ref_text']
                 val_loss += loss
 
             val_loss = val_loss / len(dev_loader)
+
+            # cer = wer(refs, hyps)
+            # print(f'cer:{cer}')
+            # print(f"hyp:{hyps[-1]}, ref:{refs[-1]}")
 
             logging.warning(f"epoch :{e + 1}, validation_loss:{val_loss}")
             wandb.log(
                 {
                     "train_epoch_loss": epoch_loss / len(train_loader),
+                    # "val_cer": cer,
                     "val_loss": val_loss,
                     "epoch": e + 1,
                 },
@@ -227,3 +238,9 @@ if __name__ == "__main__":
                     checkpoint,
                     f"{checkpoint_path}/checkpoint_valBest.pt",
                 )
+            # if (cer < min_cer):
+            #     min_cer = cer
+            #     torch.save(
+            #         checkpoint,
+            #         f"{checkpoint_path}/checkpoint_cerBest.pt",
+            #     )

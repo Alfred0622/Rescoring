@@ -98,13 +98,16 @@ print(f"# of valid data:{len(valid_json)}")
 
 print(f'tokenizing data......')
 
-valid_dataset, valid_json = get_dataset(valid_json, args['dataset'], tokenizer)
+valid_dataset, _ = get_dataset(valid_json, args['dataset'], tokenizer)
 # with open(f"./data/{args['dataset']}/valid/{setting}/{args['nbest']}best/token.json", 'w') as valid:
 #     json.dump(valid_json, valid, ensure_ascii = False, indent = 4)
 
-train_dataset, train_json = get_dataset(train_json, args['dataset'], tokenizer)
+train_dataset, _ = get_dataset(train_json, args['dataset'], tokenizer)
 # with open(f"./data/{args['dataset']}/train/{setting}/{args['nbest']}best/token.json", 'w') as train:
 #     json.dump(train_json, train, ensure_ascii = False, indent = 4)
+
+del train_json
+del valid_json
 
 train_loader = DataLoader(
     train_dataset,

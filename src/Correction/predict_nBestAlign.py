@@ -37,7 +37,7 @@ _, tokenizer = prepare_model(args["dataset"])
 model = nBestAlignBart(args, train_args)
 
 checkpoint = torch.load(checkpoint)
-model.load_state_dict(checkpoint)
+model.load_state_dict(checkpoint['checkpoint'])
 
 if args["dataset"] in ["aishell", "aishell_nbest"]:
     recog_set = ["dev", "test"]
@@ -48,20 +48,23 @@ elif args["dataset"] in ["tedlium2"]:
 elif args["dataset"] in ["csj"]:
     recog_set = ["dev", "eval1", "eval2", "eval3"]
 
-
+model.eval()
 for task in recog_set:
     hyps = []
     refs = []
     top_hyps = []
-    data_json = (
-        f"./data/{args['dataset']}/{setting}/{task}/{args['nbest']}_align_token.json"
-    )
+    names = []
+    data_json = f"../../data/{args['dataset']}/data/{setting}/{task}/data.json"
 
     with open(data_json) as f:
         data_json = json.load(f)
-
+    
     dataset = get_dataset(
-        data_json, tokenizer=tokenizer, data_type="align", topk=int(args["nbest"])
+        data_json, 
+        dataset = args['dataset'],
+        tokenizer = tokenizer, 
+        data_type = 'align', 
+        topk = int(args['nbest'])
     )
 
     dataloader = DataLoader(
@@ -72,61 +75,74 @@ for task in recog_set:
     )
 
     result_dict = list()
+    with torch.no_grad():
+        for data in tqdm(dataloader, ncols = 80):
+            token = data['input_ids'].to(device)
+            mask = data['attention_mask'].to(device)
 
-    for data in tqdm(dataloader, ncols=80):
-        token = data["input_ids"].to(device)
-        mask = data["attention_mask"].to(device)
-
-        output = model.recognize(input_id=token, attention_mask=mask, max_lens=50)
-
-        for hyp, top_hyp, ref in zip(output, data["top_hyp"], data["refs"]):
-            hyp_tokens = tokenizer.decode(hyp, skip_special_tokens=True)
-            ref_tokens = tokenizer.decode(ref, skip_special_tokens=True)
-
-            # hyp_tokens = hyp_tokens.replace('[SEP]', "")
-            # hyp_tokens = hyp_tokens.replace('<\s>', "")
-            if args["dataset"] in ["aishell_nbest"]:
-                top_hyp = [h for h in top_hyp]
-                top_hyp = " ".join(top_hyp)
-            hyps.append(hyp_tokens)
-            top_hyps.append(top_hyp)
-            refs.append(ref_tokens)
-
-            corrupt_flag = "Missed"  # Missed only for debug purpose, to detect if there is any data accidentally ignored
-
-            if top_hyp == ref_tokens:
-                if hyp_tokens != ref_tokens:
-                    corrupt_flag = "Totally_Corrupt"
-                else:
-                    corrupt_flag = "Remain_Correct"
-
-            else:
-                if hyp_tokens == ref_tokens:
-                    corrupt_flag = "Totally_Improve"
-
-                else:
-                    top_wer = wer(ref_tokens, top_hyp)
-                    rerank_wer = wer(ref_tokens, hyp_tokens)
-                    if top_wer < rerank_wer:
-                        corrupt_flag = "Partial_Corrupt"
-                    elif top_wer == rerank_wer:
-                        corrupt_flag = "Neutral"
-                    else:
-                        corrupt_flag = "Partial_Improve"
-            # print(f'Corrupt Flag:{corrupt_f}')
-
-            result_dict.append(
-                {
-                    "hyp": hyp_tokens,
-                    "ref": ref_tokens,
-                    "top_hyp": top_hyp,
-                    "check1": "Correct" if hyp_tokens == ref_tokens else "Wrong",
-                    "check2": corrupt_flag,
-                }
+            output = model.recognize(
+                input_ids = token,
+                attention_mask = mask,
+                max_lens = 50,
+                num_beams = 5
             )
 
+            # print(f"output:{output}")
+            hyp_tokens = tokenizer.batch_decode(output, skip_special_tokens=True)
+            
+            # print('\n')
+            # for hyp, top_hyp, ref, input_hyps in zip(hyp_tokens, data['top_hyp'],data['ref_text'], data['hyps_text']):
+            #     for hyp_id, h in enumerate(input_hyps):
+            #         print(f'input {hyp_id + 1}:{h}')
+            #     print(f'hyp:{hyp}')
+            #     print(f'top_hyp:{top_hyp}')
+            #     print(f'ref:{ref}')
+            #     print(f'=============================')
+
+            for name, hyp, top_hyp ,ref in zip(data['name'], hyp_tokens, data['top_hyp'],data['ref_text']):
+                hyps.append(hyp)
+                top_hyps.append(top_hyp)
+                refs.append(ref)
+                names.append(name)
+
+    for name, hyp, top_hyp, ref_token in zip(names, hyp, top_hyps, refs):   
+        corrupt_flag = "Missed" # Missed only for debug purpose, to detect if there is any data accidentally ignored
+        if (top_hyp == ref_token):
+            if (hyp != ref_token):
+                corrupt_flag = "Totally_Corrupt"
+            else:
+                corrupt_flag = "Remain_Correct"
+
+        else :
+            if (hyp == ref_token):
+                corrupt_flag = "Totally_Improve"
+
+            else:
+                top_wer = wer(ref_token, top_hyp)
+                rerank_wer = wer(ref_token, hyp)
+                if (top_wer < rerank_wer):
+                    corrupt_flag = "Partial_Corrupt"
+                elif (top_wer == rerank_wer):
+                    corrupt_flag = "Neutral"
+                else:
+                    corrupt_flag = "Partial_Improve"
+        # print(f'Corrupt Flag:{corrupt_f}')
+            
+
+        result_dict.append(
+            {
+                "name": name,
+                "hyp": hyp_tokens,
+                "ref": ref_token,
+                "top_hyp": top_hyp,
+                "check1": "Correct" if hyp_tokens == ref_token else "Wrong",
+                "check2": corrupt_flag
+            }
+        )
+                    
+
     print(f"hyp:{hyps[-1]}")
-    print(f"top_hyp:{top_hyp}")
+    print(f"top_hyp:{top_hyps[-1]}")
     print(f"ref:{refs[-1]}")
 
     if args["dataset"] in ["aishell", "aishell2", "csj", "aishell_nbest"]:

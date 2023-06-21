@@ -7,15 +7,15 @@ args:
 
 train:
   start_epoch: 0
-  epoch: 10
-  train_batch: 256
-  valid_batch: 256
-  accumgrad: 1
+  epoch: 30
+  train_batch: 4
+  valid_batch: 4
+  accumgrad: 2
   print_loss: 2000
-  lr: 1e-5
+  lr: 1e-6
   data_type: align
   sep_token: '-'
   from_pretrain: True
 
 recog:
-  batch: 16
+  batch: 64
