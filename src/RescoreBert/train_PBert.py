@@ -77,7 +77,7 @@ else:
 
 if mode == "MARGIN":
     run_name = run_name + f"_Margin{train_args['margin_value']}"
-    if train_args["margin_first"] is not None:
+    if "margin_first" in train_args.keys() and train_args["margin_first"] is not None:
         run_name = (
             run_name
             + f"_converge{train_args['converge']}"
@@ -116,7 +116,8 @@ if torch.cuda.device_count() > 1:
 optimizer = AdamW(model.parameters(), lr=float(train_args["lr"]))
 # optimizer = Adam(model.parameters(), lr=float(train_args["lr"]))
 
-print(f"margina_first:{train_args['margin_first']}")
+if "margin_first" in train_args.keys():
+    print(f"margina_first:{train_args['margin_first']}")
 
 with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, open(
     f"../../data/{args['dataset']}/data/{setting}/{valid_set}/data.json"
@@ -446,9 +447,10 @@ for e in range(start_epoch, train_args["epoch"]):
         )
 
         if (
-            last_val_cer - min_cer < float(train_args["converge"])
+            "margin_first" in train_args.keys() and train_args["margin_first"] is not None
             and use_margin == train_args["margin_first"]
             and mode == "MARGIN"
+            and last_val_cer - min_cer < float(train_args["converge"])
         ):
             use_margin = not (train_args["margin_first"])
             print(f"Switch use_margin: {train_args['margin_first']} -> {use_margin}")
