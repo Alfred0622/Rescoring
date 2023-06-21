@@ -162,7 +162,12 @@ class contrastBert(nn.Module):
         sim_matrix = torch.tensordot(bert_output, pooled_embedding.T, dims=1)
         sim_matrix = self.activation_fn(sim_matrix, nBestIndex)
 
-        contrastLoss = torch.neg(torch.sum(torch.log(torch.diag(sim_matrix, 0))))
+        sim_value = torch.diag(sim_matrix, 0)
+        top_index = labels == 1
+        top_sim = sim_value[top_index]
+        print(f"top_sim:{top_sim.shape}")
+
+        contrastLoss = torch.neg(torch.sum(top_sim))
         contrastLoss = contrastLoss / input_ids.shape[0]  # batch_mean
         loss = ce_loss + self.contrast_weight * contrastLoss
 
