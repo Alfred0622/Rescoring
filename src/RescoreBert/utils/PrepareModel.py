@@ -198,30 +198,30 @@ def prepareContrastBert(args, train_args, mode="CONTRAST"):
     if mode == "CONTRAST":
         model = contrastBert(args, train_args)
     elif mode == "MARGIN":
-        model = marginalBert(args, margin=float(train_args["margin_value"]))
+        model = marginalBert(
+            args,
+            margin=float(train_args["margin_value"]),
+            useTopOnly=train_args["useTopOnly"],
+        )
 
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 
     return model, tokenizer
+
 
 def preparePoolingBert(args, train_args):
-    pretrain_name = getBertPretrainName(args['dataset'])
+    pretrain_name = getBertPretrainName(args["dataset"])
 
-    model = poolingBert(
-        args, train_args
-    )
+    model = poolingBert(args, train_args)
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 
     return model, tokenizer
+
 
 def prepareFuseBert(args, train_args):
-    pretrain_name = getBertPretrainName(args['dataset'])
+    pretrain_name = getBertPretrainName(args["dataset"])
 
-    model = nBestfuseBert(
-        args, train_args
-    )
+    model = nBestfuseBert(args, train_args)
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 
     return model, tokenizer
-
-    

@@ -14,9 +14,13 @@ train:
   warmup_step: 10000
   margin_value: 0.05
   converge: 0.1
-  margin_first: False
+  margin_first:
   contrast_weight: 1.0
   warmup_ratio: 0.1
+  useTopOnly: True
+  compareCLS: False # if False, CLS will compared with Pooling vector
+  noCLS: True
+  noSEP: False
 
 recog:
   batch: 1

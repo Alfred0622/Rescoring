@@ -62,7 +62,7 @@ args, train_args, recog_args = load_config(config_path)
 setting = "withLM" if (args["withLM"]) else "noLM"
 
 log_path = f"./log/P_BERT/{args['dataset']}/{setting}/{mode}"
-run_name = f"NLP3090_{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_Freeze{train_args['freeze_epoch']}"
+run_name = f"TWCC_{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_Freeze{train_args['freeze_epoch']}"
 if train_args["hard_label"]:
     collate_func = PBertBatchWithHardLabel
     run_name = run_name + "_HardLabel_Entropy"
@@ -83,8 +83,21 @@ if mode == "MARGIN":
             + f"_converge{train_args['converge']}"
             + f"_MarginFirst{train_args['margin_first']}"
         )
+    if "useTopOnly" in train_args.keys() and train_args["useTopOnly"]:
+        run_name = run_name + f"_useTopOnly"
 elif mode == "CONTRAST":
     run_name = run_name + f"contrastWeight{train_args['contrast_weight']}"
+    if train_args["useTopOnly"]:
+        run_name += "_useTopOnly"
+
+    if train_args["compareCLS"]:
+        run_name += "_compareCLS"
+    else:
+        run_name += "_contrastWithPooling"
+        if train_args["noCLS"]:
+            run_name += "_noCLS"
+        if train_args["noSEP"]:
+            run_name += "_noSEP"
 
 log_path = Path(f"./log/RescoreBERT/{args['dataset']}/{setting}/{mode}")
 log_path.mkdir(parents=True, exist_ok=True)
@@ -226,9 +239,7 @@ config = {
     else model.module.bert.config,
 }
 
-wandb.init(
-    project=f"NBestBert_{args['dataset']}_{setting}", config=config, name=run_name
-)
+wandb.init(project=f"myBert_{args['dataset']}_{setting}", config=config, name=run_name)
 
 checkpoint_path = Path(
     f"./checkpoint/{args['dataset']}/NBestCrossBert/{setting}/{mode}/{args['nbest']}best/{run_name}"
@@ -236,6 +247,9 @@ checkpoint_path = Path(
 checkpoint_path.mkdir(parents=True, exist_ok=True)
 del train_json
 del valid_json
+
+del train_dataset
+del valid_dataset
 
 """
 Start Training
@@ -447,7 +461,8 @@ for e in range(start_epoch, train_args["epoch"]):
         )
 
         if (
-            "margin_first" in train_args.keys() and train_args["margin_first"] is not None
+            "margin_first" in train_args.keys()
+            and train_args["margin_first"] is not None
             and use_margin == train_args["margin_first"]
             and mode == "MARGIN"
             and last_val_cer - min_cer < float(train_args["converge"])

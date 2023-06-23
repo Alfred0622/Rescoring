@@ -11,15 +11,16 @@ import torch.nn as nn
 from transformers import BertModel
 from src_utils.getPretrainName import getBertPretrainName
 from utils.activation_function import SoftmaxOverNBest
-from utils.Pooling import AvgPooling
+from utils.Pooling import AvgPooling, MaxPooling
 
 
 class selfMarginLoss(nn.Module):
-    def __init__(self, margin=0.0, reduction="mean"):
+    def __init__(self, margin=0.0, reduction="mean", useTopOnly=False):
         super().__init__()
         self.margin = margin
         assert reduction in ["mean", "sum"], "reduction must in ['mean', 'sum']"
         self.reduction = reduction
+        self.top_only = useTopOnly
 
     def forward(self, scores, nBestIndex, werRank):
         # nBestIndex = a list of number of N-best e.x
@@ -28,35 +29,52 @@ class selfMarginLoss(nn.Module):
 
         for N, nBestRank in zip(nBestIndex, werRank):  # i-th werRank ex.[50, 50, 50]
             nBestRank = nBestRank.cuda()
-            for i, rank in enumerate(nBestRank[:-1]):
+            if self.top_only:
                 compare = (
-                    scores[start_index + nBestRank[i + 1 :]]  # x2
-                    - scores[start_index + rank]  # x1
-                )  # take every index after the present rank
-                # should be scores[rank] - scores[rank:] , so multiply -1
+                    scores[start_index + nBestRank[1:]]  # x2
+                    - scores[start_index + nBestRank[0]]  # x1
+                )
+
                 compare = compare + self.margin
 
                 result = compare[compare > 0]
 
                 loss = result.sum()
+
                 if self.reduction == "mean":
-                    loss = loss / len(scores[start_index + nBestRank[i + 1 :]])
+                    loss = loss / len(nBestRank)
                 final_loss += loss
 
-            start_index += N
+            else:
+                for i, rank in enumerate(nBestRank[:-1]):
+                    compare = (
+                        scores[start_index + nBestRank[i + 1 :]]  # x2
+                        - scores[start_index + rank]  # x1
+                    )  # take every index after the present rank
+                    # should be scores[rank] - scores[rank:] , so multiply -1
+                    compare = compare + self.margin
+
+                    result = compare[compare > 0]
+
+                    loss = result.sum()
+                    if self.reduction == "mean":
+                        loss = loss / len(scores[start_index + nBestRank[i + 1 :]])
+                    final_loss += loss
+
+                start_index += N
 
         return final_loss
 
 
 class marginalBert(nn.Module):
-    def __init__(self, args, margin=0.1):
+    def __init__(self, args, margin=0.1, useTopOnly=False):
         super().__init__()
 
         pretrain_name = getBertPretrainName(args["dataset"])
         self.bert = BertModel.from_pretrained(pretrain_name)
         self.linear = nn.Linear(770, 1)
 
-        self.loss = selfMarginLoss(margin=margin)
+        self.loss = selfMarginLoss(margin=margin, useTopOnly=useTopOnly)
         self.activation_fn = SoftmaxOverNBest()
 
     def forward(
@@ -128,8 +146,11 @@ class contrastBert(nn.Module):
         self.contrast_weight = torch.tensor(train_args["contrast_weight"]).float()
 
         self.activation_fn = SoftmaxOverNBest()
+        self.useTopOnly = train_args["useTopOnly"]
+        self.compareCLS = train_args["compareCLS"]
 
-        self.pooling = AvgPooling()
+        self.cosSim = nn.CosineSimilarity(dim=-1)
+        self.pooling = MaxPooling(noCLS=train_args["noCLS"], noSEP=train_args["noSEP"])
 
     def forward(
         self,
@@ -147,7 +168,7 @@ class contrastBert(nn.Module):
 
         bert_output = output.pooler_output  # (B, 768)
         bert_embedding = output.last_hidden_state
-        pooled_embedding = self.pooling(bert_embedding, attention_mask)  # (B, 768)
+        # (B, 768)
 
         concat_state = torch.cat([bert_output, am_score], dim=-1)
         concat_state = torch.cat([concat_state, ctc_score], dim=-1)
@@ -159,15 +180,23 @@ class contrastBert(nn.Module):
         ce_loss = torch.neg(torch.sum(ce_loss))
         # Margin Loss
 
-        sim_matrix = torch.tensordot(bert_output, pooled_embedding.T, dims=1)
+        if self.compareCLS:
+            sim_matrix = self.cosSim(bert_output, bert_output)
+        else:
+            pooled_embedding = self.pooling(bert_embedding, attention_mask)
+            sim_matrix = self.cosSim(bert_output, pooled_embedding)
+        # sim_matrix = torch.tensordot(bert_output, pooled_embedding.T, dims=1)
         sim_matrix = self.activation_fn(sim_matrix, nBestIndex)
 
         sim_value = torch.diag(sim_matrix, 0)
-        top_index = labels == 1
-        top_sim = sim_value[top_index]
-        print(f"top_sim:{top_sim.shape}")
+        if self.useTopOnly:
+            top_index = labels == 1
+            top_sim = sim_value[top_index]
+            contrastLoss = torch.neg(torch.sum(top_sim))
+            # print(f"top_sim:{top_sim.shape}")
+        else:
+            contrastLoss = torch.neg(torch.sum(top_sim))
 
-        contrastLoss = torch.neg(torch.sum(top_sim))
         contrastLoss = contrastLoss / input_ids.shape[0]  # batch_mean
         loss = ce_loss + self.contrast_weight * contrastLoss
 
