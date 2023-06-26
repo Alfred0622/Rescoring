@@ -343,7 +343,7 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode, topk=50, fetch_num=-1
                     }
                 )
 
-                if (fetch_num > 0 and i > fetch_num):
+                if fetch_num > 0 and i > fetch_num:
                     break
 
         elif isinstance(data_json, list):
@@ -384,7 +384,7 @@ def getRescoreDataset(data_json, dataset, tokenizer, mode, topk=50, fetch_num=-1
                     }
                 )
 
-                if (fetch_num > 0 and i > fetch_num):
+                if fetch_num > 0 and i > fetch_num:
                     break
 
     return LM_Dataset(data_list)
@@ -628,7 +628,7 @@ def prepareListwiseDataset(
     get_num=-1,
     maskEmbedding=False,
     concatMask=False,
-    paddingNBest = False
+    paddingNBest=False,
 ):
     """
     The purpose of the function is to get the complete dataset. Includes:
@@ -650,18 +650,18 @@ def prepareListwiseDataset(
     if isinstance(data_json, dict):
         for i, key in enumerate(tqdm(data_json.keys(), ncols=100)):
             wers = []
-            if (paddingNBest):
+            if paddingNBest:
                 hyp_len = len(data_json[key]["hyps"])
                 nBestMask = [1 for _ in range(hyp_len)]
-                if (hyp_len < topk):
+                if hyp_len < topk:
                     pad_len = topk - hyp_len
                     data_json[key]["hyps"] += ["" for _ in range(pad_len)]
                     nBestMask += [0 for _ in range(pad_len)]
-                    data_json[key]['score'] += [0.0 for _ in range(pad_len)]
-                    data_json[key]['am_score'] += [0.0 for _ in range(pad_len)]
-                    data_json[key]['ctc_score'] += [0.0 for _ in range(pad_len)]
-    
-            for err in data_json[key]["err"]:
+                    data_json[key]["score"] += [0.0 for _ in range(pad_len)]
+                    data_json[key]["am_score"] += [0.0 for _ in range(pad_len)]
+                    data_json[key]["ctc_score"] += [0.0 for _ in range(pad_len)]
+
+            for err in data_json[key]["err"][:topk]:
                 wers.append(err["err"])
             # print(f'wers:{wers}')
             wers_tensor = np.array(wers, dtype=np.float32)
@@ -672,10 +672,14 @@ def prepareListwiseDataset(
 
             avg_err = torch.mean(wers_tensor).item()
 
-            scores = torch.as_tensor(data_json[key]["score"], dtype=torch.float32)
-            am_scores = torch.as_tensor(data_json[key]["am_score"], dtype=torch.float32)
+            scores = torch.as_tensor(
+                data_json[key]["score"][:topk], dtype=torch.float32
+            )
+            am_scores = torch.as_tensor(
+                data_json[key]["am_score"][:topk], dtype=torch.float32
+            )
             ctc_scores = torch.as_tensor(
-                data_json[key]["ctc_score"], dtype=torch.float32
+                data_json[key]["ctc_score"][:topk], dtype=torch.float32
             )
 
             input_ids = []
@@ -685,7 +689,7 @@ def prepareListwiseDataset(
             min_len = 10000
             max_len = -1
 
-            for hyp in data_json[key]["hyps"]:
+            for hyp in data_json[key]["hyps"][:topk]:
                 hyp = preprocess_string(hyp, dataset)
                 if maskEmbedding and not concatMask:
                     hyp = hyp + "[MASK]"
@@ -706,54 +710,55 @@ def prepareListwiseDataset(
                     max_len = len(hyp)
                 if len(hyp) < min_len:
                     min_len = len(hyp)
-            
-            nbest = len(data_json[key]['hyps'])
 
-            ref = data_json[key]['ref']
-            ref_ids = tokenizer(preprocess_string(ref, dataset))
-            
+            nbest = len(data_json[key]["hyps"][:topk])
+
+            ref = data_json[key]["ref"]
+            ref_process = tokenizer(preprocess_string(ref, dataset))
+            # print(f"wer:{nbest}")
             data_list.append(
                 {
                     "name": key,
-                    "hyps": data_json[key]["hyps"],
+                    "hyps": data_json[key]["hyps"][:topk],
                     "input_ids": input_ids,
                     "attention_mask": attention_masks,
                     "score": scores,
                     "am_score": am_scores,
                     "ctc_score": ctc_scores,
-                    'errs':data_json[key]['err'],
+                    "errs": data_json[key]["err"][:topk],
                     "wer": wers_tensor.float(),
                     "avg_err": avg_errs,
                     "nbest": nbest,
                     "max_len": max_len,
                     "min_len": min_len,
                     "wer_rank": wers_rank,
-                    "ref_tokens": ref_ids,
-                    "nBestMask": nBestMask if paddingNBest else None
+                    "ref_ids": ref_process["input_ids"],
+                    "ref_mask": ref_process["attention_mask"],
+                    "nBestMask": nBestMask if paddingNBest else None,
                 }
             )
-            
+
             if get_num > 0 and i > get_num:
                 break
 
     elif isinstance(data_json, list):
         for i, data in enumerate(tqdm(data_json, ncols=100)):
             wers = []
-            for err in data["err"]:
+            for err in data["err"][:topk]:
                 wers.append(err["err"])
             # print(f'wers:{wers}')
             wers_tensor = np.array(wers)
 
-            if (paddingNBest):
+            if paddingNBest:
                 hyp_len = len(data["hyps"])
                 nBestMask = [1 for _ in range(hyp_len)]
-                if (hyp_len < topk):
+                if hyp_len < topk:
                     pad_len = topk - hyp_len
                     data["hyps"] += ["" for _ in range(pad_len)]
                     nBestMask += [0 for _ in range(pad_len)]
-                    data['score'] += [-1e9 for _ in range(pad_len)]
-                    data['am_score'] += [-1e9 for _ in range(pad_len)]
-                    data['ctc_score'] += [-1e9 for _ in range(pad_len)]
+                    data["score"] += [-1e9 for _ in range(pad_len)]
+                    data["am_score"] += [-1e9 for _ in range(pad_len)]
+                    data["ctc_score"] += [-1e9 for _ in range(pad_len)]
                     print(f"input_ids:{input_ids}")
                     print(f"attention_mask:{attention_masks}")
 
@@ -763,9 +768,9 @@ def prepareListwiseDataset(
 
             avg_err = torch.mean(wers_tensor).item()
 
-            scores = torch.as_tensor(data["score"], dtype=torch.float32)
-            am_scores = torch.as_tensor(data["am_score"], dtype=torch.float32)
-            ctc_scores = torch.as_tensor(data["ctc_score"], dtype=torch.float32)
+            scores = torch.as_tensor(data["score"][:topk], dtype=torch.float32)
+            am_scores = torch.as_tensor(data["am_score"][:topk], dtype=torch.float32)
+            ctc_scores = torch.as_tensor(data["ctc_score"][:topk], dtype=torch.float32)
 
             input_ids = []
             attention_masks = []
@@ -774,7 +779,7 @@ def prepareListwiseDataset(
             min_len = 10000
             max_len = -1
 
-            for hyp in data["hyps"]:
+            for hyp in data["hyps"][:topk]:
                 hyp = preprocess_string(hyp, dataset)
 
                 if maskEmbedding and not concatMask:
@@ -797,13 +802,12 @@ def prepareListwiseDataset(
                 if len(output["input_ids"]) < min_len:
                     min_len = len(output["input_ids"])
 
-            nbest = len(data["hyps"])
+            nbest = len(data["hyps"][:topk])
 
-            ref = data['ref']
-            ref_tokens = tokenizer(preprocess_string(ref, dataset))
+            ref = data["ref"]
+            ref_process = tokenizer(preprocess_string(ref, dataset))
 
-
-
+            # print(f"wer:{nbest}")
             data_list.append(
                 {
                     "hyps": data["hyps"],
@@ -813,15 +817,16 @@ def prepareListwiseDataset(
                     "score": scores,
                     "am_score": am_scores,
                     "ctc_score": ctc_scores,
-                    'errs':data['err'],
+                    "errs": data["err"],
                     "wer": wers_tensor.float(),
                     "avg_err": avg_errs,
                     "nbest": nbest,
                     "max_len": max_len,
                     "min_len": min_len,
                     "wer_rank": wers_rank,
-                    "ref_tokens":ref_tokens,
-                    "nBestMask": nBestMask if paddingNBest else None
+                    "ref_ids": ref_process["input_ids"],
+                    "ref_mask": ref_process["attention_mask"],
+                    "nBestMask": nBestMask if paddingNBest else None,
                 }
             )
             if get_num > 0 and i > get_num:

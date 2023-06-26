@@ -282,15 +282,15 @@ def PBertBatch(batch):
         nBest.append(sample["nbest"])
         indexes += [rank for rank in range(sample["nbest"])]
 
-        if (sample['nBestMask'] is not None):
-            nBestMask.append(sample['nBestMask'])
+        if sample["nBestMask"] is not None:
+            nBestMask.append(sample["nBestMask"])
 
     input_ids = pad_sequence(input_ids, batch_first=True)
     attention_mask = pad_sequence(attention_mask, batch_first=True)
     am_scores = am_scores.unsqueeze(-1)
     ctc_scores = ctc_scores.unsqueeze(-1)
     nBest = torch.as_tensor(nBest, dtype=torch.int64)
-    if (len(nBestMask) == 0):
+    if len(nBestMask) == 0:
         nBestMask = None
 
     return {
@@ -304,8 +304,9 @@ def PBertBatch(batch):
         "nBestIndex": nBest,
         "indexes": indexes,
         "wer_rank": wers_rank,
-        "nBestMask": nBestMask
+        "nBestMask": nBestMask,
     }
+
 
 # def MarginBatchwithHardLabel(batch):
 #     names = []
@@ -362,6 +363,8 @@ def PBertBatchWithHardLabel(batch, use_Margin):
     indexes = []
     wers_rank = []
     nBestMask = []
+    ref_ids = []
+    ref_mask = []
 
     am_scores = torch.as_tensor([], dtype=torch.float32)
     ctc_scores = torch.as_tensor([], dtype=torch.float32)
@@ -371,9 +374,7 @@ def PBertBatchWithHardLabel(batch, use_Margin):
     for sample in batch:
         # print(f"nbest:{sample['nbest']}")
         names += [sample["name"] for _ in range(sample["nbest"])]
-        input_ids += [
-            torch.as_tensor(s, dtype=torch.long) for s in sample["input_ids"]
-        ]
+        input_ids += [torch.as_tensor(s, dtype=torch.long) for s in sample["input_ids"]]
         attention_mask += [
             torch.as_tensor(s, dtype=torch.long) for s in sample["attention_mask"]
         ]
@@ -386,6 +387,7 @@ def PBertBatchWithHardLabel(batch, use_Margin):
         wer = torch.cat([wer, label_score])
         errors = torch.cat([errors, sample["wer"]], dim=-1)
         rank_tensor = sample["wer_rank"]
+
         if use_Margin:
             oracle_index = sample["wer"] == sample["wer"][sample["wer_rank"][0]]
             oracle_index[sample["wer_rank"][0]] = False
@@ -396,18 +398,24 @@ def PBertBatchWithHardLabel(batch, use_Margin):
         wers_rank.append(rank_tensor.long())
         nBest.append(sample["nbest"])
         indexes += [rank for rank in range(sample["nbest"])]
-        if (sample['nBestMask'] is not None):
-            nBestMask.append(sample['nBestMask'])
+        if sample["nBestMask"] is not None:
+            nBestMask.append(sample["nBestMask"])
+
+        ref_ids += [torch.as_tensor(sample["ref_ids"])]
+        ref_mask += [torch.as_tensor(sample["ref_mask"])]
 
     input_ids = pad_sequence(input_ids, batch_first=True)
     attention_mask = pad_sequence(attention_mask, batch_first=True)
     am_scores = am_scores.unsqueeze(-1)
     ctc_scores = ctc_scores.unsqueeze(-1)
+    ref_ids = pad_sequence(ref_ids, batch_first=True)
+    ref_mask = pad_sequence(ref_mask, batch_first=True)
     nBest = torch.as_tensor(nBest, dtype=torch.int64)
-    if (len(nBestMask) == 0):
+    if len(nBestMask) == 0:
         nBestMask = None
     else:
-        nBestMask = torch.tensor(nBestMask, dtype = torch.long)
+        nBestMask = torch.tensor(nBestMask, dtype=torch.long)
+    # print(f"nBest:{nBest}")
     return {
         "name": names,
         "input_ids": input_ids,
@@ -419,7 +427,9 @@ def PBertBatchWithHardLabel(batch, use_Margin):
         "nBestIndex": nBest,
         "indexes": indexes,
         "wer_rank": wers_rank,
-        "nBestMask": nBestMask
+        "nBestMask": nBestMask,
+        "ref_ids": ref_ids,
+        "ref_mask": ref_mask,
     }
 
 
@@ -645,7 +655,6 @@ def MWERTrainBatch(batch):
         "labels": labels,
         "wers": wers,
     }
-
 
 
 def RescoreBertRecogBatch(batch):

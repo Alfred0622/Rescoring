@@ -8,7 +8,7 @@ import sys
 sys.path.append("../")
 import torch
 import torch.nn as nn
-from transformers import BertModel
+from transformers import BertModel, BertConfig, BertLayer
 from src_utils.getPretrainName import getBertPretrainName
 from utils.activation_function import SoftmaxOverNBest
 from utils.Pooling import AvgPooling, MaxPooling
@@ -25,10 +25,10 @@ class selfMarginLoss(nn.Module):
     def forward(self, scores, nBestIndex, werRank):
         # nBestIndex = a list of number of N-best e.x
         start_index = 0
-        final_loss = torch.tensor(0.0, device=scores.device)
+        final_loss = torch.tensor([0.0], device=scores.device, dtype=torch.float64)
 
         for N, nBestRank in zip(nBestIndex, werRank):  # i-th werRank ex.[50, 50, 50]
-            nBestRank = nBestRank.cuda()
+            nBestRank = nBestRank.to(scores.device)
             if self.top_only:
                 compare = (
                     scores[start_index + nBestRank[1:]]  # x2
@@ -42,40 +42,107 @@ class selfMarginLoss(nn.Module):
                 loss = result.sum()
 
                 if self.reduction == "mean":
-                    loss = loss / len(nBestRank)
+                    loss = loss / len(nBestRank[1:])
                 final_loss += loss
 
             else:
+                print(f"score:{scores}")
+                print(f"index:{start_index}:{start_index + N}")
+                nBestScore = scores[start_index : start_index + N]
+                print(f"nBestScore:{nBestScore}")
                 for i, rank in enumerate(nBestRank[:-1]):
-                    compare = (
-                        scores[start_index + nBestRank[i + 1 :]]  # x2
-                        - scores[start_index + rank]  # x1
-                    )  # take every index after the present rank
-                    # should be scores[rank] - scores[rank:] , so multiply -1
+                    print(f"rank:{rank}")
+                    print(f"pos:{nBestScore[rank]}")
+                    print(f"neg:{nBestScore[nBestRank[i + 1 :]]}")
+                    compare = nBestScore[nBestRank[i + 1 :]] - nBestScore[rank]
                     compare = compare + self.margin
-
                     result = compare[compare > 0]
 
                     loss = result.sum()
                     if self.reduction == "mean":
-                        loss = loss / len(scores[start_index + nBestRank[i + 1 :]])
+                        loss = loss / len(nBestRank[i + 1 :])
+
                     final_loss += loss
 
                 start_index += N
 
+        # for i, rank in enumerate(nBestRank[:-1]):
+        #     compare = (
+        #         scores[start_index + nBestRank[i + 1 :]]  # x2
+        #         - scores[start_index + rank]  # x1
+        #     )  # take every index after the present rank
+        #     # should be scores[rank] - scores[rank:] , so multiply -1
+        #     compare = compare + self.margin
+
+        #     result = compare[compare > 0]
+
+        #     loss = result.sum()
+        #     if self.reduction == "mean":
+        #         loss = loss / len(scores[start_index + nBestRank[i + 1 :]])
+
+        #     final_loss += loss
+
+        # start_index += N
+
         return final_loss
 
 
+class torchMarginLoss(nn.Module):
+    def __init__(self, margin=0.0, reduction="mean", useTopOnly=False):
+        super().__init__()
+        self.margin = margin
+        self.reduction = reduction
+        self.useTopOnly = useTopOnly
+        self.loss = torch.nn.MarginRankingLoss(margin=margin, reduction=reduction)
+
+    def forward(self, scores, nBestIndex, werRank):
+        start_index = 0
+        total_loss = torch.tensor([0.0], device=scores.device, dtype=torch.float64)
+
+        for N, nBestRank in zip(nBestIndex, werRank):
+
+            nBestScore = scores[start_index : start_index + N]
+            print(f"score:{scores}")
+            print(f"index:{start_index}:{start_index + N}")
+            print(f"nBestScore:{nBestScore}")
+
+            for j, rank in enumerate(nBestRank[:-1]):
+                print(f"rank:{rank}")
+                print(f"pos:{nBestScore[rank]}")
+
+                neg_score = nBestScore[nBestRank[j + 1 :]]
+
+                print(f"neg:{neg_score}")
+
+                pos_score = nBestScore[rank].expand_as(neg_score)
+
+                ones = torch.ones(pos_score.shape).to(scores.device)
+
+                loss = self.loss(pos_score, neg_score, ones)
+                # if self.reduction == "mean":
+                #     loss = loss / neg_score.shape[0]
+                # print(f"loss:{loss}")
+
+                total_loss += loss
+            start_index += N
+
+        return total_loss
+
+
 class marginalBert(nn.Module):
-    def __init__(self, args, margin=0.1, useTopOnly=False):
+    def __init__(self, args, margin=0.1, useTopOnly=False, useTorch=False):
         super().__init__()
 
         pretrain_name = getBertPretrainName(args["dataset"])
         self.bert = BertModel.from_pretrained(pretrain_name)
         self.linear = nn.Linear(770, 1)
-
-        self.loss = selfMarginLoss(margin=margin, useTopOnly=useTopOnly)
+        if useTorch:
+            self.loss = torchMarginLoss(margin=margin)
+        else:
+            self.loss = selfMarginLoss(margin=margin, useTopOnly=useTopOnly)
         self.activation_fn = SoftmaxOverNBest()
+
+        print(f"useTorch:{useTorch}")
 
     def forward(
         self,
@@ -86,7 +153,7 @@ class marginalBert(nn.Module):
         nBestIndex,
         wer_rank,
         labels,
-        add_margin=False,
+        extra_loss=False,
         *args,
         **kwargs,
     ):
@@ -102,13 +169,14 @@ class marginalBert(nn.Module):
         concat_state = torch.cat([concat_state, ctc_score], dim=-1)
 
         final_score = self.linear(concat_state).squeeze(-1)
+        # print(f"final_score:{final_score}")
         # if (self.training):
         final_prob = self.activation_fn(final_score, nBestIndex)
         ce_loss = labels * torch.log(final_prob)
         ce_loss = torch.neg(torch.sum(ce_loss)) / final_score.shape[0]
 
         # Margin Loss
-        if self.training and add_margin:
+        if self.training and extra_loss:
             margin_loss = self.loss(final_prob, nBestIndex, wer_rank)
 
             loss = ce_loss + margin_loss
@@ -147,10 +215,18 @@ class contrastBert(nn.Module):
 
         self.activation_fn = SoftmaxOverNBest()
         self.useTopOnly = train_args["useTopOnly"]
-        self.compareCLS = train_args["compareCLS"]
+        self.compare = train_args["compareWith"].strip().upper()
 
-        self.cosSim = nn.CosineSimilarity(dim=-1)
+        # self.cosSim = nn.CosineSimilarity(dim=-1)
+        # self.cosSim = torch.tensordot(dims=-1)
         self.pooling = MaxPooling(noCLS=train_args["noCLS"], noSEP=train_args["noSEP"])
+        self.layerOp = train_args["layer_op"]
+        if self.layerOp is not None and "lastInit" in self.layerOp:
+            config = BertConfig.from_pretrained(pretrain_name)
+            layer_init = self.layerOp.split("_")[-1]
+            print(f"init Layer:{layer_init}")
+            for i in range(1, int(layer_init) + 1):
+                self.bert.encoder.layer[-i] = BertLayer(config)
 
     def forward(
         self,
@@ -160,6 +236,9 @@ class contrastBert(nn.Module):
         ctc_score,
         nBestIndex,
         labels,
+        ref_ids,
+        ref_mask,
+        extra_loss=True,
         *args,
         **kwargs,
     ):
@@ -174,31 +253,59 @@ class contrastBert(nn.Module):
         concat_state = torch.cat([concat_state, ctc_score], dim=-1)
 
         final_score = self.linear(concat_state).squeeze(-1)
-        # if (self.training):
         final_prob = self.activation_fn(final_score, nBestIndex)
         ce_loss = labels * torch.log(final_prob)
         ce_loss = torch.neg(torch.sum(ce_loss))
-        # Margin Loss
 
-        if self.compareCLS:
-            sim_matrix = self.cosSim(bert_output, bert_output)
+        if extra_loss and self.training:
+            if self.compare == "TOP":
+                sim_matrix = torch.tensordot(bert_output, bert_output, dims=([1], [1]))
+                norm = torch.norm(bert_output, dim=-1)
+                # print(f"norm:{norm.shape}")
+                sim_matrix = sim_matrix / norm
+                sim_matrix = sim_matrix / norm.unsqueeze(-1)
+
+                # print(f"sim_matrix.shape:{sim_matrix}")
+                # print(f"diag sim:{torch.diagonal(sim_matrix, 0)}")
+                sim_matrix = self.activation_fn(sim_matrix, nBestIndex)
+                # print(f"diag sim agter softmax:{torch.diagonal(sim_matrix, 0)}")
+                top_index = labels == 1
+                sim_value = torch.diagonal(sim_matrix, 0)
+                top_sim = sim_value[top_index]
+                contrastLoss = torch.neg(torch.sum(torch.log(top_sim)))
+
+            elif self.compare == "POOL":
+                pooled_embedding = self.pooling(bert_embedding, attention_mask)
+                sim_matrix = self.cosSim(bert_output, pooled_embedding)
+                sim_matrix = self.activation_fn(sim_matrix, nBestIndex)
+                sim_value = torch.diag(sim_matrix, 0)
+                contrastLoss = torch.neg(torch.sum(sim_value))
+
+            elif self.compare == "REF":
+                ref_output = self.bert(
+                    input_ids=ref_ids, attention_mask=ref_mask
+                ).pooler_output
+                sim_matrix = torch.tensordot(ref_output, bert_output, dims=([1], [1]))
+
+                sim_matrix = self.activation_fn(sim_matrix, nBestIndex)
+                top_index = (labels == 1).nonzero()
+
+                print(f"sim_matrix after softmax:{sim_matrix}")
+
+                # print(f"top_index:{top_index}")
+                contrastLoss = torch.tensor([0.0]).cuda()
+                for i, batch_top in enumerate(top_index):
+                    print(f"sim:{sim_matrix[i][batch_top]}")
+                    print(f"loss:{torch.log(sim_matrix[i][batch_top])}")
+                    contrastLoss += torch.log(sim_matrix[i][batch_top])
+                contrastLoss = torch.neg(contrastLoss)
+                print(f"contrastLoss:{contrastLoss}")
+
+            # contrastLoss = contrastLoss  # batch_mean
+            loss = ce_loss + self.contrast_weight * contrastLoss
         else:
-            pooled_embedding = self.pooling(bert_embedding, attention_mask)
-            sim_matrix = self.cosSim(bert_output, pooled_embedding)
-        # sim_matrix = torch.tensordot(bert_output, pooled_embedding.T, dims=1)
-        sim_matrix = self.activation_fn(sim_matrix, nBestIndex)
-
-        sim_value = torch.diag(sim_matrix, 0)
-        if self.useTopOnly:
-            top_index = labels == 1
-            top_sim = sim_value[top_index]
-            contrastLoss = torch.neg(torch.sum(top_sim))
-            # print(f"top_sim:{top_sim.shape}")
-        else:
-            contrastLoss = torch.neg(torch.sum(top_sim))
-
-        contrastLoss = contrastLoss / input_ids.shape[0]  # batch_mean
-        loss = ce_loss + self.contrast_weight * contrastLoss
+            loss = ce_loss
+            contrastLoss = None
 
         return {
             "score": final_score,

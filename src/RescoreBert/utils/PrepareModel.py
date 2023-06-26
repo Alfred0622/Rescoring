@@ -182,10 +182,10 @@ def prepareNBestCrossBert(
     return model, tokenizer
 
 
-def preparePBert(dataset, device, hardLabel=False, loss_type="KL", weightByWER="none"):
-    pretrain_name = getBertPretrainName(dataset)
+def preparePBert(args, train_args, device):
+    pretrain_name = getBertPretrainName(args["dataset"])
 
-    model = pBert(dataset, device, hardLabel, loss_type, weightByWER=weightByWER)
+    model = pBert(args, train_args, device)
 
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 
@@ -197,11 +197,12 @@ def prepareContrastBert(args, train_args, mode="CONTRAST"):
 
     if mode == "CONTRAST":
         model = contrastBert(args, train_args)
-    elif mode == "MARGIN":
+    elif mode in ["MARGIN", "MARGIN_TORCH"]:
         model = marginalBert(
             args,
             margin=float(train_args["margin_value"]),
             useTopOnly=train_args["useTopOnly"],
+            useTorch=mode == "MARGIN_TORCH",
         )
 
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
