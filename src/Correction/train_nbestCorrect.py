@@ -19,6 +19,7 @@ from src_utils.LoadConfig import load_config
 from utils.PrepareModel import prepare_model
 from jiwer import wer
 import gc
+import torch
 
 tqdm = partial(tqdm, ncols=100)
 
@@ -156,6 +157,7 @@ train_dataset = get_dataset(
 
 del train_json
 del valid_json
+gc.collect()
 
 training_args = Seq2SeqTrainingArguments(
             output_dir=f"./checkpoint/{args['dataset']}/{args['nbest']}_{task_name}/{setting}/result",
@@ -203,3 +205,7 @@ trainer = Seq2SeqTrainer(
 )
 
 trainer.train()
+metric = trainer.evaluate()
+print(f"\n {metric}")
+
+torch.save(model.state_dict(), f"./checkpoint/{args['dataset']}/{args['nbest']}_{task_name}/{setting}/result/checkpoint_CERBest.pt")
