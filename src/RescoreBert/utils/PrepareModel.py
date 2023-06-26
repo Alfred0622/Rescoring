@@ -4,7 +4,7 @@ import sys
 sys.path.append("../")
 import torch
 from model.RescoreBert import RescoreBertAlsem
-from model.NBestCrossBert import nBestCrossBert, pBert, poolingBert, nBestfuseBert
+from model.NBestCrossBert import nBestCrossBert, pBert, poolingBert, nBestfuseBert, pBertSimp
 from model.ContrastBERT import marginalBert, contrastBert
 from transformers import (
     AutoModelForCausalLM,
@@ -182,10 +182,13 @@ def prepareNBestCrossBert(
     return model, tokenizer
 
 
-def preparePBert(dataset, device, hardLabel=False, loss_type="KL", weightByWER="none"):
+def preparePBert(dataset, device, hardLabel=False, loss_type="KL", weightByWER="none", simp = False):
     pretrain_name = getBertPretrainName(dataset)
 
-    model = pBert(dataset, device, hardLabel, loss_type, weightByWER=weightByWER)
+    if (simp):
+        model= pBertSimp(dataset, device, hardLabel, loss_type, weightByWER=weightByWER)
+    else:
+        model = pBert(dataset, device, hardLabel, loss_type, weightByWER=weightByWER)
 
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 

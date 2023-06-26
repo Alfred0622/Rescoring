@@ -354,6 +354,55 @@ def PBertBatch(batch):
 #         wer = torch.cat([wer, label_score])
 
 
+def SimplePBertBatchWithHardLabel(batch):
+    names = []
+    input_ids = []
+    attention_mask = []
+    nBest = []
+
+    am_scores = torch.as_tensor([], dtype=torch.float32)
+    ctc_scores = torch.as_tensor([], dtype=torch.float32)
+    wer = torch.as_tensor([], dtype=torch.float32)
+    errors = torch.as_tensor([], dtype=torch.float32)
+
+    for sample in batch:
+        # print(f"nbest:{sample['nbest']}")
+        names += [sample["name"] for _ in range(sample["nbest"])]
+        input_ids += [
+            torch.as_tensor(s, dtype=torch.long) for s in sample["input_ids"]
+        ]
+        attention_mask += [
+            torch.as_tensor(s, dtype=torch.long) for s in sample["attention_mask"]
+        ]
+
+        am_scores = torch.cat([am_scores, sample["am_score"]], dim=-1)
+        ctc_scores = torch.cat([ctc_scores, sample["ctc_score"]], dim=-1)
+
+        label_score = torch.zeros((sample["nbest"]), dtype=torch.float32)  #
+        label_score[sample["wer_rank"][0]] = 1  # Add hard label 1
+        wer = torch.cat([wer, label_score])
+        errors = torch.cat([errors, sample["wer"]], dim=-1)
+
+        nBest.append(sample["nbest"])
+
+    input_ids = pad_sequence(input_ids, batch_first=True)
+    attention_mask = pad_sequence(attention_mask, batch_first=True)
+    am_scores = am_scores.unsqueeze(-1)
+    ctc_scores = ctc_scores.unsqueeze(-1)
+    nBest = torch.as_tensor(nBest, dtype=torch.int64)
+
+    return {
+        "name": names,
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "am_score": am_scores,
+        "ctc_score": ctc_scores,
+        "labels": wer,
+        "wers": errors,
+        "nBestIndex": nBest,
+    }
+
+
 def PBertBatchWithHardLabel(batch, use_Margin):
     names = []
     input_ids = []

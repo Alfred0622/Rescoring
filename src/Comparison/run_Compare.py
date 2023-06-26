@@ -7,6 +7,7 @@ import glob
 import logging
 import os
 import sys
+import gc
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 from model.BertForComparison import Bert_Sem, Bert_Compare
@@ -56,10 +57,8 @@ print('Data Prepare')
 print(f'setting:{setting}')
 print(f"nbest:{args['nbest']}")
 
-
 # if (args['stage'] <= 0) and (args['stop_stage']>= 0):
 model, tokenizer = prepare_model(args, train_args, device)
-
 
 optimizer = AdamW(model.parameters(), lr = float(train_args['lr']))
 
@@ -108,20 +107,21 @@ train_dataset, _ = get_dataset(train_json, args['dataset'], tokenizer)
 
 del train_json
 del valid_json
+gc.collect()
 
 train_loader = DataLoader(
     train_dataset,
     batch_size = train_args["train_batch"],
     collate_fn=bertCompareBatch,
-    num_workers=8,
-    shuffle = True
+    num_workers=16,
 )
 
 valid_loader = DataLoader(
     valid_dataset,
     batch_size = train_args["train_batch"],
     collate_fn=bertCompareBatch,
-    num_workers=8,
+    num_workers=16,
+    pin_memory=True
 )
 
 scheduler = OneCycleLR(
@@ -132,6 +132,10 @@ scheduler = OneCycleLR(
     pct_start = 0.02,
     anneal_strategy = 'linear'
 )
+
+del train_dataset
+del valid_dataset
+gc.collect()
 
 wandb_config = wandb.config
 wandb_config = model.bert.config if (torch.cuda.device_count() == 1) else model.module.bert.config

@@ -89,7 +89,7 @@ class nBestAlignBart(nn.Module):
             dtype = torch.int64
         ).unsqueeze(-1).to(input_ids.device)
 
-        # decoder_ids = torch.tensor(
+        # decoder_ids = torch.tensor( 
         #     [[] for _ in range(batch_size)], 
         #     dtype = torch.int64
         # ).to(input_ids.device)

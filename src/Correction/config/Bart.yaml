@@ -2,15 +2,15 @@ args:
   stage: 0 
   stop_stage: 1
   nbest: 1
-  withLM: True
-  dataset: csj
+  withLM: False
+  dataset: aishell
 
 train:
   start_epoch: 0
   epoch: 10
-  train_batch: 64
-  valid_batch: 64
-  accumgrad: 4
+  train_batch: 256
+  valid_batch: 256
+  accumgrad: 1
   print_loss: 2000
   lr: 1e-6
   data_type: single

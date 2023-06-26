@@ -22,7 +22,7 @@ from torch.optim import AdamW, Adam
 from torch.optim.lr_scheduler import OneCycleLR
 from src_utils.get_recog_set import get_valid_set
 from utils.PrepareModel import preparePBert, prepareContrastBert, prepareFuseBert
-from utils.CollateFunc import PBertBatch, PBertBatchWithHardLabel
+from utils.CollateFunc import PBertBatch, PBertBatchWithHardLabel, SimplePBertBatchWithHardLabel
 from utils.PrepareScoring import prepare_score_dict, calculate_cer
 
 # from accelerate import Accelerator
@@ -39,24 +39,14 @@ if len(sys.argv) >= 2:
     if len(sys.argv) >= 3:
         checkpoint_path = sys.argv[2]
 
-assert mode in [
-    "PBERT",
-    "CONTRAST",
-    "MARGIN",
-    "N-FUSE",
-], "mode must in PBERT, MARGIN or CONTRAST"
-
-print(f"mode:{mode}")
-
 if torch.cuda.is_available():
     device = torch.device("cuda")
 else:
     device = torch.device("cpu")
 
-if mode in ["PBERT", "N-FUSE"]:
-    config_path = "./config/PBert.yaml"
-else:
-    config_path = "./config/contrastBert.yaml"
+
+config_path = "./config/PBert.yaml"
+
 
 args, train_args, recog_args = load_config(config_path)
 
@@ -76,17 +66,6 @@ if "weightByWER" in train_args.keys() and train_args["weightByWER"] != "none":
 else:
     log_path = log_path + "/normal"
 
-if mode == "MARGIN":
-    run_name = run_name + f"_Margin{train_args['margin_value']}"
-    if "margin_first" in train_args.keys() and train_args["margin_first"] is not None:
-        run_name = (
-            run_name
-            + f"_converge{train_args['converge']}"
-            + f"_MarginFirst{train_args['margin_first']}"
-        )
-elif mode == "CONTRAST":
-    run_name = run_name + f"contrastWeight{train_args['contrast_weight']}"
-
 log_path = Path(f"./log/RescoreBERT/{args['dataset']}/{setting}/{mode}")
 log_path.mkdir(parents=True, exist_ok=True)
 
@@ -104,12 +83,6 @@ if mode == "PBERT":
     model, tokenizer = preparePBert(
         args["dataset"], device, train_args["hard_label"], train_args["weightByWER"]
     )
-elif mode == "CONTRAST" or mode == "MARGIN":
-    model, tokenizer = prepareContrastBert(args, train_args, mode)
-
-elif mode == "N-FUSE":
-    model, tokenizer = prepareFuseBert(args, train_args)
-
 print(type(model))
 model = model.to(device)
 if torch.cuda.device_count() > 1:
@@ -143,7 +116,7 @@ train_dataset = prepareListwiseDataset(
     tokenizer=tokenizer,
     sort_by_len=True,
     get_num=get_num,
-    paddingNBest=(mode == "N-FUSE"),
+    paddingNBest=False,
 )
 print(f"tokenizing Validation")
 valid_dataset = prepareListwiseDataset(
@@ -152,7 +125,7 @@ valid_dataset = prepareListwiseDataset(
     tokenizer=tokenizer,
     sort_by_len=True,
     get_num=get_num,
-    paddingNBest=(mode == "N-FUSE"),
+    paddingNBest=False,
 )
 
 print(f"Prepare Sampler")
@@ -166,17 +139,15 @@ valid_batch_sampler = BatchSampler(valid_sampler, train_args["batch_size"])
 
 print(f"len of batch sampler:{len(train_batch_sampler)}")
 
-train_collate_func = PBertBatch
-valid_collate_func = PBertBatch
-if train_args["hard_label"]:
-    train_collate_func = partial(PBertBatchWithHardLabel, use_Margin=(mode == "MARGIN"))
-    valid_collate_func = partial(PBertBatchWithHardLabel, use_Margin=False)
+train_collate_func = SimplePBertBatchWithHardLabel
+valid_collate_func = SimplePBertBatchWithHardLabel
+
 
 train_loader = DataLoader(
     dataset=train_dataset,
     batch_sampler=train_batch_sampler,
     collate_fn=train_collate_func,
-    num_workers=16,
+    num_workers=32,
     pin_memory=True,
 )
 
@@ -237,10 +208,7 @@ checkpoint_path = Path(
 checkpoint_path.mkdir(parents=True, exist_ok=True)
 del train_json
 del valid_json
-del train_dataset
-del valid_dataset
 gc.collect()
-
 """
 Start Training
 """
@@ -257,55 +225,22 @@ logging_loss = torch.tensor([0.0])
 logging_CE_loss = torch.tensor([0.0])
 logging_contrastive_loss = torch.tensor([0.0])
 
-for param in model.bert.parameters():
-    param.requires_grad = False
-
-# accelerator = Accelerator()
-# device = accelerator.device
-# model, optimizer, train_loader, lr_scheduler = accelerator.prepare(
-#     model, optimizer, train_loader, lr_scheduler
-# )
-if mode == "MARGIN" and train_args["margin_first"] is not None:
-    use_margin = train_args["margin_first"]
-else:
-    use_margin = None
 for e in range(start_epoch, train_args["epoch"]):
     train_epoch_loss = torch.tensor([0.0])
-    epoch_CE_loss = torch.tensor([0.0])
-    epoch_contrast_loss = torch.tensor([0.0])
     model.train()
-    if e >= int(train_args["freeze_epoch"]):
-        print("Unfreeze BERT")
-        for param in model.bert.parameters():
-            param.requires_grad = True
-    else:
-        print("Freeze BERT")
 
     for i, data in enumerate(tqdm(train_loader, ncols=100)):
-        # for rank in data['wer_rank']:
-        #     if (len(rank) < 50):
-        #         print(f'filtered:{rank}')
         for key in data.keys():
             if key not in ["name", "indexes", "wer_rank"] and data[key] is not None:
                 # print(f"{key}:{type(data[key])}")
                 data[key] = data[key].to(device)
 
-        if mode in ["CONTRAST", "MARGIN"] or (
-            "weightByWER" in train_args.keys() and train_args["weightByWER"] == "none"
-        ):
-            data["wers"] = None
-
         output = model.forward(
             **data,
-            add_margin=use_margin if use_margin is not None else (mode == "MARGIN"),
         )
 
         loss = output["loss"]
         loss = torch.mean(loss)
-
-        if mode in ["CONTRAST", "MARGIN"] and output["contrast_loss"] is not None:
-            epoch_CE_loss += output["CE_loss"].sum().item()
-            epoch_contrast_loss += output["contrast_loss"].sum().item()
 
         if torch.cuda.device_count() > 1:
             loss = loss.sum()
@@ -344,21 +279,11 @@ for e in range(start_epoch, train_args["epoch"]):
 
         torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_{e+1}.pt")
 
-    if mode in ["CONTRAST", "MARGIN"] and output["contrast_loss"] is not None:
-        wandb.log(
-            {
-                "train_loss": train_epoch_loss / len(train_batch_sampler),
-                "CE_loss": epoch_CE_loss / len(train_batch_sampler),
-                "contrast_loss": epoch_contrast_loss / len(train_batch_sampler),
-                "epoch": e + 1,
-            },
-            step=(i + 1) + e * len(train_batch_sampler),
-        )
-    else:
-        wandb.log(
-            {"train_loss": train_epoch_loss, "epoch": e + 1},
-            step=(i + 1) + e * len(train_batch_sampler),
-        )
+
+    wandb.log(
+        {"train_loss": train_epoch_loss, "epoch": e + 1},
+        step=(i + 1) + e * len(train_batch_sampler),
+    )
 
     """
     Validation
@@ -366,29 +291,17 @@ for e in range(start_epoch, train_args["epoch"]):
     model.eval()
     valid_len = len(valid_batch_sampler)
     eval_loss = torch.tensor([0.0])
-    epoch_CE_loss = torch.tensor([0.0])
-    epoch_contrast_loss = torch.tensor([0.0])
+
     with torch.no_grad():
         for i, data in enumerate(tqdm(valid_loader, ncols=100)):
             for key in data.keys():
                 if key not in ["name", "indexes", "wer_rank"] and data[key] is not None:
-
                     data[key] = data[key].to(device)
-
-            if mode == "CONTRAST" or (
-                "weightByWER" in train_args.keys()
-                and train_args["weightByWER"] == "none"
-            ):
-                data["wers"] = None
 
             output = model.forward(**data)
 
             loss = output["loss"]
             scores = output["score"]
-
-            if mode in ["CONTRAST", "MARGIN"] and output["contrast_loss"] is not None:
-                epoch_CE_loss += output["CE_loss"].sum().item()
-                epoch_contrast_loss += output["contrast_loss"].sum().item()
 
             loss = torch.mean(loss)
             if torch.cuda.device_count() > 1:
@@ -429,35 +342,15 @@ for e in range(start_epoch, train_args["epoch"]):
             f"epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}"
         )
 
-        if mode in ["CONTRAST", "MARGIN"] and output["contrast_loss"] is not None:
-            wandb.log(
-                {
-                    "eval_loss": eval_loss / len(valid_batch_sampler),
-                    "eval_CER": min_cer,
-                    "CE_loss": epoch_CE_loss / len(valid_batch_sampler),
-                    "contrast_loss": epoch_contrast_loss / len(valid_batch_sampler),
-                    "epoch": e + 1,
-                },
-                step=(e + 1) * len(train_batch_sampler),
-            )
-        else:
-            wandb.log(
-                {"CE_loss": eval_loss, "eval_CER": min_cer, "epoch": (e + 1)},
-                step=((e + 1) * len(train_batch_sampler)),
-            )
+        
+        wandb.log(
+            {"CE_loss": eval_loss, "eval_CER": min_cer, "epoch": (e + 1)},
+            step=((e + 1) * len(train_batch_sampler)),
+        )
         logging.warning(f"epoch:{e + 1},validation loss:{eval_loss}")
         logging.warning(
             f"epoch:{e + 1},validation CER:{min_cer} , weight = {[best_am, best_ctc, best_lm, best_rescore]}"
         )
-
-        if (
-            "margin_first" in train_args.keys() and train_args["margin_first"] is not None
-            and use_margin == train_args["margin_first"]
-            and mode == "MARGIN"
-            and last_val_cer - min_cer < float(train_args["converge"])
-        ):
-            use_margin = not (train_args["margin_first"])
-            print(f"Switch use_margin: {train_args['margin_first']} -> {use_margin}")
 
         last_val_cer = min_cer
 
