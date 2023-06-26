@@ -40,7 +40,7 @@ class SoftmaxOverNBest(torch.nn.Module):
                             start_index : start_index + index,
                         ].clone(),
                     )
-                if paddindNbest:
+                if paddingNbest:
                     start_index += topk
                 else:
                     start_index += index

@@ -12,11 +12,17 @@ train:
   freeze_epoch: -1
   hard_label: True
   warmup_step: 10000
-  margin_value: 0.05
+  margin_value: 0.1
   converge: 0.1
-  margin_first: False
+  margin_mode: epoch
   contrast_weight: 1.0
   warmup_ratio: 0.1
+  useTopOnly: False
+  compareWith: REF # TOP, POOL or REF
+  noCLS: True
+  noSEP: False
+  layer_op:
+  # lastInit_n, n = number of layers
 
 recog:
   batch: 1

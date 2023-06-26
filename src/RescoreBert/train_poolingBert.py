@@ -188,9 +188,7 @@ config = {
     else model.module.bert.config,
 }
 
-wandb.init(
-    project=f"poolingBert_{args['dataset']}_{setting}", config=config, name=run_name
-)
+wandb.init(project=f"myBert_{args['dataset']}_{setting}", config=config, name=run_name)
 
 checkpoint_path = Path(
     f"./checkpoint/{args['dataset']}/poolingBert/{setting}/{args['nbest']}best/{run_name}"

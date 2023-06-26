@@ -1,4 +1,7 @@
+from collections import OrderedDict
 import sys
+
+from torch import Tensor
 
 sys.path.append("../")
 import numpy as np
@@ -12,6 +15,7 @@ from transformers import (
     DistilBertModel,
     DistilBertConfig,
     AutoModelForCausalLM,
+    BertLayer,
 )
 from transformers.modeling_outputs import (
     SequenceClassifierOutput,
@@ -716,15 +720,13 @@ class pBertSimp(torch.nn.Module):
 class pBert(torch.nn.Module):
     def __init__(
         self,
-        dataset,
+        args,
+        train_args,
         device,
-        hardLabel=False,
         output_attention=True,
-        loss_type="KL",
-        weightByWER="postive",
     ):
         super().__init__()
-        pretrain_name = getBertPretrainName(dataset)
+        pretrain_name = getBertPretrainName(args["dataset"])
         config = BertConfig.from_pretrained(pretrain_name)
         config.output_attentions = True
         config.output_hidden_states = True
@@ -732,14 +734,28 @@ class pBert(torch.nn.Module):
         self.bert = BertModel(config=config).from_pretrained(pretrain_name).to(device)
         self.linear = torch.nn.Linear(770, 1).to(device)
 
-        self.hardLabel = hardLabel
-        self.loss_type = loss_type
+        self.hardLabel = train_args["hard_label"]
+        self.loss_type = train_args["loss_type"]
         self.loss = torch.nn.KLDivLoss(reduction="batchmean")
 
         self.output_attention = output_attention
 
         self.activation_fn = SoftmaxOverNBest()
-        self.weightByWER = weightByWER
+        self.weightByWER = train_args["weightByWER"]
+        self.layer_op = train_args["layer_op"]
+
+        extra_layer_config = BertConfig.from_pretrained(pretrain_name)
+        extra_layer_config.num_hidden_layers = 1
+
+        if "lastInit" in self.layer_op:
+
+            init_layer = self.layer_op.split("_")[-1]
+            print(f"last init:{init_layer}")
+            for i in range(1, int(init_layer) + 1):
+                print(f"layer:-{i}")
+                self.bert.encoder.layer[-i] = BertLayer(config)
+        elif self.layer_op == "extra":
+            self.extra_layer = BertLayer(config)
 
         print(f"output_attention:{self.output_attention}")
         print(f"weightByWER:{self.weightByWER}")
@@ -805,6 +821,33 @@ class pBert(torch.nn.Module):
             "attention_weight": bert_output.attentions,
         }
 
+    def parameters(self):
+        parameters = list(self.bert.parameters()) + list(self.linear.parameters())
+
+        if self.layer_op == "extra":
+            parameters += list(self.extra_layer.parameters())
+
+        return parameters
+
+    def state_dict(self):
+        state_dict = {
+            "bert": self.bert.state_dict(),
+            "linear": self.linear.state_dict(),
+        }
+
+        if self.layer_op == "extra":
+            state_dict["extra_layer"] = self.extra_layer.state_dict()
+
+        return state_dict
+
+    def load_state_dict(self, state_dict):
+        self.bert.load_state_dict(state_dict["bert"])
+        self.linear.load_state_dict(state_dict["linear"])
+
+        if self.layer_op == "extra":
+            self.extra_layer.load_state_dict(state_dict["extra_layer"])
+
+
 class nBestfuseBert(torch.nn.Module):
     def __init__(self, args, train_args, **kwargs):
         super().__init__()
@@ -832,27 +875,31 @@ class nBestfuseBert(torch.nn.Module):
         nBestIndex,
         labels=None,
         *args,
-        **kwargs
+        **kwargs,
     ):
         output = self.bert(
-            input_ids = input_ids,
-            attention_mask = attention_mask,
+            input_ids=input_ids,
+            attention_mask=attention_mask,
         )
         batch_size = input_ids.shape[0] // self.nBest
 
         cls = output.pooler_output
 
         cls = cls.view(batch_size, self.nBest, -1)
-        nBestFuseCLS = self.fuse_model(inputs_embeds=cls, attention_mask=nBestMask).last_hidden_state
+        nBestFuseCLS = self.fuse_model(
+            inputs_embeds=cls, attention_mask=nBestMask
+        ).last_hidden_state
 
-        am_score = am_score.view(batch_size, -1 , 1)
-        ctc_score = ctc_score.view(batch_size, -1 , 1)
+        am_score = am_score.view(batch_size, -1, 1)
+        ctc_score = ctc_score.view(batch_size, -1, 1)
         nBestFuseCLS = torch.cat([nBestFuseCLS, am_score], dim=-1)
         nBestFuseCLS = torch.cat([nBestFuseCLS, ctc_score], dim=-1)
-        
+
         nBestScore = self.finalLinear(nBestFuseCLS).flatten(0)
         # print(f"nBestScore:{nBestScore.shape}")
-        nBestProb = self.activation_fn(nBestScore, nBestIndex, paddingNbest = True, topk = 50)
+        nBestProb = self.activation_fn(
+            nBestScore, nBestIndex, paddingNbest=True, topk=50
+        )
 
         if labels is not None:
             loss = labels * torch.log(nBestProb)
@@ -870,14 +917,15 @@ class nBestfuseBert(torch.nn.Module):
     def state_dict(self):
         return {
             "bert": self.bert.state_dict(),
-            "fuse_model":self.fuse_model.state_dict(),
-            "finalLinear": self.finalLinear.state_dict()
+            "fuse_model": self.fuse_model.state_dict(),
+            "finalLinear": self.finalLinear.state_dict(),
         }
 
     def load_state_dict(self, checkpoint):
-        self.bert.load_state_dict(checkpoint['bert'])
-        self.fuse_model.load_state_dict(checkpoint['fuse_model'])
-        self.finalLinear.load_state_dict(checkpoint['finalLinear'])
+        self.bert.load_state_dict(checkpoint["bert"])
+        self.fuse_model.load_state_dict(checkpoint["fuse_model"])
+        self.finalLinear.load_state_dict(checkpoint["finalLinear"])
+
 
 class inter_pBert(torch.nn.Module):
     def __init__(

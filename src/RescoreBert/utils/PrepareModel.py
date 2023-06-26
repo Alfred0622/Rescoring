@@ -182,13 +182,10 @@ def prepareNBestCrossBert(
     return model, tokenizer
 
 
-def preparePBert(dataset, device, hardLabel=False, loss_type="KL", weightByWER="none", simp = False):
-    pretrain_name = getBertPretrainName(dataset)
+def preparePBert(args, train_args, device):
+    pretrain_name = getBertPretrainName(args["dataset"])
 
-    if (simp):
-        model= pBertSimp(dataset, device, hardLabel, loss_type, weightByWER=weightByWER)
-    else:
-        model = pBert(dataset, device, hardLabel, loss_type, weightByWER=weightByWER)
+    model = pBert(args, train_args, device)
 
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 
@@ -200,31 +197,32 @@ def prepareContrastBert(args, train_args, mode="CONTRAST"):
 
     if mode == "CONTRAST":
         model = contrastBert(args, train_args)
-    elif mode == "MARGIN":
-        model = marginalBert(args, margin=float(train_args["margin_value"]))
+    elif mode in ["MARGIN", "MARGIN_TORCH"]:
+        model = marginalBert(
+            args,
+            margin=float(train_args["margin_value"]),
+            useTopOnly=train_args["useTopOnly"],
+            useTorch=mode == "MARGIN_TORCH",
+        )
 
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 
     return model, tokenizer
+
 
 def preparePoolingBert(args, train_args):
-    pretrain_name = getBertPretrainName(args['dataset'])
+    pretrain_name = getBertPretrainName(args["dataset"])
 
-    model = poolingBert(
-        args, train_args
-    )
+    model = poolingBert(args, train_args)
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 
     return model, tokenizer
+
 
 def prepareFuseBert(args, train_args):
-    pretrain_name = getBertPretrainName(args['dataset'])
+    pretrain_name = getBertPretrainName(args["dataset"])
 
-    model = nBestfuseBert(
-        args, train_args
-    )
+    model = nBestfuseBert(args, train_args)
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 
     return model, tokenizer
-
-    
