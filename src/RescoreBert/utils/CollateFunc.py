@@ -189,8 +189,8 @@ def crossNBestBatch(batch, hard_label=False):
         min_lens.append(sample["min_len"])
         max_lens.append(sample["max_len"])
 
-        ref_ids += [torch.as_tensor(sample["ref_tokens"]["input_ids"])]
-        ref_mask += [torch.as_tensor(sample["ref_tokens"]["attention_mask"])]
+        ref_ids += [torch.as_tensor(sample["ref_ids"])]
+        ref_mask += [torch.as_tensor(sample["ref_mask"])]
 
         if utt_count % 2 == 0:
             NBestTokenTypeId += [0 for _ in range(sample["nbest"])]

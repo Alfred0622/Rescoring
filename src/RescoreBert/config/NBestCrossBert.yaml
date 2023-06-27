@@ -21,7 +21,7 @@ train:
   addRes: True
   hardLabel: True
   logSoftmax: False
-  lossType: 'Entropy'
+  lossType: BCE
   sortByLen: True
   concatCLS: False
   concatMaskAfter: True # if True [CLS] tokens [SEP] [MASK]  else [CLS] tokens [MASK] [SEP]
@@ -29,7 +29,7 @@ train:
   weightByGrad: False
   train_cls_first: False
   sepTask: False
-  2ndTask: "WER" # "GT" or "WER"
+  2ndTask: # "GT" or "WER"
   scoreByRank: False
   noCLS: False
   noSEP: False

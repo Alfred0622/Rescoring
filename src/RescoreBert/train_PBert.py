@@ -24,6 +24,7 @@ from src_utils.get_recog_set import get_valid_set
 from utils.PrepareModel import preparePBert, prepareContrastBert, prepareFuseBert
 from utils.CollateFunc import PBertBatch, PBertBatchWithHardLabel
 from utils.PrepareScoring import prepare_score_dict, calculate_cer
+import gc
 
 # from accelerate import Accelerator
 
@@ -70,7 +71,7 @@ log_path = f"./log/P_BERT/{args['dataset']}/{setting}/{mode}"
 run_name = f"TWCC_{mode}_{args['nbest']}Best_batch{train_args['batch_size']}_lr{train_args['lr']}_Freeze{train_args['freeze_epoch']}"
 if train_args["hard_label"]:
     collate_func = PBertBatchWithHardLabel
-    run_name = run_name + "_HardLabel_Entropy"
+    run_name = run_name + f"_HardLabel_{train_args['loss_type']}"
 else:
     run_name = run_name + train_args["loss_type"]
 
@@ -98,7 +99,7 @@ if mode in ["MARGIN", "MARGIN_TORCH"]:
         run_name = run_name + f"_useTopOnly"
 
 elif mode == "CONTRAST":
-    run_name = run_name + f"contrastWeight{train_args['contrast_weight']}"
+    run_name = run_name + f"_contrastWeight{train_args['contrast_weight']}"
     run_name += f"_{train_args['compareWith']}"
     if train_args["useTopOnly"]:
         run_name += "_useTopOnly"
@@ -109,6 +110,7 @@ elif mode == "CONTRAST":
             run_name += "_noCLS"
         if train_args["noSEP"]:
             run_name += "_noSEP"
+
 
 log_path = Path(f"./log/RescoreBERT/{args['dataset']}/{setting}/{mode}")
 log_path.mkdir(parents=True, exist_ok=True)
@@ -140,6 +142,10 @@ optimizer = AdamW(model.parameters(), lr=float(train_args["lr"]))
 
 if "margin_mode" in train_args.keys():
     print(f"margina_first:{train_args['margin_mode']}")
+    if train_args["margin_mode"] is not None:
+        run_name += f"_warmup-{train_args['margin_mode']}"
+
+print(f"Run_Name:{run_name}")
 
 with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, open(
     f"../../data/{args['dataset']}/data/{setting}/{valid_set}/data.json"
@@ -157,7 +163,7 @@ print(f"\n train_args:{train_args} \n")
 get_num = -1
 save_checkpoint = True
 if "WANDB_MODE" in os.environ.keys() and os.environ["WANDB_MODE"] == "disabled":
-    get_num = 100
+    get_num = 2000
     save_checkpoint = False
 print(f"tokenizing Train")
 train_dataset = prepareListwiseDataset(
@@ -260,12 +266,7 @@ checkpoint_path = Path(
 checkpoint_path.mkdir(parents=True, exist_ok=True)
 del train_json
 del valid_json
-del train_dataset
-del valid_dataset
 gc.collect()
-
-del train_dataset
-del valid_dataset
 
 """
 Start Training
@@ -317,7 +318,7 @@ for e in range(start_epoch, train_args["epoch"]):
     ):
 
         extra_warmup = False
-        print(f"extra_warmup = {extra_warmup}")
+    print(f"extra_warmup = {extra_warmup}")
     for i, data in enumerate(tqdm(train_loader, ncols=100)):
         # for rank in data['wer_rank']:
         #     if (len(rank) < 50):
