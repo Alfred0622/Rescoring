@@ -363,8 +363,9 @@ def SimplePBertBatchWithHardLabel(batch):
 
     am_scores = torch.as_tensor([], dtype=torch.float32)
     ctc_scores = torch.as_tensor([], dtype=torch.float32)
-    wer = torch.as_tensor([], dtype=torch.float32)
     errors = torch.as_tensor([], dtype=torch.float32)
+    labels = torch.as_tensor([], dtype = torch.int32)
+    indexs = torch.as_tensor([], dtype = torch.int32)
 
     for sample in batch:
         # print(f"nbest:{sample['nbest']}")
@@ -379,11 +380,8 @@ def SimplePBertBatchWithHardLabel(batch):
         am_scores = torch.cat([am_scores, sample["am_score"]], dim=-1)
         ctc_scores = torch.cat([ctc_scores, sample["ctc_score"]], dim=-1)
 
-        label_score = torch.zeros((sample["nbest"]), dtype=torch.float32)  #
-        label_score[sample["wer_rank"][0]] = 1  # Add hard label 1
-        wer = torch.cat([wer, label_score])
-        errors = torch.cat([errors, sample["wer"]], dim=-1)
-
+        labels = torch.cat([labels, sample['label']], dim = -1)
+        indexs = torch.cat([indexs, sample['index']], dim = -1)
         nBest.append(sample["nbest"])
 
     input_ids = pad_sequence(input_ids, batch_first=True)
@@ -398,9 +396,10 @@ def SimplePBertBatchWithHardLabel(batch):
         "attention_mask": attention_mask,
         "am_score": am_scores,
         "ctc_score": ctc_scores,
-        "labels": wer,
+        "labels": labels,
         "wers": errors,
         "nBestIndex": nBest,
+        "indexes": indexs
     }
 
 

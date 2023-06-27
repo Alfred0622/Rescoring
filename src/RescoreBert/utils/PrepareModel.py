@@ -192,6 +192,8 @@ def preparePBert(args, train_args, device):
     return model, tokenizer
 
 
+
+
 def prepareContrastBert(args, train_args, mode="CONTRAST"):
     pretrain_name = getBertPretrainName(args["dataset"])
 
@@ -223,6 +225,15 @@ def prepareFuseBert(args, train_args):
     pretrain_name = getBertPretrainName(args["dataset"])
 
     model = nBestfuseBert(args, train_args)
+    tokenizer = BertTokenizer.from_pretrained(pretrain_name)
+
+    return model, tokenizer
+
+def preparePBertSimp(args, train_args, device):
+    pretrain_name = getBertPretrainName(args["dataset"])
+
+    model = pBertSimp(args, train_args, device)
+
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 
     return model, tokenizer

@@ -40,7 +40,7 @@ def compute_metric(eval_pred):
 
     decoded_preds = tokenizer.batch_decode(hyp, skip_special_tokens=True)
     
-    if (args['dataset'] in ['csj']):
+    if (args['dataset'] in ['csj', 'aishell', 'aishell2']):
         for i, pred in enumerate(decoded_preds):
             new_pred = "".join(pred.split())
             new_pred = [p for p in new_pred]

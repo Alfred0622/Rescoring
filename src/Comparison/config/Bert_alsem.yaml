@@ -2,7 +2,7 @@ args:
   nBest: 20
   withLM: False
   model_name: alsem
-  dataset: aishell
+  dataset: aishell2
 
 train: 
   epoch: 4

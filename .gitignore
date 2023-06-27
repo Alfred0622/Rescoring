@@ -11,3 +11,4 @@ tmp/
 wandb/
 tools/debug.ipynb
 *.swp
+src/Correction/jumanpp-2.0.0-rc3/*

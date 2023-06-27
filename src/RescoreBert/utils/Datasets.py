@@ -835,3 +835,163 @@ def prepareListwiseDataset(
     if sort_by_len:
         data_list = sorted(data_list, key=lambda x: x["max_len"])
     return LM_Dataset(data_list)
+
+def prepareSimpleListwiseDataset(
+    data_json,
+    dataset,
+    tokenizer,
+    topk=50,
+    sort_by_len=False,
+    get_num=-1,
+):
+    """
+    The purpose of the function is to get the complete dataset. Includes:
+    THIS DATASET ONLY CONTAINS HARD LABEL
+
+    - utt name
+    - hyps (tokenized)
+    - refs
+    - am_score
+    - ctc_score
+    - WER (Include correct, sub, ins, del error number)
+    - WER only
+    - average WER
+    - len of hyps
+
+    In this function, we will NOT split the N-best List
+    """
+
+    data_list = list()
+    if isinstance(data_json, dict):
+        for i, key in enumerate(tqdm(data_json.keys(), ncols=100)):
+            wers = []
+
+            for err in data_json[key]["err"][:topk]:
+                wers.append(err["err"])
+            # print(f'wers:{wers}')
+            wers_tensor = np.array(wers, dtype=np.float32)
+            top_index = np.argmax(wers_tensor).astype(np.int32)
+            top_index = torch.from_numpy(top_index)
+
+            scores = torch.as_tensor(
+                data_json[key]["score"][:topk], dtype=torch.float32
+            )
+            am_scores = torch.as_tensor(
+                data_json[key]["am_score"][:topk], dtype=torch.float32
+            )
+            ctc_scores = torch.as_tensor(
+                data_json[key]["ctc_score"][:topk], dtype=torch.float32
+            )
+
+            input_ids = []
+            attention_masks = []
+            avg_errs = []
+
+            min_len = 10000
+            max_len = -1
+
+            for hyp in data_json[key]["hyps"][:topk]:
+                hyp = preprocess_string(hyp, dataset)
+                output = tokenizer(hyp)
+
+                input_ids.append(output["input_ids"])
+                attention_masks.append(output["attention_mask"])
+
+                if len(hyp) > max_len:
+                    max_len = len(hyp)
+                if len(hyp) < min_len:
+                    min_len = len(hyp)
+
+            nbest = len(data_json[key]["hyps"][:topk])
+
+            labels = torch.zeros((nbest), dtype = torch.long)
+            labels[top_index] = 1
+
+            ref = data_json[key]["ref"]
+
+            # print(f"wer:{nbest}")
+            data_list.append(
+                {
+                    "name": key,
+                    "hyps": data_json[key]["hyps"][:topk],
+                    "input_ids": input_ids,
+                    "attention_mask": attention_masks,
+                    "score": scores,
+                    "am_score": am_scores,
+                    "ctc_score": ctc_scores,
+                    "nbest": nbest,
+                    "max_len": max_len,
+                    "min_len": min_len,
+                    "label": labels,
+                    "errs": data_json[key]["err"][:topk]
+                }
+            )
+
+            if get_num > 0 and i > get_num:
+                break
+
+    elif isinstance(data_json, list):
+        for i, data in enumerate(tqdm(data_json, ncols=100)):
+            wers = []
+            for err in data["err"][:topk]:
+                wers.append(err["err"])
+            # print(f'wers:{wers}')
+            wers_tensor = np.array(wers)
+            top_index = np.argmax(wers_tensor).astype(np.int32)
+            # top_index = torch.from_numpy(top_index).dtype(torch.long)
+
+            scores = torch.as_tensor(data["score"][:topk], dtype=torch.float32)
+            am_scores = torch.as_tensor(data["am_score"][:topk], dtype=torch.float32)
+            ctc_scores = torch.as_tensor(data["ctc_score"][:topk], dtype=torch.float32)
+
+            input_ids = []
+            attention_masks = []
+            avg_errs = []
+
+            min_len = 10000
+            max_len = -1
+
+            for hyp in data["hyps"][:topk]:
+                hyp = preprocess_string(hyp, dataset)
+
+                output = tokenizer(hyp)
+
+                input_ids.append(output["input_ids"])
+                attention_masks.append(output["attention_mask"])
+
+                if len(output["input_ids"]) > max_len:
+                    max_len = len(output["input_ids"])
+                if len(output["input_ids"]) < min_len:
+                    min_len = len(output["input_ids"])
+
+            nbest = len(data["hyps"][:topk])
+
+            labels = torch.zeros((nbest), dtype = torch.long)
+            labels[top_index] = 1
+            indexs = torch.tensor([i for i in range(nbest)], dtype = torch.int32)
+
+
+            # print(f"wer:{nbest}")
+            data_list.append(
+                {
+                    "hyps": data["hyps"][:topk],
+                    "name": data["name"],
+                    "input_ids": input_ids,
+                    "attention_mask": attention_masks,
+                    "score": scores,
+                    "am_score": am_scores,
+                    "ctc_score": ctc_scores,
+                    "errs": data["err"],
+                    "nbest": nbest,
+                    "max_len": max_len,
+                    "min_len": min_len,
+                    "label": labels,
+                    "index": indexs
+                }
+            )
+            if get_num > 0 and i > get_num:
+                break
+
+    if sort_by_len:
+        data_list = sorted(data_list, key=lambda x: x["max_len"], reverse = True)
+    return LM_Dataset(data_list)

@@ -650,15 +650,13 @@ class nBestCrossBert(torch.nn.Module):
 class pBertSimp(torch.nn.Module):
     def __init__(
         self,
-        dataset,
+        args,
+        train_args,
         device,
-        hardLabel=False,
         output_attention=True,
-        loss_type="KL",
-        weightByWER="postive",
     ):
         super().__init__()
-        pretrain_name = getBertPretrainName(dataset)
+        pretrain_name = getBertPretrainName(args["dataset"])
         config = BertConfig.from_pretrained(pretrain_name)
         config.output_attentions = True
         config.output_hidden_states = True
@@ -666,14 +664,14 @@ class pBertSimp(torch.nn.Module):
         self.bert = BertModel(config=config).from_pretrained(pretrain_name).to(device)
         self.linear = torch.nn.Linear(770, 1).to(device)
 
-        self.hardLabel = hardLabel
-        self.loss_type = loss_type
+        self.hardLabel = True
+        self.loss_type = "Entropy"
         self.loss = torch.nn.KLDivLoss(reduction="batchmean")
 
         self.output_attention = output_attention
 
         self.activation_fn = SoftmaxOverNBest()
-        self.weightByWER = weightByWER
+        self.weightByWER = False
 
         print(f"output_attention:{self.output_attention}")
         print(f"weightByWER:{self.weightByWER}")
@@ -930,15 +928,13 @@ class nBestfuseBert(torch.nn.Module):
 class inter_pBert(torch.nn.Module):
     def __init__(
         self,
-        dataset,
+        args,
+        train_args,
         device,
-        hardLabel=False,
         output_attention=True,
-        loss_type="KL",
-        weightByWER="postive",
     ):
         super().__init__()
-        pretrain_name = getBertPretrainName(dataset)
+        pretrain_name = getBertPretrainName(args['dataset'])
         config = BertConfig.from_pretrained(pretrain_name)
         config.output_attentions = True
         config.output_hidden_states = True
@@ -946,14 +942,14 @@ class inter_pBert(torch.nn.Module):
         self.bert = BertModel(config=config).from_pretrained(pretrain_name).to(device)
         self.linear = torch.nn.Linear(770, 1).to(device)
 
-        self.hardLabel = hardLabel
-        self.loss_type = loss_type
+        self.hardLabel = True
+        self.loss_type = "Entropy"
         self.loss = torch.nn.KLDivLoss(reduction="batchmean")
 
         self.output_attention = output_attention
 
         self.activation_fn = SoftmaxOverNBest()
-        self.weightByWER = weightByWER
+        self.weightByWER = False
 
         print(f"output_attention:{self.output_attention}")
         print(f"weightByWER:{self.weightByWER}")

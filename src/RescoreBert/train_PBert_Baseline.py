@@ -16,13 +16,13 @@ import numpy as np
 from functools import partial
 from torch.utils.data import DataLoader
 from src_utils.LoadConfig import load_config
-from utils.Datasets import prepareListwiseDataset
+from utils.Datasets import prepareSimpleListwiseDataset
 from utils.CollateFunc import NBestSampler, BatchSampler
 from torch.optim import AdamW, Adam
 from torch.optim.lr_scheduler import OneCycleLR
 from src_utils.get_recog_set import get_valid_set
-from utils.PrepareModel import preparePBert, prepareContrastBert, prepareFuseBert
-from utils.CollateFunc import PBertBatch, PBertBatchWithHardLabel, SimplePBertBatchWithHardLabel
+from utils.PrepareModel import preparePBertSimp
+from utils.CollateFunc import  SimplePBertBatchWithHardLabel
 from utils.PrepareScoring import prepare_score_dict, calculate_cer
 
 # from accelerate import Accelerator
@@ -55,7 +55,6 @@ setting = "withLM" if (args["withLM"]) else "noLM"
 log_path = f"./log/P_BERT/{args['dataset']}/{setting}/{mode}"
 run_name = f"NLP3090_{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_Freeze{train_args['freeze_epoch']}"
 if train_args["hard_label"]:
-    collate_func = PBertBatchWithHardLabel
     run_name = run_name + "_HardLabel_Entropy"
 else:
     run_name = run_name + train_args["loss_type"]
@@ -80,8 +79,8 @@ logging.basicConfig(
 valid_set = get_valid_set(args["dataset"])
 
 if mode == "PBERT":
-    model, tokenizer = preparePBert(
-        args["dataset"], device, train_args["hard_label"], train_args["weightByWER"]
+    model, tokenizer = preparePBertSimp(
+        args, train_args, device
     )
 print(type(model))
 model = model.to(device)
@@ -110,22 +109,20 @@ get_num = -1
 if "WANDB_MODE" in os.environ.keys() and os.environ["WANDB_MODE"] == "disabled":
     get_num = 1000
 print(f"tokenizing Train")
-train_dataset = prepareListwiseDataset(
+train_dataset = prepareSimpleListwiseDataset(
     data_json=train_json,
     dataset=args["dataset"],
     tokenizer=tokenizer,
     sort_by_len=True,
     get_num=get_num,
-    paddingNBest=False,
 )
 print(f"tokenizing Validation")
-valid_dataset = prepareListwiseDataset(
+valid_dataset = prepareSimpleListwiseDataset(
     data_json=valid_json,
     dataset=args["dataset"],
     tokenizer=tokenizer,
     sort_by_len=True,
     get_num=get_num,
-    paddingNBest=False,
 )
 
 print(f"Prepare Sampler")
