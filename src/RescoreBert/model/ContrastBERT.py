@@ -290,16 +290,19 @@ class contrastBert(nn.Module):
                 sim_matrix = self.activation_fn(sim_matrix, nBestIndex)
                 top_index = (labels == 1).nonzero()
 
-                print(f"sim_matrix after softmax:{sim_matrix}")
+                # print(f"sim_matrix after softmax:{sim_matrix}")
 
                 # print(f"top_index:{top_index}")
                 contrastLoss = torch.tensor([0.0]).cuda()
                 for i, batch_top in enumerate(top_index):
-                    print(f"sim:{sim_matrix[i][batch_top]}")
-                    print(f"loss:{torch.log(sim_matrix[i][batch_top])}")
+                    if batch_top % 50 != 0:
+                        print(f"batch_top:{batch_top}")
+                        print(f"sim:{sim_matrix[i][batch_top]}")
+                        print(f"loss:{torch.log(sim_matrix[i][batch_top])}")
                     contrastLoss += torch.log(sim_matrix[i][batch_top])
+                    # print(f"contrastLoss:{contrastLoss}")
                 contrastLoss = torch.neg(contrastLoss)
-                print(f"contrastLoss:{contrastLoss}")
+                # print(f"contrastLoss:{contrastLoss}")
 
             # contrastLoss = contrastLoss  # batch_mean
             loss = ce_loss + self.contrast_weight * contrastLoss

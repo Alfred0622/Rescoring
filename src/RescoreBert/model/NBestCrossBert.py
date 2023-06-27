@@ -143,6 +143,7 @@ class nBestCrossBert(torch.nn.Module):
         self.device = device
         self.dropout = torch.nn.Dropout(p=dropout)
         self.fuseType = fuseType
+        self.lossType = lossType
         self.KL = lossType == "KL"
         self.useRank = useRank
         self.sepTask = sepTask
@@ -184,6 +185,7 @@ class nBestCrossBert(torch.nn.Module):
             ], f"fuseType must be 'lstm', 'attn' when concatCLS = True, but got fuseType = {fuseType}, concatCLS = {concatCLS}"
 
         # Model setting
+        self.BCE = torch.nn.BCELoss()
         self.bert = BertModel.from_pretrained(pretrain_name)
 
         if fuseType == "lstm":
@@ -545,8 +547,10 @@ class nBestCrossBert(torch.nn.Module):
                 )
                 start_index += index
 
-            if self.KL:
+            if self.lossType == 'KL':
                 loss = self.loss(finalScore, labels)
+            elif (self.lossType == 'BCE'):
+                loss = self.BCE(finalScore, labels)
             else:
                 loss = labels * torch.log(finalScore)
                 loss = torch.neg(loss)
@@ -668,6 +672,7 @@ class pBert(torch.nn.Module):
         self.hardLabel = train_args["hard_label"]
         self.loss_type = train_args["loss_type"]
         self.loss = torch.nn.KLDivLoss(reduction="batchmean")
+        self.BCE = torch.nn.BCELoss()
 
         self.output_attention = output_attention
 
@@ -678,7 +683,7 @@ class pBert(torch.nn.Module):
         extra_layer_config = BertConfig.from_pretrained(pretrain_name)
         extra_layer_config.num_hidden_layers = 1
 
-        if "lastInit" in self.layer_op:
+        if self.layer_op is not None and "lastInit" in self.layer_op:
 
             init_layer = self.layer_op.split("_")[-1]
             print(f"last init:{init_layer}")
@@ -721,8 +726,11 @@ class pBert(torch.nn.Module):
         if labels is not None:
             if self.hardLabel:
                 scores = self.activation_fn(scores, nBestIndex, log_score=False)
-                loss = labels * torch.log(scores)
-                loss = torch.neg(loss)
+                if self.loss_type == "Entropy":
+                    loss = labels * torch.log(scores)
+                    loss = torch.neg(loss)
+                elif self.loss_type == "BCE":
+                    loss = self.BCE(scores, labels)
             else:
                 if self.loss_type == "KL":
                     scores = self.activation_fn(

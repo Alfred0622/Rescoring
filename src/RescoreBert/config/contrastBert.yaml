@@ -14,9 +14,10 @@ train:
   warmup_step: 10000
   margin_value: 0.1
   converge: 0.1
-  margin_mode: epoch
+  margin_mode:
   contrast_weight: 1.0
   warmup_ratio: 0.1
+  loss_type: Entropy
   useTopOnly: False
   compareWith: REF # TOP, POOL or REF
   noCLS: True

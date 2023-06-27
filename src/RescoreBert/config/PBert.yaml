@@ -11,10 +11,10 @@ train:
   lr: 1e-7
   freeze_epoch: -1
   hard_label: True
-  loss_type: Entropy
+  loss_type: BCE
   weightByWER: none # positive, inverse, square, none
   warmup_ratio: 0.1
-  layer_op: lastInit_2 # extra, lastInit_n or none
+  layer_op: # extra, lastInit_n or none
 
 recog:
   batch: 1
