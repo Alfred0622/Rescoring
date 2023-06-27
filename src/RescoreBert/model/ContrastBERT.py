@@ -287,6 +287,11 @@ class contrastBert(nn.Module):
                 ).pooler_output
                 sim_matrix = torch.tensordot(ref_output, bert_output, dims=([1], [1]))
 
+                ref_norm = torch.norm(ref_output, dim = -1)
+                sim_matrix = sim_matrix / ref_norm.unsqueeze(-1)
+                cls_norm = torch.norm(bert_output, dim = -1)
+                sim_matrix = sim_matrix / cls_norm
+
                 sim_matrix = self.activation_fn(sim_matrix, nBestIndex)
                 top_index = (labels == 1).nonzero()
 
@@ -295,10 +300,6 @@ class contrastBert(nn.Module):
                 # print(f"top_index:{top_index}")
                 contrastLoss = torch.tensor([0.0]).cuda()
                 for i, batch_top in enumerate(top_index):
-                    if batch_top % 50 != 0:
-                        print(f"batch_top:{batch_top}")
-                        print(f"sim:{sim_matrix[i][batch_top]}")
-                        print(f"loss:{torch.log(sim_matrix[i][batch_top])}")
                     contrastLoss += torch.log(sim_matrix[i][batch_top])
                     # print(f"contrastLoss:{contrastLoss}")
                 contrastLoss = torch.neg(contrastLoss)
