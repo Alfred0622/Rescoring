@@ -12,6 +12,7 @@ from transformers import BertModel, BertConfig, BertLayer
 from src_utils.getPretrainName import getBertPretrainName
 from utils.activation_function import SoftmaxOverNBest
 from utils.Pooling import AvgPooling, MaxPooling
+import re
 
 
 class selfMarginLoss(nn.Module):
@@ -258,28 +259,32 @@ class contrastBert(nn.Module):
         ce_loss = torch.neg(torch.sum(ce_loss))
 
         if extra_loss and self.training:
-            if self.compare == "TOP":
+            if self.compare == "SELF":
                 sim_matrix = torch.tensordot(bert_output, bert_output, dims=([1], [1]))
                 norm = torch.norm(bert_output, dim=-1)
-                # print(f"norm:{norm.shape}")
                 sim_matrix = sim_matrix / norm
                 sim_matrix = sim_matrix / norm.unsqueeze(-1)
 
-                # print(f"sim_matrix.shape:{sim_matrix}")
-                # print(f"diag sim:{torch.diagonal(sim_matrix, 0)}")
                 sim_matrix = self.activation_fn(sim_matrix, nBestIndex)
-                # print(f"diag sim agter softmax:{torch.diagonal(sim_matrix, 0)}")
-                top_index = labels == 1
                 sim_value = torch.diagonal(sim_matrix, 0)
-                top_sim = sim_value[top_index]
-                contrastLoss = torch.neg(torch.sum(torch.log(top_sim)))
+                if self.useTopOnly:
+                    top_index = labels == 1
+                    top_sim = sim_value[top_index]
+                    contrastLoss = torch.neg(torch.sum(torch.log(top_sim)))
+                else:
+                    contrastLoss = torch.neg(torch.sum(torch.log(sim_value)))
 
             elif self.compare == "POOL":
                 pooled_embedding = self.pooling(bert_embedding, attention_mask)
                 sim_matrix = self.cosSim(bert_output, pooled_embedding)
                 sim_matrix = self.activation_fn(sim_matrix, nBestIndex)
-                sim_value = torch.diag(sim_matrix, 0)
-                contrastLoss = torch.neg(torch.sum(sim_value))
+                if self.useTopOnly:
+                    top_index = labels == 1
+                    top_sim = sim_value[top_index]
+                    contrastLoss = torch.neg(torch.sum(torch.log(top_sim)))
+                else:
+                    sim_value = torch.diag(sim_matrix, 0)
+                    contrastLoss = torch.neg(torch.sum(sim_value))
 
             elif self.compare == "REF":
                 ref_output = self.bert(
@@ -287,9 +292,9 @@ class contrastBert(nn.Module):
                 ).pooler_output
                 sim_matrix = torch.tensordot(ref_output, bert_output, dims=([1], [1]))
 
-                ref_norm = torch.norm(ref_output, dim = -1)
+                ref_norm = torch.norm(ref_output, dim=-1)
                 sim_matrix = sim_matrix / ref_norm.unsqueeze(-1)
-                cls_norm = torch.norm(bert_output, dim = -1)
+                cls_norm = torch.norm(bert_output, dim=-1)
                 sim_matrix = sim_matrix / cls_norm
 
                 sim_matrix = self.activation_fn(sim_matrix, nBestIndex)

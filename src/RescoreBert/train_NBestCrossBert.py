@@ -255,9 +255,9 @@ else:
     }
 
 wandb.init(
-    project=f"NBestBert_{args['dataset']}_{setting}",
+    project=f"myBert_{args['dataset']}_{setting}",
     config=config,
-    name=f"RescoreBert_{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_freeze{train_args['freeze_epoch']}_warmup{train_args['warmup_ratio']}",
+    name=f"{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_freeze{train_args['freeze_epoch']}_warmup{train_args['warmup_ratio']}",
 )
 
 checkpoint_path = Path(

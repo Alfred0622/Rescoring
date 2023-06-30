@@ -37,7 +37,7 @@ _, tokenizer = prepare_model(args["dataset"])
 model = nBestAlignBart(args, train_args)
 
 checkpoint = torch.load(checkpoint)
-model.load_state_dict(checkpoint['checkpoint'])
+model.load_state_dict(checkpoint["checkpoint"])
 
 if args["dataset"] in ["aishell", "aishell_nbest"]:
     recog_set = ["dev", "test"]
@@ -58,38 +58,34 @@ for task in recog_set:
 
     with open(data_json) as f:
         data_json = json.load(f)
-    
+
     dataset = get_dataset(
-        data_json, 
-        dataset = args['dataset'],
-        tokenizer = tokenizer, 
-        data_type = 'align', 
-        topk = int(args['nbest'])
+        data_json,
+        dataset=args["dataset"],
+        tokenizer=tokenizer,
+        data_type="align",
+        topk=int(args["nbest"]),
     )
 
     dataloader = DataLoader(
         dataset=dataset,
         batch_size=recog_args["batch"],
         collate_fn=nBestAlignBatch,
-        num_workers=4,
     )
 
     result_dict = list()
     with torch.no_grad():
-        for data in tqdm(dataloader, ncols = 80):
-            token = data['input_ids'].to(device)
-            mask = data['attention_mask'].to(device)
+        for data in tqdm(dataloader, ncols=80):
+            token = data["input_ids"].to(device)
+            mask = data["attention_mask"].to(device)
 
             output = model.recognize(
-                input_ids = token,
-                attention_mask = mask,
-                max_lens = 50,
-                num_beams = 5
+                input_ids=token, attention_mask=mask, max_lens=150, num_beams=5
             )
 
             # print(f"output:{output}")
             hyp_tokens = tokenizer.batch_decode(output, skip_special_tokens=True)
-            
+
             # print('\n')
             # for hyp, top_hyp, ref, input_hyps in zip(hyp_tokens, data['top_hyp'],data['ref_text'], data['hyps_text']):
             #     for hyp_id, h in enumerate(input_hyps):
@@ -99,35 +95,36 @@ for task in recog_set:
             #     print(f'ref:{ref}')
             #     print(f'=============================')
 
-            for name, hyp, top_hyp ,ref in zip(data['name'], hyp_tokens, data['top_hyp'],data['ref_text']):
+            for name, hyp, top_hyp, ref in zip(
+                data["name"], hyp_tokens, data["top_hyp"], data["ref_text"]
+            ):
                 hyps.append(hyp)
                 top_hyps.append(top_hyp)
                 refs.append(ref)
                 names.append(name)
 
-    for name, hyp, top_hyp, ref_token in zip(names, hyp, top_hyps, refs):   
-        corrupt_flag = "Missed" # Missed only for debug purpose, to detect if there is any data accidentally ignored
-        if (top_hyp == ref_token):
-            if (hyp != ref_token):
+    for name, hyp, top_hyp, ref_token in zip(names, hyp, top_hyps, refs):
+        corrupt_flag = "Missed"  # Missed only for debug purpose, to detect if there is any data accidentally ignored
+        if top_hyp == ref_token:
+            if hyp != ref_token:
                 corrupt_flag = "Totally_Corrupt"
             else:
                 corrupt_flag = "Remain_Correct"
 
-        else :
-            if (hyp == ref_token):
+        else:
+            if hyp == ref_token:
                 corrupt_flag = "Totally_Improve"
 
             else:
                 top_wer = wer(ref_token, top_hyp)
                 rerank_wer = wer(ref_token, hyp)
-                if (top_wer < rerank_wer):
+                if top_wer < rerank_wer:
                     corrupt_flag = "Partial_Corrupt"
-                elif (top_wer == rerank_wer):
+                elif top_wer == rerank_wer:
                     corrupt_flag = "Neutral"
                 else:
                     corrupt_flag = "Partial_Improve"
         # print(f'Corrupt Flag:{corrupt_f}')
-            
 
         result_dict.append(
             {
@@ -136,10 +133,9 @@ for task in recog_set:
                 "ref": ref_token,
                 "top_hyp": top_hyp,
                 "check1": "Correct" if hyp_tokens == ref_token else "Wrong",
-                "check2": corrupt_flag
+                "check2": corrupt_flag,
             }
         )
-                    
 
     print(f"hyp:{hyps[-1]}")
     print(f"top_hyp:{top_hyps[-1]}")
@@ -155,5 +151,5 @@ for task in recog_set:
     save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}/")
     save_path.mkdir(parents=True, exist_ok=True)
 
-    with open(f"{save_path}/{args['nbest']}Align_result.json", "w") as f:
-        json.dump(result_dict, f, ensure_ascii=False, indent=1)
+    with open(f"{save_path}/{args['nbest']}Align_result.json", "w") as dest:
+        json.dump(result_dict, dest, ensure_ascii=False, indent=1)
