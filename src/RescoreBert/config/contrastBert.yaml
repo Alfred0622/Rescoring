@@ -14,16 +14,17 @@ train:
   warmup_step: 10000
   margin_value: 0.1
   converge: 0.1
-  margin_mode:
+  margin_mode: epoch
   contrast_weight: 1.0
   warmup_ratio: 0.1
-  loss_type: Entropy
-  useTopOnly: False
-  compareWith: REF # TOP, POOL or REF
+  loss_type: BCE
+  useTopOnly: True
+  compareWith: SELF # SELF, POOL or REF
   noCLS: True
   noSEP: False
   layer_op:
   # lastInit_n, n = number of layers
+  temperature: 0.05
 
 recog:
   batch: 1

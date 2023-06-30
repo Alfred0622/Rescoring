@@ -225,7 +225,7 @@ class nBestCrossBert(torch.nn.Module):
         self.clsConcatLinear = torch.nn.Sequential(
             torch.nn.Linear(2 * 768, 768), torch.nn.ReLU()
         )  # concat the fused pooling output with CLS
-        self.finalLinear = torch.nn.Linear(770, 1)
+        self.finalLinear = torch.nn.Sequential(torch.nn.Linear(770, 1))
 
         if self.sepTask:
             self.finalExLinear = torch.nn.Linear(770, 1)
@@ -288,7 +288,6 @@ class nBestCrossBert(torch.nn.Module):
                 fuse_state = token_embeddings[mask_index[0], mask_index[1], :]
 
             concatTrans = self.concatLinear(fuse_state).squeeze(1)
-            concatTrans = self.dropout(concatTrans)
 
         else:  # notConcatCLS
             if self.fuseType in ["lstm", "attn", "none"]:
@@ -315,8 +314,9 @@ class nBestCrossBert(torch.nn.Module):
                 avg_state = self.avgPool(fuse_state, attn_mask)
                 max_state = self.maxPool(fuse_state, attn_mask)
                 concat_state = torch.cat([avg_state, max_state], dim=-1)
+
+                concat_state = self.dropout(concat_state)
                 concatTrans = self.concatLinear(concat_state).squeeze(1)
-                concatTrans = self.dropout(concatTrans)
 
                 if self.sepTask:
                     cls_concat = torch.cat([cls, am_score], dim=-1)
@@ -506,6 +506,8 @@ class nBestCrossBert(torch.nn.Module):
                 }
 
         cls_concat_state = torch.cat([cls, concatTrans], dim=-1)
+
+        cls_concat_state = self.dropout(cls_concat_state)
         clsConcatTrans = self.clsConcatLinear(cls_concat_state)
         clsConcatTrans = self.dropout(clsConcatTrans)
 
@@ -528,6 +530,7 @@ class nBestCrossBert(torch.nn.Module):
                 scoreAtt = clsConcatTrans + scoreAtt
 
             finalScore = self.finalLinear(scoreAtt)
+        # get final score
         else:
             finalScore = self.finalLinear(clsConcatTrans)
 
@@ -547,9 +550,9 @@ class nBestCrossBert(torch.nn.Module):
                 )
                 start_index += index
 
-            if self.lossType == 'KL':
+            if self.lossType == "KL":
                 loss = self.loss(finalScore, labels)
-            elif (self.lossType == 'BCE'):
+            elif self.lossType == "BCE":
                 loss = self.BCE(finalScore, labels)
             else:
                 loss = labels * torch.log(finalScore)
@@ -651,6 +654,7 @@ class nBestCrossBert(torch.nn.Module):
 
         print(f"\n clsWeight:{self.clsWeight}\n maskWeight:{self.maskWeight}")
 
+
 class pBertSimp(torch.nn.Module):
     def __init__(
         self,
@@ -741,6 +745,8 @@ class pBert(torch.nn.Module):
         self.loss = torch.nn.KLDivLoss(reduction="batchmean")
         self.BCE = torch.nn.BCELoss()
 
+        self.dropout = torch.nn.Dropout(p=config.hidden_dropout_prob)
+
         self.output_attention = output_attention
 
         self.activation_fn = SoftmaxOverNBest()
@@ -782,6 +788,7 @@ class pBert(torch.nn.Module):
         )
 
         output = bert_output.pooler_output
+        output = self.dropout(output)
 
         clsConcatoutput = torch.cat([output, am_score], dim=-1)
         clsConcatoutput = torch.cat([clsConcatoutput, ctc_score], dim=-1)
@@ -846,12 +853,12 @@ class pBert(torch.nn.Module):
 
         return state_dict
 
-    def load_state_dict(self, state_dict):
-        self.bert.load_state_dict(state_dict["bert"])
-        self.linear.load_state_dict(state_dict["linear"])
+    # def load_state_dict(self, state_dict):
+    # self.bert.load_state_dict(state_dict["bert"])
+    # self.linear.load_state_dict(state_dict["linear"])
 
-        if self.layer_op == "extra":
-            self.extra_layer.load_state_dict(state_dict["extra_layer"])
+    # if self.layer_op == "extra":
+    #     self.extra_layer.load_state_dict(state_dict["extra_layer"])
 
 
 class nBestfuseBert(torch.nn.Module):
@@ -942,7 +949,7 @@ class inter_pBert(torch.nn.Module):
         output_attention=True,
     ):
         super().__init__()
-        pretrain_name = getBertPretrainName(args['dataset'])
+        pretrain_name = getBertPretrainName(args["dataset"])
         config = BertConfig.from_pretrained(pretrain_name)
         config.output_attentions = True
         config.output_hidden_states = True
