@@ -136,7 +136,10 @@ class marginalBert(nn.Module):
 
         pretrain_name = getBertPretrainName(args["dataset"])
         self.bert = BertModel.from_pretrained(pretrain_name)
-        self.linear = nn.Linear(770, 1)
+        print(f"dropout_rate:{self.bert.config.hidden_dropout}")
+        self.linear = torch.nn.Sequential(
+            nn.Dropout(self.bert.config.hidden_dropout), nn.Linear(770, 1)
+        )
         if useTorch:
             self.loss = torchMarginLoss(margin=margin)
         else:
@@ -211,23 +214,39 @@ class contrastBert(nn.Module):
 
         pretrain_name = getBertPretrainName(args["dataset"])
         self.bert = BertModel.from_pretrained(pretrain_name)
-        self.linear = nn.Linear(770, 1)
+        self.linear = torch.nn.Sequential(
+            torch.nn.Dropout(self.bert.config.hidden_dropout_prob), nn.Linear(770, 1)
+        )
         self.contrast_weight = torch.tensor(train_args["contrast_weight"]).float()
 
+        self.loss_type = train_args["loss_type"]
         self.activation_fn = SoftmaxOverNBest()
         self.useTopOnly = train_args["useTopOnly"]
         self.compare = train_args["compareWith"].strip().upper()
+
+        self.temperature = float(train_args["temperature"])
+
+        self.BCE = torch.nn.BCELoss()
 
         # self.cosSim = nn.CosineSimilarity(dim=-1)
         # self.cosSim = torch.tensordot(dims=-1)
         self.pooling = MaxPooling(noCLS=train_args["noCLS"], noSEP=train_args["noSEP"])
         self.layerOp = train_args["layer_op"]
-        if self.layerOp is not None and "lastInit" in self.layerOp:
-            config = BertConfig.from_pretrained(pretrain_name)
-            layer_init = self.layerOp.split("_")[-1]
-            print(f"init Layer:{layer_init}")
-            for i in range(1, int(layer_init) + 1):
-                self.bert.encoder.layer[-i] = BertLayer(config)
+        if self.layerOp is not None:
+            if "lastInit" in self.layerOp:
+                config = BertConfig.from_pretrained(pretrain_name)
+                layer_init = self.layerOp.split("_")[-1]
+                print(f"init Layer:{layer_init}")
+                for i in range(1, int(layer_init) + 1):
+                    self.bert.encoder.layer[-i] = BertLayer(config)
+            elif "listInit" == "LSTM":
+                self.LSTM = torch.nn.LSTM(
+                    input_size=768,
+                    hidden_size=512,
+                    num_layers=2,
+                    batch_first=True,
+                    bidirectional=True,
+                )
 
     def forward(
         self,
@@ -255,8 +274,11 @@ class contrastBert(nn.Module):
 
         final_score = self.linear(concat_state).squeeze(-1)
         final_prob = self.activation_fn(final_score, nBestIndex)
-        ce_loss = labels * torch.log(final_prob)
-        ce_loss = torch.neg(torch.sum(ce_loss))
+        if self.loss_type == "BCE":
+            ce_loss = self.BCE(final_prob, labels)
+        else:
+            ce_loss = labels * torch.log(final_prob)
+            ce_loss = torch.neg(torch.sum(ce_loss))
 
         if extra_loss and self.training:
             if self.compare == "SELF":
@@ -266,7 +288,7 @@ class contrastBert(nn.Module):
                 sim_matrix = sim_matrix / norm.unsqueeze(-1)
 
                 sim_matrix = self.activation_fn(sim_matrix, nBestIndex)
-                sim_value = torch.diagonal(sim_matrix, 0)
+                sim_value = torch.diagonal(sim_matrix, 0) / self.temperature
                 if self.useTopOnly:
                     top_index = labels == 1
                     top_sim = sim_value[top_index]
