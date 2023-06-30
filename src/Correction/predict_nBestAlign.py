@@ -38,6 +38,7 @@ model = nBestAlignBart(args, train_args)
 
 checkpoint = torch.load(checkpoint)
 model.load_state_dict(checkpoint['checkpoint'])
+model = model.to(device)
 
 if args["dataset"] in ["aishell", "aishell_nbest"]:
     recog_set = ["dev", "test"]
@@ -71,7 +72,6 @@ for task in recog_set:
         dataset=dataset,
         batch_size=recog_args["batch"],
         collate_fn=nBestAlignBatch,
-        num_workers=4,
     )
 
     result_dict = list()
@@ -83,7 +83,7 @@ for task in recog_set:
             output = model.recognize(
                 input_ids = token,
                 attention_mask = mask,
-                max_lens = 50,
+                max_lens = 150,
                 num_beams = 5
             )
 
@@ -141,8 +141,10 @@ for task in recog_set:
         )
                     
 
+    print(f'len of hyps:{len(hyps)}')
+    print(f'len of refs:{len(refs)}')
     print(f"hyp:{hyps[-1]}")
-    print(f"top_hyp:{top_hyps[-1]}")
+    print(f"org:{top_hyps[-1]}")
     print(f"ref:{refs[-1]}")
 
     if args["dataset"] in ["aishell", "aishell2", "csj", "aishell_nbest"]:

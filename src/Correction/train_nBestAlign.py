@@ -46,6 +46,8 @@ logging.basicConfig(
     format=FORMAT,
 )
 
+print(f"sep token:{train_args['sep_token']} = {tokenizer.convert_tokens_to_ids(train_args['sep_token'])}")
+
 if args["dataset"] in ["aishell", "tedlium2", "csj"]:
     valid = "dev"
 elif args["dataset"] in ["aishell2"]:
@@ -54,7 +56,7 @@ elif args["dataset"] in ["librispeech"]:
     valid = "valid"
 
 if "WANDB_MODE" in os.environ.keys() and os.environ["WANDB_MODE"] == "disabled":
-    fetch_num = 500
+    fetch_num = -1
 else:
     fetch_num = -1
 
@@ -105,14 +107,14 @@ if __name__ == "__main__":
     logging.warning(f"device:{device}")
     device = torch.device(device)
 
-    model = nBestAlignBart(args, train_args, tokenizer).to(device)
+    model = nBestAlignBart(args, train_args).to(device)
 
     if train_args["from_pretrain"]:
         pretrain_name = "Pretrain"
     else:
         pretrain_name = "Scratch"
 
-    optimizer = AdamW(model.parameters(), lr=float(train_args["lr"]))
+    optimizer = AdamW(model.parameters(), lr=float(train_args["lr"]), weight_decay = 0.02)
     scheduler = OneCycleLR(
         optimizer,
         epochs=int(train_args["epoch"]),
@@ -135,12 +137,12 @@ if __name__ == "__main__":
         "optimizer": optimizer,
     }
 
-    run_name = f"{args['dataset']}, {setting} : {args['nbest']}-Align"
+    run_name = f"{args['dataset']}, {setting} : {args['nbest']}-Align{train_args['align_layer']}"
     wandb.init(
-        project=f"NBestBert_{args['dataset']}_{setting}", config=config, name=run_name
+        project=f"NBestCorrect_{args['dataset']}_{setting}", config=config, name=run_name
     )
     wandb.watch(model)
-
+    optimizer.zero_grad()
     for e in range(train_args["epoch"]):
         model.train()
 
@@ -148,7 +150,7 @@ if __name__ == "__main__":
         epoch_loss = 0.0
         step = 0
         data_count = 0
-        optimizer.zero_grad()
+        
         for n, data in enumerate(tqdm(train_loader, ncols=100)):
             # logging.warning(f'token.shape:{token.shape}')
             token = data["input_ids"].to(device)
@@ -174,13 +176,12 @@ if __name__ == "__main__":
             if (
                 step > 0
                 and step % train_args["print_loss"] == 0
-                or (n + 1) == len(train_loader)
             ):
                 logging.warning(
                     f"Training epoch :{e + 1} step:{n + 1}, training loss:{logging_loss / data_count}"
                 )
                 wandb.log(
-                    {"loss": logging_loss / data_count}, step=e * len(train_loader) + n
+                    {"loss": logging_loss / step}, step=e * len(train_loader) + n
                 )
 
                 logging_loss = 0.0
@@ -190,57 +191,59 @@ if __name__ == "__main__":
         checkpoint = {"epoch": e + 1, "checkpoint": model.state_dict()}
 
         checkpoint_path = Path(
-            f"./checkpoint/{args['dataset']}/{args['nbest']}Align_{train_args['epoch']}/{setting}"
+            f"./checkpoint/{args['dataset']}/{args['nbest']}Align_{train_args['align_layer']}layer_{train_args['epoch']}/{setting}"
         )
         checkpoint_path.mkdir(parents=True, exist_ok=True)
         torch.save(
             checkpoint,
             f"{checkpoint_path}/checkpoint_train_{e+1}.pt",
         )
+# eval ============================
         model.eval()
         val_loss = 0.0
-        with torch.no_grad():
-            hyps = []
-            refs = []
-            for n, data in enumerate(tqdm(dev_loader, ncols=100)):
-                token = data["input_ids"].to(device)
-                mask = data["attention_mask"].to(device)
-                label = data["labels"].to(device)
+        hyps = []
+        refs = []
+        for n, data in enumerate(tqdm(dev_loader, ncols=100)):
+            token = data["input_ids"].to(device)
+            mask = data["attention_mask"].to(device)
+            label = data["labels"].to(device)
 
+            with torch.no_grad():
                 loss = model(token, mask, label)
 
                 output = model.recognize(token, mask)
-                # output = tokenizer.batch_decode(output, skip_special_tokens= True)
-                # hyps += output
-                # refs += data['ref_text']
+                output = tokenizer.batch_decode(output, skip_special_tokens= True)
+                hyps += output
+                refs += data['ref_text']
                 val_loss += loss
 
-            val_loss = val_loss / len(dev_loader)
+        val_loss = val_loss / len(dev_loader)
 
-            # cer = wer(refs, hyps)
-            # print(f'cer:{cer}')
-            # print(f"hyp:{hyps[-1]}, ref:{refs[-1]}")
+        cer = wer(refs, hyps)
+        print(f'len of hyp:{len(hyps)}')
+        print(f'cer:{cer}')
+        print(f"hyp:{hyps[-1]}, ref:{refs[-1]}")
 
-            logging.warning(f"epoch :{e + 1}, validation_loss:{val_loss}")
-            wandb.log(
-                {
-                    "train_epoch_loss": epoch_loss / len(train_loader),
-                    # "val_cer": cer,
-                    "val_loss": val_loss,
-                    "epoch": e + 1,
-                },
-                step=(e + 1) * len(train_loader),
+        logging.warning(f"epoch :{e + 1}, validation_loss:{val_loss}")
+        wandb.log(
+            {
+                "train_epoch_loss": epoch_loss / len(train_loader),
+                "val_cer": cer,
+                "val_loss": val_loss,
+                "epoch": e + 1,
+            },
+            step=(e + 1) * len(train_loader),
+        )
+
+        if val_loss < min_val:
+            min_val = val_loss
+            torch.save(
+                checkpoint,
+                f"{checkpoint_path}/checkpoint_valBest.pt",
             )
-
-            if val_loss < min_val:
-                min_val = val_loss
-                torch.save(
-                    checkpoint,
-                    f"{checkpoint_path}/checkpoint_valBest.pt",
-                )
-            # if (cer < min_cer):
-            #     min_cer = cer
-            #     torch.save(
-            #         checkpoint,
-            #         f"{checkpoint_path}/checkpoint_cerBest.pt",
-            #     )
+        if (cer < min_cer):
+            min_cer = cer
+            torch.save(
+                checkpoint,
+                f"{checkpoint_path}/checkpoint_cerBest.pt",
+            )

@@ -138,7 +138,8 @@ def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_t
                         "ref_text": ref,
                     }
                 )
-                
+                if (fetch_num > 0 and i > fetch_num):
+                    break
             
         elif (data_type == 'align'):
             """
@@ -155,6 +156,7 @@ def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_t
                     hyp = preprocess_string(hyp, dataset)
                     hyps_text.append(hyp)
                     token_ids = tokenizer(hyp)['input_ids'][:-1]
+                    # print(f'token_ids:{token_ids}')
                     input_ids.append(token_ids)
                 # print(f'input_ids:{input_ids}')
                 align_hyp_ids = align(input_ids, nBest = topk, placeholder = tokenizer.convert_tokens_to_ids(sep_token))
@@ -165,7 +167,9 @@ def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_t
                 input_ids.append([eos_token_id for _ in range(topk)])
 
                 # for ids in input_ids:
-                #     print(f'{tokenizer.batch_decode(ids)}')
+                #     x = tokenizer.batch_decode(ids)
+                #     if ('-' in x):
+                #         print(f'{x}')
                 ref = preprocess_string(data['ref'], dataset)
                 # print(f'ref:{ref}\n')
                 label = tokenizer(ref)["input_ids"]

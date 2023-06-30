@@ -20,6 +20,21 @@ elif (dataset in ['librispeech']):
     file_name = ['dev_clean', 'dev_other', 'test_clean', 'test_other'] 
 setting = ["noLM", "withLM"]
 
+with open(f"/mnt/disk6/Alfred/Rescoring/data/tedlium2/raw/noLM/test/data.json", "r") as f:
+    top_1_hyp = []
+    refs = []
+    data_json = json.load(f)
+    for key in data_json['utts'].keys():
+        top_hyp = data_json['utts'][key]['output'][0]['rec_text'].replace("<eos>", "").replace("▁", " ")
+        ref = data_json['utts'][key]['output'][0]['text']
+
+        top_1_hyp.append(top_hyp)
+        refs.append(ref)
+    
+    print(f"WER:{wer(refs, top_1_hyp)}")
+
+
+
 for best in choose_nbest:
     print(f"{best} best: ")
     for s in setting:

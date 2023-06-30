@@ -1,18 +1,18 @@
 args:
   stage: 0 
   stop_stage: 1
-  nbest: 1
+  nbest: 4
   withLM: False
   dataset: aishell
 
 train:
   start_epoch: 0
   epoch: 10
-  train_batch: 256
-  valid_batch: 256
-  accumgrad: 1
+  train_batch: 128
+  valid_batch: 128
+  accumgrad: 2
   print_loss: 2000
-  lr: 1e-6
+  lr: 1e-5
   data_type: single
   sep_token: None
   from_pretrain: True

@@ -68,9 +68,9 @@ def predict(model, dataset, tokenizer, loader):
                 if (dataset in ['csj', 'aishell', 'aishell2']):
                     hyp = [t for t in "".join(hyp.split())]
                     output[i] = " ".join(hyp)
-                print(f'output:{output[i]}')
-                print(f'ref_list:{ref_list[i]}')
-                print(f'top_hyps:{top_hyps[i]}\n')
+                # print(f'output:{output[i]}')
+                # print(f'ref_list:{ref_list[i]}')
+                # print(f'top_hyps:{top_hyps[i]}\n')
 
             for single_name, pred, ref, top_hyp in zip(name, output, ref_list, top_hyps):
                 if (single_name not in result.keys()):
