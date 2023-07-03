@@ -50,7 +50,6 @@ def get_Dataset(
     if for_train:
         if lm == "MLM":
             for data in tqdm(data_json, ncols=100):
-
                 ref = preprocess_string(data["ref"], dataset)
 
                 output = tokenizer(ref)
@@ -82,7 +81,6 @@ def get_Dataset(
                 else tokenizer.eos_token
             )
             for i, data in enumerate(tqdm(data_json, ncols=100)):
-
                 ref = preprocess_string(data["ref"], dataset)
 
                 if dataset in ["tedlium2", "tedlium2_conformer", "librispeech"]:
@@ -151,7 +149,6 @@ def get_Dataset(
 
 
 def get_mlm_dataset(data_json, tokenizer, dataset, topk=50, jp_split=True):
-
     bos_id = (
         tokenizer.cls_token_id
         if tokenizer.bos_token_id is None
@@ -629,6 +626,7 @@ def prepareListwiseDataset(
     maskEmbedding=False,
     concatMask=False,
     paddingNBest=False,
+    force_Ref=False,
 ):
     """
     The purpose of the function is to get the complete dataset. Includes:
@@ -646,6 +644,7 @@ def prepareListwiseDataset(
     In this function, we will NOT split the N-best List
     """
 
+    print(f"type:{type(data_json)}")
     data_list = list()
     if isinstance(data_json, dict):
         for i, key in enumerate(tqdm(data_json.keys(), ncols=100)):
@@ -661,8 +660,18 @@ def prepareListwiseDataset(
                     data_json[key]["am_score"] += [0.0 for _ in range(pad_len)]
                     data_json[key]["ctc_score"] += [0.0 for _ in range(pad_len)]
 
-            for err in data_json[key]["err"][:topk]:
-                wers.append(err["err"])
+            if force_Ref:
+                if not (data_json[key]["ref"] in data_json[key]["hyps"][:topk]):
+                    data_json[key]["hyps"][1:] = data_json[key]["hyps"][0:-1]
+                    data_json[key]["hyps"][0] = data_json[key]["ref"]
+                    wers.append(0.0)
+                    data_json[key]["score"][1:] = data_json[key]["score"][0:-1]
+                    data_json[key]["am_score"][1:] = data_json[key]["am_score"][0:-1]
+                    data_json[key]["ctc_score"][1:] = data_json[key]["ctc_score"][0:-1]
+
+            else:
+                for err in data_json[key]["err"][:topk]:
+                    wers.append(err["err"])
             # print(f'wers:{wers}')
             wers_tensor = np.array(wers, dtype=np.float32)
 
@@ -748,6 +757,17 @@ def prepareListwiseDataset(
                 wers.append(err["err"])
             # print(f'wers:{wers}')
             wers_tensor = np.array(wers)
+
+            if force_Ref:
+                if not (data["ref"] in data["hyps"][:topk]):
+                    # print(f"hyps:{data['hyps']}")
+                    data["hyps"][1:] = data["hyps"][0:-1]
+                    data["hyps"][0] = data["ref"]
+                    wers.append(0.0)
+                    data["score"][1:] = data["score"][0:-1]
+                    data["am_score"][1:] = data["am_score"][0:-1]
+                    data["ctc_score"][1:] = data["ctc_score"][0:-1]
+                    # print(f"hyps after replace:{data['hyps']}")
 
             if paddingNBest:
                 hyp_len = len(data["hyps"])
@@ -836,6 +856,7 @@ def prepareListwiseDataset(
         data_list = sorted(data_list, key=lambda x: x["max_len"])
     return LM_Dataset(data_list)
 
+
 def prepareSimpleListwiseDataset(
     data_json,
     dataset,
@@ -904,7 +925,7 @@ def prepareSimpleListwiseDataset(
 
             nbest = len(data_json[key]["hyps"][:topk])
 
-            labels = torch.zeros((nbest), dtype = torch.long)
+            labels = torch.zeros((nbest), dtype=torch.long)
             labels[top_index] = 1
 
             ref = data_json[key]["ref"]
@@ -923,7 +944,7 @@ def prepareSimpleListwiseDataset(
                     "max_len": max_len,
                     "min_len": min_len,
                     "label": labels,
-                    "errs": data_json[key]["err"][:topk]
+                    "errs": data_json[key]["err"][:topk],
                 }
             )
 
@@ -966,10 +987,9 @@ def prepareSimpleListwiseDataset(
 
             nbest = len(data["hyps"][:topk])
 
-            labels = torch.zeros((nbest), dtype = torch.long)
+            labels = torch.zeros((nbest), dtype=torch.long)
             labels[top_index] = 1
-            indexs = torch.tensor([i for i in range(nbest)], dtype = torch.int32)
-
+            indexs = torch.tensor([i for i in range(nbest)], dtype=torch.int32)
 
             # print(f"wer:{nbest}")
             data_list.append(
@@ -986,12 +1006,12 @@ def prepareSimpleListwiseDataset(
                     "max_len": max_len,
                     "min_len": min_len,
                     "label": labels,
-                    "index": indexs
+                    "index": indexs,
                 }
             )
             if get_num > 0 and i > get_num:
                 break
 
     if sort_by_len:
-        data_list = sorted(data_list, key=lambda x: x["max_len"], reverse = True)
+        data_list = sorted(data_list, key=lambda x: x["max_len"], reverse=True)
     return LM_Dataset(data_list)

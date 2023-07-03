@@ -117,7 +117,7 @@ class nBestCrossBert(torch.nn.Module):
         self,
         dataset,
         device,
-        lstm_dim=512,
+        lstm_dim=1024,
         use_fuseAttention=False,
         use_learnAttnWeight=False,
         addRes=False,
@@ -196,9 +196,10 @@ class nBestCrossBert(torch.nn.Module):
                 dropout=0.1,
                 batch_first=True,
                 bidirectional=True,
+                proj_size=768,
             )
 
-            self.concat_dim = 2 * lstm_dim if concatCLS else 2 * 2 * lstm_dim
+            self.concat_dim = 2 * 768 if concatCLS else 2 * 2 * lstm_dim
 
         elif fuseType == "attn":
             encoder_layer = TransformerEncoderLayer(
