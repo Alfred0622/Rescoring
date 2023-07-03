@@ -143,7 +143,7 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
         self,
         dataset,
         device,
-        hidden_size = 2048, 
+        hidden_size = 512, 
         output_size = 64,
         ctc_weight = 0.3,
         dropout = 0.3,
