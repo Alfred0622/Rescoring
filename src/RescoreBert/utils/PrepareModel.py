@@ -4,7 +4,13 @@ import sys
 sys.path.append("../")
 import torch
 from model.RescoreBert import RescoreBertAlsem
-from model.NBestCrossBert import nBestCrossBert, pBert, poolingBert, nBestfuseBert, pBertSimp
+from model.NBestCrossBert import (
+    nBestCrossBert,
+    pBert,
+    poolingBert,
+    nBestfuseBert,
+    pBertSimp,
+)
 from model.ContrastBERT import marginalBert, contrastBert
 from transformers import (
     AutoModelForCausalLM,
@@ -192,8 +198,6 @@ def preparePBert(args, train_args, device):
     return model, tokenizer
 
 
-
-
 def prepareContrastBert(args, train_args, mode="CONTRAST"):
     pretrain_name = getBertPretrainName(args["dataset"])
 
@@ -202,6 +206,7 @@ def prepareContrastBert(args, train_args, mode="CONTRAST"):
     elif mode in ["MARGIN", "MARGIN_TORCH"]:
         model = marginalBert(
             args,
+            train_args,
             margin=float(train_args["margin_value"]),
             useTopOnly=train_args["useTopOnly"],
             useTorch=mode == "MARGIN_TORCH",
@@ -228,6 +233,7 @@ def prepareFuseBert(args, train_args):
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 
     return model, tokenizer
+
 
 def preparePBertSimp(args, train_args, device):
     pretrain_name = getBertPretrainName(args["dataset"])

@@ -20,7 +20,12 @@ from torch.optim.lr_scheduler import OneCycleLR
 from src_utils.get_recog_set import get_valid_set
 from utils.PrepareModel import prepareNBestCrossBert
 from utils.CollateFunc import crossNBestBatch
-from utils.PrepareScoring import prepare_score_dict, calculate_cer, calculate_cerOnRank
+from utils.PrepareScoring import (
+    prepare_score_dict,
+    calculate_cer,
+    calculate_cerOnRank,
+    get_result,
+)
 import math
 
 checkpoint = None
@@ -111,6 +116,7 @@ logging.basicConfig(
 )
 
 valid_set = get_valid_set(args["dataset"])
+test_set = ["test"]
 
 """
 model and Optimizer initilaization
@@ -140,9 +146,10 @@ optimizer = Adam(model.parameters(), lr=float(train_args["lr"]))
 
 with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, open(
     f"../../data/{args['dataset']}/data/{setting}/{valid_set}/data.json"
-) as dev:
+) as dev, open(f"../../data/{args['dataset']}/data/{setting}/test/data.json") as test:
     train_json = json.load(f)
     valid_json = json.load(dev)
+    test_json = json.load(test)
 
 """
 Load checkpoint
@@ -175,9 +182,20 @@ valid_dataset = prepareListwiseDataset(
     concatMask=train_args["concatMaskAfter"],
 )
 
+test_dataset = prepareListwiseDataset(
+    data_json=test_json,
+    dataset=args["dataset"],
+    tokenizer=tokenizer,
+    sort_by_len=train_args["sortByLen"],
+    get_num=get_num,
+    maskEmbedding=train_args["fuseType"] == "query",
+    concatMask=train_args["concatMaskAfter"],
+)
+
 print(f"Prepare Sampler")
 train_sampler = NBestSampler(train_dataset)
 valid_sampler = NBestSampler(valid_dataset)
+test_sampler = NBestSampler(test_dataset)
 
 print(f"len of sampler:{len(train_sampler)}")
 
@@ -188,6 +206,12 @@ train_batch_sampler = BatchSampler(
 )
 valid_batch_sampler = BatchSampler(
     valid_sampler,
+    train_args["valid_batch"],
+    batch_by_len=(train_args["fuseType"] in ["attn", "lstm"]),
+)
+
+test_batch_sampler = BatchSampler(
+    test_sampler,
     train_args["valid_batch"],
     batch_by_len=(train_args["fuseType"] in ["attn", "lstm"]),
 )
@@ -205,6 +229,14 @@ train_loader = DataLoader(
 valid_loader = DataLoader(
     dataset=valid_dataset,
     batch_sampler=valid_batch_sampler,
+    collate_fn=partial(crossNBestBatch, hard_label=train_args["hardLabel"]),
+    num_workers=16,
+    pin_memory=True,
+)
+
+test_loader = DataLoader(
+    dataset=test_dataset,
+    batch_sampler=test_batch_sampler,
     collate_fn=partial(crossNBestBatch, hard_label=train_args["hardLabel"]),
     num_workers=16,
     pin_memory=True,
@@ -229,6 +261,18 @@ lr_scheduler = OneCycleLR(
     hyps,
     refs,
 ) = prepare_score_dict(valid_json, nbest=args["nbest"])
+
+(
+    test_index_dict,
+    test_inverse_dict,
+    test_am_scores,
+    test_ctc_scores,
+    test_lm_scores,
+    test_rescores,
+    test_wers,
+    test_hyps,
+    test_refs,
+) = prepare_score_dict(test_json, nbest=args["nbest"])
 
 """
 Initialize wandb
@@ -448,6 +492,22 @@ for e in range(start_epoch, train_args["epoch"]):
         """
         Calculate Score
         """
+        print(f"Test by epoch")
+        for i, data in enumerate(tqdm(test_loader, ncols=100)):
+            for key in data.keys():
+                if key not in ["name", "indexes"]:
+                    data[key] = data[key].to(device)
+            output = model.forward(
+                **data,
+                use_cls_loss=get_cls_loss,
+                use_mask_loss=get_mask_loss,
+            )
+
+            scores = output["score"]
+            for n, (name, index, score) in enumerate(
+                zip(data["name"], data["indexes"], scores)
+            ):
+                test_rescores[test_index_dict[name]][index] += score.item()
 
         print(f"Validation: Calcuating CER")
         if not train_args["sepTask"] or not train_args["scoreByRank"]:
@@ -468,11 +528,26 @@ for e in range(start_epoch, train_args["epoch"]):
                 f"epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}"
             )
 
+            test_cer, _ = get_result(
+                test_index_dict,
+                test_am_scores,
+                test_ctc_scores,
+                test_lm_scores,
+                test_rescores,
+                test_wers,
+                test_hyps,
+                test_refs,
+                best_am,
+                best_ctc,
+                best_lm,
+                best_rescore,
+            )
+
         else:
             min_cer = calculate_cerOnRank(
                 am_scores, ctc_scores, lm_scores, rescores, wers, withLM=args["withLM"]
             )
-            print(f"epoch:{e + 1},Validation CER:{min_cer}")
+        print(f"epoch:{e + 1},Validation CER:{min_cer}, Testing CER: {test_cer}")
         print(f"epoch:{e + 1},Validation loss:{eval_loss}")
 
         if "cls_loss" in output.keys():
@@ -480,6 +555,7 @@ for e in range(start_epoch, train_args["epoch"]):
                 {
                     "eval_loss": eval_loss / len(valid_batch_sampler),
                     "eval_CER": min_cer,
+                    "test_CER": test_cer,
                     "epoch": (e + 1),
                     "eval_cls_loss": cls_loss / len(valid_batch_sampler),
                     "eval_mask_loss": mask_loss / len(valid_batch_sampler),
