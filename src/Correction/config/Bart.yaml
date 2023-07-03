@@ -3,14 +3,14 @@ args:
   stop_stage: 1
   nbest: 4
   withLM: False
-  dataset: aishell
+  dataset: csj
 
 train:
   start_epoch: 0
   epoch: 10
-  train_batch: 128
-  valid_batch: 128
-  accumgrad: 2
+  train_batch: 64
+  valid_batch: 64
+  accumgrad: 4
   print_loss: 2000
   lr: 1e-5
   data_type: single

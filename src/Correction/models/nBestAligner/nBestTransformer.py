@@ -51,7 +51,7 @@ class nBestAlignBart(nn.Module):
 
         if (self.align_layer == 1):
             self.alignLinear = torch.nn.Sequential(
-                nn.Dropout(p = 0.5),
+                nn.Dropout(p = 0.1),
                 nn.Linear(self.embeddding_dim * self.nBest, 768),
             )
         elif (self.align_layer == 2):
@@ -70,13 +70,9 @@ class nBestAlignBart(nn.Module):
         attention_mask: [B, L]
         """
         aligned_embedding = self.model.model.shared(input_ids) # [B,L ,nBest, 768]
-        
-        # print(f"label:{labels}")
+
         aligned_embedding = torch.flatten(aligned_embedding, start_dim = 2)
-        # print(f"aligned_embedding after flatten:{aligned_embedding.shape}")
-        # aligned_embedding = self.embedding(input_ids)
-        # aligned_embedding = aligned_embedding.flatten(start_dim=2)
-        aligned_embedding = self.alignLinear(aligned_embedding) # [B, nBest * 768, L] -> [B, 768, L]
+        aligned_embedding = self.alignLinear(aligned_embedding) # [B, L, 768 * nBest] -> 
 
         output = self.model(
             inputs_embeds = aligned_embedding,
@@ -87,7 +83,7 @@ class nBestAlignBart(nn.Module):
 
         return output
 
-    def recognize(self, input_ids, attention_mask,num_beams = 1 ,max_lens = 150):
+    def recognize(self, input_ids, attention_mask,num_beams = 5 ,max_lens = 150):
         batch_size = input_ids.shape[0]
         aligned_embedding = self.model.model.shared(input_ids)  # (L, N, 768)
         aligned_embedding = torch.flatten(aligned_embedding, start_dim = 2)# (L, 768 * N)

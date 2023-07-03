@@ -93,7 +93,7 @@ if __name__ == "__main__":
         batch_size=train_args["train_batch"],
         collate_fn=nBestAlignBatch,
         # num_workers=4,
-        shuffle=False,
+        shuffle=True,
     )
 
     dev_loader = DataLoader(
