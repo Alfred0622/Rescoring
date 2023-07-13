@@ -627,6 +627,7 @@ def prepareListwiseDataset(
     concatMask=False,
     paddingNBest=False,
     force_Ref=False,
+    add_qe=False,
 ):
     """
     The purpose of the function is to get the complete dataset. Includes:
@@ -700,25 +701,25 @@ def prepareListwiseDataset(
 
             for hyp in data_json[key]["hyps"][:topk]:
                 hyp = preprocess_string(hyp, dataset)
-                if maskEmbedding and not concatMask:
+                if add_qe:
                     hyp = hyp + "[MASK]"
 
                 output = tokenizer(hyp)
 
-                if maskEmbedding and concatMask:
-                    output["input_ids"] = output[
-                        "input_ids"
-                    ] + tokenizer.convert_tokens_to_ids(["[MASK]"])
-                    output["attention_mask"] = output["attention_mask"] + [1]
+                # if add_qe:
+                #     output["input_ids"] = output[
+                #         "input_ids"
+                #     ] + tokenizer.convert_tokens_to_ids(["[MASK]"])
+                #     output["attention_mask"] = output["attention_mask"] + [1]
 
                 input_ids.append(output["input_ids"])
                 attention_masks.append(output["attention_mask"])
                 avg_errs.append(avg_err)
 
-                if len(hyp) > max_len:
-                    max_len = len(hyp)
-                if len(hyp) < min_len:
-                    min_len = len(hyp)
+                if len(output["input_ids"]) > max_len:
+                    max_len = len(output["input_ids"])
+                if len(output["input_ids"]) < min_len:
+                    min_len = len(output["input_ids"])
 
             nbest = len(data_json[key]["hyps"][:topk])
 
@@ -751,6 +752,7 @@ def prepareListwiseDataset(
                 break
 
     elif isinstance(data_json, list):
+        print(f"topk:{topk}")
         for i, data in enumerate(tqdm(data_json, ncols=100)):
             wers = []
             for err in data["err"][:topk]:
@@ -760,14 +762,14 @@ def prepareListwiseDataset(
 
             if force_Ref:
                 if not (data["ref"] in data["hyps"][:topk]):
-                    # print(f"hyps:{data['hyps']}")
+                    # print(f"hyps:{data['hyps'][:topk]}")
                     data["hyps"][1:] = data["hyps"][0:-1]
                     data["hyps"][0] = data["ref"]
                     wers.append(0.0)
                     data["score"][1:] = data["score"][0:-1]
                     data["am_score"][1:] = data["am_score"][0:-1]
                     data["ctc_score"][1:] = data["ctc_score"][0:-1]
-                    # print(f"hyps after replace:{data['hyps']}")
+                    # print(f"hyps after replace:{data['hyps'][:topk]}")
 
             if paddingNBest:
                 hyp_len = len(data["hyps"])
@@ -802,16 +804,16 @@ def prepareListwiseDataset(
             for hyp in data["hyps"][:topk]:
                 hyp = preprocess_string(hyp, dataset)
 
-                if maskEmbedding and not concatMask:
-                    hyp = hyp + "[MASK]"
+                if add_qe:
+                    hyp = hyp + " [MASK]"
 
                 output = tokenizer(hyp)
 
-                if maskEmbedding and concatMask:
-                    output["input_ids"] = output[
-                        "input_ids"
-                    ] + tokenizer.convert_tokens_to_ids(["[MASK]"])
-                    output["attention_mask"] = output["attention_mask"] + [1]
+                # if add_qe:
+                #     output["input_ids"] = output[
+                #         "input_ids"
+                #     ] + tokenizer.convert_tokens_to_ids(["[MASK]"])
+                #     output["attention_mask"] = output["attention_mask"] + [1]
 
                 input_ids.append(output["input_ids"])
                 attention_masks.append(output["attention_mask"])
@@ -918,10 +920,10 @@ def prepareSimpleListwiseDataset(
                 input_ids.append(output["input_ids"])
                 attention_masks.append(output["attention_mask"])
 
-                if len(hyp) > max_len:
-                    max_len = len(hyp)
-                if len(hyp) < min_len:
-                    min_len = len(hyp)
+                if len(output["input_ids"]) > max_len:
+                    max_len = len(output["input_ids"])
+                if len(output["input_ids"]) < min_len:
+                    min_len = len(output["input_ids"])
 
             nbest = len(data_json[key]["hyps"][:topk])
 

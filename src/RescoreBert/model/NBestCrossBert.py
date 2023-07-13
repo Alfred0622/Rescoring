@@ -47,7 +47,6 @@ class NBestAttentionLayer(BertModel):
         BertModel.__init__(self, config)
 
     def forward(self, inputs_embeds, attention_matrix):
-
         return_dict = self.config.use_return_dict
 
         if self.config.is_decoder:
@@ -131,7 +130,6 @@ class nBestCrossBert(torch.nn.Module):
         noCLS=True,
         noSEP=False,
     ):
-
         print(f"noCLS:{noCLS}, noSEP:{noSEP}")
         super().__init__()
         pretrain_name = getBertPretrainName(dataset)
@@ -260,7 +258,6 @@ class nBestCrossBert(torch.nn.Module):
         *args,
         **kwargs,
     ):
-
         output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
 
         cls = output.pooler_output  # (B, 768)
@@ -398,7 +395,6 @@ class nBestCrossBert(torch.nn.Module):
                             cls_rank = torch.zeros(cls_score.shape)
                             mask_rank = torch.zeros(mask_score.shape)
                             for index in nBestIndex:
-
                                 (
                                     _,
                                     cls_rank[start_index : start_index + index],
@@ -434,7 +430,6 @@ class nBestCrossBert(torch.nn.Module):
                                 cls_rank = torch.zeros(cls_score.shape)
                                 mask_rank = torch.zeros(mask_score.shape)
                                 for index in nBestIndex:
-
                                     (
                                         _,
                                         cls_rank[start_index : start_index + index],
@@ -750,15 +745,17 @@ class pBert(torch.nn.Module):
 
         self.output_attention = output_attention
 
+        self.reduction = train_args['reduction']
+
         self.activation_fn = SoftmaxOverNBest()
         self.weightByWER = train_args["weightByWER"]
         self.layer_op = train_args["layer_op"]
+        self.MWER = train_args["MWER"]
 
         extra_layer_config = BertConfig.from_pretrained(pretrain_name)
         extra_layer_config.num_hidden_layers = 1
 
         if self.layer_op is not None and "lastInit" in self.layer_op:
-
             init_layer = self.layer_op.split("_")[-1]
             print(f"last init:{init_layer}")
             for i in range(1, int(init_layer) + 1):
@@ -814,26 +811,99 @@ class pBert(torch.nn.Module):
                     loss = self.loss(scores, labels)
                 else:
                     scores = self.activation_fn(scores, nBestIndex, log_score=False)
-                    loss = (
-                        torch.sum(labels * torch.log(scores)) / input_ids.shape[0]
-                    )  # batch_mean
+                    loss = labels * torch.log(scores)
                     loss = torch.neg(loss)
 
-            if wers is not None:
-                if self.weightByWER == "inverse":  # Lower WER get larger Weight
-                    wers = torch.reciprocal(1 + 10 * wers)
-                elif self.weightByWER == "positive":  # Higher WER get higher weight
-                    wers = 0.5 + (wers * 5)
-                elif self.weightByWER == "square":  # WER
-                    wers = ((wers - 0.2) + 1) ** 2  #
-                loss = loss * wers
-                loss = torch.sum(loss) / input_ids.shape[0]  # batch_mean
+            # print(f"loss after entropy:{loss}")
 
+            if wers is not None:
+                if self.weightByWER is not None:
+                    if self.weightByWER == "inverse":  # Lower WER get larger Weight
+                        wers = torch.reciprocal(1 + 10 * wers)
+                    elif self.weightByWER == "positive":  # Higher WER get higher weight
+                        wers = 0.5 + (wers * 5)
+                    elif self.weightByWER == "square":  # WER
+                        wers = ((wers - 0.2) + 1) ** 2  #
+                    loss = loss * wers
+
+                if self.MWER is not None and self.MWER == "MWED":
+                    softmax_wers = self.activation_fn(wers, nBestIndex)
+                    temperature = torch.zeros(
+                        softmax_wers.shape, device=final_score.device
+                    )
+                    start_index = 0
+                    for N in nBestIndex:
+                        temp_score = torch.sum(
+                            final_score[start_index : start_index + N]
+                        )
+                        temp_wer = torch.sum(wers[start_index : start_index + N])
+                        temperature[start_index : start_index + N] = (
+                            temp_score / temp_wer
+                        )
+                        # print(f"temperature:{temperature}")
+                        smoothed_score = final_score / temperature
+                        # print(f"final_score:{final_score}")
+                        # print(f"smoothed_score:{smoothed_score}")
+                        smoothed_score = self.activation_fn(smoothed_score, nBestIndex)
+                        # print(f"smoothed_score after softmax:{smoothed_score}")
+                        start_index += N
+
+                    discriminative_loss = torch.neg(
+                        softmax_wers * torch.log(smoothed_score)
+                    )
+                    # print(f"loss:{loss}")
+                    # print(f"discriminative_loss:{discriminative_loss}")
+                    loss = loss + discriminative_loss
+
+            else:
+                if (self.reduction == 'sum'):
+                    loss = torch.sum(loss)
+                elif (self.reduction == 'mean'):
+                    loss = torch.mean(loss)
         return {
             "loss": loss,
             "score": final_score,
             "attention_weight": bert_output.attentions,
         }
+
+    def recognize_by_attention(
+        self,
+        input_ids,
+        attention_mask,
+        # am_score,
+        # ctc_score,
+        # nBestIndex,
+    ):
+        bert_output = self.bert(input_ids, attention_mask, output_attentions=True)
+        attention_weight_heads = bert_output.attentions  # [B, 1, L , 12]
+        # print(f"attention_weight_heads:{len(attention_weight_heads)}")
+        last_attention_weight = attention_weight_heads[-1]
+        # print(f"attention_weight_heads[0]:{last_attention_weight.shape}")
+        attention_weight = last_attention_weight.sum(dim=1) / 12
+        # print(f"attention_weight:{attention_weight.shape}")
+        # print(f"attention_mask:{attention_mask.shape}")
+        length = (
+            attention_mask.sum(dim=1).unsqueeze(-1).expand(-1, attention_mask.shape[1])
+        )
+        target = 1 / length
+        cls_attention_weight = attention_weight[:, 0, :]
+        # print(f'check:{torch.sum(attention_weight, dim = -1)}')
+        target[attention_mask == 0] = 0
+        target[input_ids == 102] += 0.2 / (length[:, -1])
+        target[input_ids == 101] = 0
+
+        cls_attention_weight[attention_mask == 0] = 1e-9
+        cls_attention_weight[input_ids == 101] = 1e-9
+
+        # print(f"target:{target}")
+
+        entropy = torch.neg(
+            torch.sum(target * (torch.log(cls_attention_weight)), dim=-1)
+        )
+
+        # print(f"score:{entropy}")
+
+        return {"score": entropy, "loss": None}
 
     def parameters(self):
         parameters = list(self.bert.parameters()) + list(self.linear.parameters())
@@ -1117,7 +1187,6 @@ class poolingBert(torch.nn.Module):
         final_prob = self.activation_fn(final_score.clone(), nBestIndex)
 
         if labels is not None:
-
             loss = labels * torch.log(final_prob)
             loss = torch.neg(torch.sum(loss))
 
