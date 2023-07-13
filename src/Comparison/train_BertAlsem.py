@@ -99,7 +99,7 @@ scheduler = OneCycleLR(
 wandb.init(
     project=f"Bertsem_{args['dataset']}",
     config=wandb_config,
-    name=f"batch{train_args['train_batch']}_accum{train_args['accum_grads']}_lr{train_args['lr']}",
+    name=f"Alsem_{setting}_batch{train_args['train_batch']}_accum{train_args['accum_grads']}_lr{train_args['lr']}",
 )
 model.optimizer.zero_grad(set_to_none=True)
 

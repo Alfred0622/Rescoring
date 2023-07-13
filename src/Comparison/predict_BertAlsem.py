@@ -26,6 +26,8 @@ elif (args['dataset'] in ['aishell', 'tedlium2']):
     recog_set = ['dev', 'test']
 elif (args['dataset'] in ['aishell2']):
     recog_set = ['dev_ios', 'test_ios', 'test_android', 'test_mic']
+elif (args['dataset'] in ['librispeech']):
+    recog_set = ['valid', 'dev_clean', 'dev_other', 'test_clean', 'test_other']
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -47,6 +49,8 @@ for task in recog_set:
     print(f'task:{task}')
     file_name = f"./data/{args['dataset']}/{task}/{setting}/{args['nBest']}best/data.json"
     hyp_file = f"../../data/{args['dataset']}/data/{setting}/{task}/data.json"
+    if (args['dataset'] == 'librispeech' and task == 'valid'):
+        file_name = f"./data/{args['dataset']}/{task}/{setting}/{args['nBest']}best/test_data.json"
     with open(file_name ,'r') as f, open(hyp_file, 'r') as hyp_f:
         print(f"File name:{file_name}")
         data_json = json.load(f)

@@ -5,7 +5,7 @@ from tqdm import tqdm
 from pathlib import Path
 
 os.environ["PATH"] = f"/mnt/disk6/Alfred/Rescoring/src/Correction/jumanpp-2.0.0-rc3/bld/bin:{os.environ['PATH']}"
-tokenization = True
+tokenization = False
 concat = True
 
 task = ['withLM']
@@ -56,7 +56,7 @@ if (concat):
     for s in task:
         for dataset in datasets:
             print(f"concat {s}: {dataset}")
-            data_file = f"../data/csj/{s}/{dataset}/dat.json"
+            data_file = f"../data/csj/{s}/{dataset}/data.json"
             with open (data_file) as f:
                 data_json = json.load(f)
                 final_json += data_json

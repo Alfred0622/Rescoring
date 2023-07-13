@@ -10,7 +10,7 @@ from transformers import BertTokenizer
 random.seed(42)
 nbest = 20
 
-name = 'aishell'
+name = 'librispeech'
 setting = ['noLM', 'withLM']
 
 if (name in ['tedlium2', 'librispeech']):
@@ -20,7 +20,7 @@ elif (name in ['aishell', 'aishell2']):
 elif (name in ['csj']):
     pass
 
-concat_train = True
+concat_train = False
 concat_test = True
 
 # train & valid
@@ -270,12 +270,16 @@ if (concat_test):
             ) as fw:
                 json.dump(save_list, fw, ensure_ascii = False, indent = 4)
     
-if (name == 'librispeech'):
-    with open(f"../data/{name}/dev_clean/{s}/5best/data.json") as clean , \
-            open(f"../data/{name}/dev_other/{s}/5best/data.json") as other :
-        
-        valid_json = json.load(clean)
-        valid_json = valid_json + json.load(other)
+        if (name == 'librispeech'):
+            print(f'concat')
+            with open(f"../data/{name}/dev_clean/{s}/{nbest}best/data.json") as clean , \
+                    open(f"../data/{name}/dev_other/{s}/{nbest}best/data.json") as other :
+                
+                valid_json = json.load(clean)
+                valid_json = valid_json + json.load(other)
 
-        with open(f"../data/{name}/valid/{s}/{nbest}best/data.json", 'w') as valid:
-            json.dump(valid_json, valid, ensure_ascii = False, indent = 1)
+                save_path = Path(f"../data/{name}/valid/{s}/{nbest}best")
+                save_path.mkdir(parents = True, exist_ok = True)
+
+                with open(f"../data/{name}/valid/{s}/{nbest}best/test_data.json", 'w') as valid:
+                    json.dump(valid_json, valid, ensure_ascii = False, indent = 1)

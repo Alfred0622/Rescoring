@@ -30,6 +30,7 @@ class BatchSampler(Sampler):
         self.batch_by_len = batch_by_len
 
         print(f"batch_size BatchSampler:{self.batch_size}")
+        print(f"batch_by_len:{self.batch_by_len}")
 
     def __iter__(self):
         batch = []

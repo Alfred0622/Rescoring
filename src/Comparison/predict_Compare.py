@@ -61,7 +61,7 @@ for task in recog_set:
 
     if (args['dataset'] == 'librispeech' and task == 'valid'):
         print(f'load rescore data')
-        file_name = f"./data/{args['dataset']}/{task}/{setting}/{args['nbest']}best/rescore_data.json"
+        file_name = f"./data/{args['dataset']}/{task}/{setting}/{args['nbest']}best/test_data.json"
     
     else:
         file_name = f"./data/{args['dataset']}/{task}/{setting}/{args['nbest']}best/data.json"

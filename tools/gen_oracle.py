@@ -7,7 +7,7 @@ from torch.utils.data import Dataset, DataLoader
 from jiwer import wer
 import sys
 
-choose_nbest = [50]
+choose_nbest = [5]
 
 dataset = sys.argv[1]
 if (dataset in ['aishell2']):
@@ -50,8 +50,8 @@ for best in choose_nbest:
             with open(f"../data/{dataset}/data/{s}/{n}/data.json", "r") as f:
                 data = json.load(f)
                 for d in data:
-                    token = d["hyps"]
-                    err = d["err"]
+                    token = d["hyps"][:best]
+                    err = d["err"][:best]
                     ref = d["ref"]
 
                     min_err = 1e8

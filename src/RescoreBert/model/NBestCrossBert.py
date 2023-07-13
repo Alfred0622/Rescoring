@@ -42,7 +42,7 @@ class NBestAttentionLayer(BertModel):
         self.hidden_size = input_dim
         self.num_hidden_layers = n_layers
         config = BertConfig(
-            dim=self.input_dim, num_hidden_layers=n_layers, attention_dropout=0.3
+            hidden_size=self.input_dim, num_hidden_layers=n_layers, attention_dropout=0.1
         )
         BertModel.__init__(self, config)
 
@@ -63,17 +63,25 @@ class NBestAttentionLayer(BertModel):
         batch_size, seq_length = input_shape
         device = inputs_embeds.device
 
+        attention_matrix = attention_matrix.unsqueeze(0)
+
+        # print(f'attention_mask:{attention_matrix.shape}')
+        # print(f'attention_mask:{attention_matrix}')
+        # print(f'input_embeds.shape:{inputs_embeds.shape}')
+
+
         # We can provide a self-attention mask of dimensions [batch_size, from_seq_length, to_seq_length]
         # ourselves in which case we just need to make it broadcastable to all heads.
-        # extended_attention_mask: torch.Tensor = self.get_extended_attention_mask(attention_matrix, input_shape)
+        extended_attention_mask: torch.Tensor = self.get_extended_attention_mask(attention_matrix, input_shape)
 
-        # print(f"extended_attention_mask:{attention_matrix.shape}")
+        # print(f"extended_attention_mask:{extended_attention_mask.shape}")
 
         # Prepare head mask if needed
         # 1.0 in head_mask indicate we keep the head
         # attention_probs has shape bsz x n_heads x N x N
         # input head_mask has shape [num_heads] or [num_hidden_layers x num_heads]
         # and head_mask is converted to shape [num_hidden_layers x batch x num_heads x seq_length x seq_length]
+        # print(f"inputs_embeds:{inputs_embeds}")
 
         embedding_output = self.embeddings(
             input_ids=None,
@@ -82,9 +90,12 @@ class NBestAttentionLayer(BertModel):
             inputs_embeds=inputs_embeds,
             past_key_values_length=0,
         )
+
+        # print(f'embedding_output.shape:{embedding_output.shape}')
+        # print(f"embedding_output:{embedding_output}")
         encoder_outputs = self.encoder(
             embedding_output,
-            attention_mask=attention_matrix,
+            attention_mask=extended_attention_mask,
             head_mask=None,
             encoder_hidden_states=None,
             encoder_attention_mask=None,
@@ -101,6 +112,12 @@ class NBestAttentionLayer(BertModel):
 
         if not return_dict:
             return (sequence_output, pooled_output) + encoder_outputs[1:]
+        
+        # print(f"attention_weight:{encoder_outputs.attentions[-1].shape}")
+
+        print(f"attention_weight:{encoder_outputs.attentions[-1]}")
+
+        # print(f'pooler_output:{pooled_output}')
 
         return BaseModelOutputWithPoolingAndCrossAttentions(
             last_hidden_state=sequence_output,
@@ -115,7 +132,8 @@ class NBestAttentionLayer(BertModel):
 class nBestCrossBert(torch.nn.Module):
     def __init__(
         self,
-        dataset,
+        args,
+        train_args,
         device,
         lstm_dim=1024,
         use_fuseAttention=False,
@@ -134,22 +152,19 @@ class nBestCrossBert(torch.nn.Module):
 
         print(f"noCLS:{noCLS}, noSEP:{noSEP}")
         super().__init__()
-        pretrain_name = getBertPretrainName(dataset)
+        pretrain_name = getBertPretrainName(args['dataset'])
 
         self.activation_fn = SoftmaxOverNBest()
 
-        self.addRes = addRes
-        self.resCLS = concatCLS
         self.device = device
         self.dropout = torch.nn.Dropout(p=dropout)
         self.fuseType = fuseType
         self.lossType = lossType
         self.KL = lossType == "KL"
         self.useRank = useRank
-        self.sepTask = sepTask
         self.taskType = taskType
-        self.noCLS = noCLS
-        self.noSEP = noSEP
+        self.noCLS = train_args["noCLS"]
+        self.noSEP = train_args["noSEP"]
 
         print(f"taskType:{self.taskType}")
 
@@ -228,16 +243,13 @@ class nBestCrossBert(torch.nn.Module):
         )  # concat the fused pooling output with CLS
         self.finalLinear = torch.nn.Sequential(torch.nn.Linear(770, 1))
 
-        if self.sepTask:
-            self.finalExLinear = torch.nn.Linear(770, 1)
-
         # NBest Attention Related
         if use_fuseAttention:
             self.clsConcatLinear = torch.nn.Linear(2 * 768, 766)
             self.fuseAttention = NBestAttentionLayer(
                 input_dim=768, device=device, n_layers=1
             ).to(device)
-            print(f"NBestAttention Layer:{self.fuseAttention}")
+            # print(f"NBestAttention Layer:{self.fuseAttention}")
 
             self.finalLinear = torch.nn.Linear(768, 1)
         else:
@@ -715,7 +727,7 @@ class pBertSimp(torch.nn.Module):
         if labels is not None:
             scores = self.activation_fn(scores, nBestIndex, log_score=False)
             loss = labels * torch.log(scores)
-            loss = torch.neg(loss)
+            loss = torch.sum(torch.neg(loss))
 
         return {
             "loss": loss,
@@ -863,15 +875,15 @@ class pBert(torch.nn.Module):
 
 
 class nBestfuseBert(torch.nn.Module):
-    def __init__(self, args, train_args, **kwargs):
+    def __init__(self, args, train_args, device, **kwargs):
         super().__init__()
         pretrain_name = getBertPretrainName(args["dataset"])
         self.nBest = args["nbest"]
         self.bert = BertModel.from_pretrained(pretrain_name)
         self.fuse_config = BertConfig.from_pretrained(pretrain_name)
         self.fuse_config.num_hidden_layers = 1
-        # self.fuse_config.hidden_size = 770
-        self.fuse_model = BertModel(self.fuse_config)
+
+        self.fuse_model = NBestAttentionLayer(input_dim = 768, device = device, n_layers = 2)
         self.finalLinear = torch.nn.Linear(770, 1)
 
         self.activation_fn = SoftmaxOverNBest()
@@ -899,7 +911,7 @@ class nBestfuseBert(torch.nn.Module):
 
         cls = output.pooler_output
 
-        cls = cls.view(batch_size, self.nBest, -1)
+        # cls = cls.view(batch_size, self.nBest, -1)
         nBestFuseCLS = self.fuse_model(
             inputs_embeds=cls, attention_mask=nBestMask
         ).last_hidden_state
@@ -909,8 +921,8 @@ class nBestfuseBert(torch.nn.Module):
         nBestFuseCLS = torch.cat([nBestFuseCLS, am_score], dim=-1)
         nBestFuseCLS = torch.cat([nBestFuseCLS, ctc_score], dim=-1)
 
-        nBestScore = self.finalLinear(nBestFuseCLS).flatten(0)
-        # print(f"nBestScore:{nBestScore.shape}")
+        nBestScore = self.finalLinear(nBestFuseCLS)
+        print(f"nBestScore:{nBestScore.shape}")
         nBestProb = self.activation_fn(
             nBestScore, nBestIndex, paddingNbest=True, topk=50
         )
@@ -918,6 +930,7 @@ class nBestfuseBert(torch.nn.Module):
         if labels is not None:
             loss = labels * torch.log(nBestProb)
             loss = torch.neg(torch.sum(loss))
+            
 
         return {"score": nBestScore, "loss": loss}
 

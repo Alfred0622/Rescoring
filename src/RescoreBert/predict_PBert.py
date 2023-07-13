@@ -35,7 +35,7 @@ setting = 'withLM' if (args['withLM']) else 'noLM'
 print(f"{args['dataset']} : {setting}")
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model, tokenizer = preparePBert(dataset = args['dataset'], device = device)
+model, tokenizer = preparePBert(args, train_args, device = device)
 model = model.to(device)
 model.eval()
 checkpoint = torch.load(checkpoint_path)
@@ -68,7 +68,7 @@ for task in recog_set:
         with torch.no_grad():
             for data in tqdm(recog_loader, ncols = 100):
                 for key in  data.keys():
-                    if (key not in ['name', 'indexes']):
+                    if (key not in ['name', 'indexes'] and data[key] is not None):
                         data[key] = data[key].to(device)
 
                 output = model(
@@ -76,7 +76,7 @@ for task in recog_set:
                     attention_mask = data['attention_mask'],
                     am_score = data['am_score'],
                     ctc_score = data['ctc_score'],
-                    N_best_index = None,
+                    nBestIndex = None,
                 )['score']
 
                 # print(f"output:{output.shape}\n {output}")

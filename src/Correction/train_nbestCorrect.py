@@ -129,7 +129,7 @@ if (train_args['data_type'] == 'single'):
 else:
     valid_topk = topk
 
-print(valid_topk)
+print(f"valid:{valid_topk}")
 
 if ('WANDB_MODE' in os.environ.keys() and os.environ['WANDB_MODE'] == 'disabled'):
     fetch_num = 500
@@ -175,7 +175,7 @@ training_args = Seq2SeqTrainingArguments(
             weight_decay=0.02,
             num_train_epochs=train_args['epoch'],
             lr_scheduler_type="linear",
-            warmup_ratio = 0.02,
+            warmup_ratio = 0.3,
 
             logging_dir=f"./log/{args['dataset']}/{args['nbest']}_{task_name}/{setting}",
             logging_strategy="steps",

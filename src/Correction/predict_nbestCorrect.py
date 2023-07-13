@@ -18,6 +18,7 @@ from utils.Datasets import get_dataset
 from utils.CollateFunc import recogBatch
 from src_utils.LoadConfig import load_config
 from utils.PrepareModel import prepare_model
+from jiwer import visualize_alignment, process_characters
 
 from pathlib import Path
 
@@ -40,7 +41,7 @@ def predict(model, dataset, tokenizer, loader):
     print('predict')
 
     loop = tqdm(loader, total = len(loader), ncols=100)
-    for batch in loop:
+    for k, batch in enumerate(loop):
         name = batch["name"]
         input_ids = batch["input_ids"]
         # print(f'input_ids:{input_ids}')
@@ -68,19 +69,25 @@ def predict(model, dataset, tokenizer, loader):
                 if (dataset in ['csj', 'aishell', 'aishell2']):
                     hyp = [t for t in "".join(hyp.split())]
                     output[i] = " ".join(hyp)
-                # print(f'output:{output[i]}')
-                # print(f'ref_list:{ref_list[i]}')
-                # print(f'top_hyps:{top_hyps[i]}\n')
+
 
             for single_name, pred, ref, top_hyp in zip(name, output, ref_list, top_hyps):
                 if (single_name not in result.keys()):
                     result[single_name] = dict()
+                ref = " ".join([t for t in "".join(ref.split())])
+                top_hyp = " ".join([t for t in "".join(top_hyp.split())])
                 result[single_name]["hyp"] = pred.strip()
                 result[single_name]["ref"] = ref.strip()
                 result[single_name]["top_hyp"] = top_hyp.strip()
 
+                # print(f'output:{pred}')
+                # print(f'ref_list:{ref}')
+                # print(f'top_hyps:{top_hyp}\n')
+
                 # print(f'hyp:{result[single_name]["hyp"].replace(" ", "_")}\nref:{result[single_name]["ref"].replace(" ", "_")} \ntop_hyp:{result[single_name]["top_hyp"].replace(" ", "_")}\n')
-    
+        
+        # if (k > 52):
+        #     exit()
     return result
 
 # Predict
@@ -124,9 +131,13 @@ if __name__ == '__main__':
     model.eval()
     model = model.to(device)
     
+    
     for data_name in scoring_set:
+        json_path = f"../../data/{args['dataset']}/data/{setting}/{data_name}/data.json"
+        if (args['dataset'] == 'csj'):
+            json_path = f"./data/{args['dataset']}/{setting}/{data_name}/data.json"
         print(f"recognizing:{data_name}")
-        with open(f"../../data/{args['dataset']}/data/{setting}/{data_name}/data.json") as f:
+        with open(json_path) as f:
             data_json = json.load(f)
 
         dataset = get_dataset(data_json,args['dataset'] , tokenizer, data_type = train_args['data_type'], sep_token=train_args['sep_token'] ,topk = topk, for_train = False)
@@ -165,7 +176,7 @@ if __name__ == '__main__':
 
             corrupt_flag = "Missed"
 
-            if (data['hyps'][0] == output[data['name']]['ref']):
+            if (output[data['name']]['top_hyp'] == output[data['name']]['ref']):
                 if (output[data['name']]['hyp'] != output[data['name']]['ref']):
                     corrupt_flag = "Totally_Corrupt"
                 else:
@@ -183,12 +194,25 @@ if __name__ == '__main__':
                         corrupt_flag = "Remain_Incorrect"
                     else:
                         corrupt_flag = "Partial_Improve"
+
+            out = process_characters(
+                ["".join(output[data['name']]['ref'].split(' '))],
+                ["".join(output[data['name']]['hyp'].split(' '))]
+            )
+
+            align_result = visualize_alignment(out, show_measures=False, skip_correct=False).split('\n')
+            align_ref = align_result[1][5:]
+            align_hyp = align_result[2][5:]
+            result_tag = align_result[3]
     
             result_dict.append(
                 {
+                    "org": output[data['name']]['top_hyp'],
                     "hyp": output[data['name']]['hyp'],
                     "ref": output[data['name']]['ref'],
-                    "top_hyp": output[data['name']]['top_hyp'],
+                    "REF": align_ref,
+                    "HYP": align_hyp,
+                    "TAG": result_tag,
                     "check1": "Correct" if output[data['name']]['hyp'] == output[data['name']]['ref'] else "Wrong",
                     "check2": corrupt_flag
                 }

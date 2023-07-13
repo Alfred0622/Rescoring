@@ -56,7 +56,7 @@ elif args["dataset"] in ["librispeech"]:
     valid = "valid"
 
 if "WANDB_MODE" in os.environ.keys() and os.environ["WANDB_MODE"] == "disabled":
-    fetch_num = -1
+    fetch_num = 100
 else:
     fetch_num = -1
 
@@ -107,7 +107,7 @@ if __name__ == "__main__":
     logging.warning(f"device:{device}")
     device = torch.device(device)
 
-    model = nBestAlignBart(args, train_args).to(device)
+    model = nBestAlignBart(args, train_args, tokenizer).to(device)
 
     if train_args["from_pretrain"]:
         pretrain_name = "Pretrain"
@@ -119,7 +119,7 @@ if __name__ == "__main__":
         optimizer,
         epochs=int(train_args["epoch"]),
         steps_per_epoch=len(train_loader),
-        pct_start=0.01,
+        pct_start=0.3,
         anneal_strategy="linear",
         max_lr=float(train_args["lr"]),
     )
@@ -138,6 +138,8 @@ if __name__ == "__main__":
     }
 
     run_name = f"{args['dataset']}, {setting} : {args['nbest']}-Align{train_args['align_layer']}"
+    if (train_args['extra_embedding']):
+        run_name = run_name + "_extra_embedding"
     wandb.init(
         project=f"NBestCorrect_{args['dataset']}_{setting}", config=config, name=run_name
     )
@@ -190,9 +192,14 @@ if __name__ == "__main__":
 
         checkpoint = {"epoch": e + 1, "checkpoint": model.state_dict()}
 
-        checkpoint_path = Path(
-            f"./checkpoint/{args['dataset']}/{args['nbest']}Align_{train_args['align_layer']}layer_{train_args['epoch']}/{setting}"
-        )
+        if (train_args['extra_embedding']):
+            checkpoint_path = Path(
+                f"./checkpoint/{args['dataset']}/{args['nbest']}Align_{train_args['align_layer']}layer_{train_args['epoch']}_extra_embedding/{setting}"
+            )
+        else:
+            checkpoint_path = Path(
+                f"./checkpoint/{args['dataset']}/{args['nbest']}Align_{train_args['align_layer']}layer_{train_args['epoch']}/{setting}"
+            )
         checkpoint_path.mkdir(parents=True, exist_ok=True)
         torch.save(
             checkpoint,

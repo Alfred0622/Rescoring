@@ -2,15 +2,15 @@ args:
   stage: 0 
   stop_stage: 1
   nbest: 4
-  withLM: True
-  dataset: librispeech
+  withLM: False
+  dataset: csj
 
 train:
   start_epoch: 0
   epoch: 10
-  train_batch: 8
-  valid_batch: 8
-  accumgrad: 32
+  train_batch: 32
+  valid_batch: 32
+  accumgrad: 8
   print_loss: 2000
   lr: 1e-6
   data_type: concat

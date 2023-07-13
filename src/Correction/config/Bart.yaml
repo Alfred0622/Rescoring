@@ -1,8 +1,8 @@
 args:
   stage: 0 
   stop_stage: 1
-  nbest: 4
-  withLM: False
+  nbest: 10
+  withLM: True
   dataset: csj
 
 train:
@@ -12,7 +12,7 @@ train:
   valid_batch: 64
   accumgrad: 4
   print_loss: 2000
-  lr: 1e-5
+  lr: 1e-6
   data_type: single
   sep_token: None
   from_pretrain: True

@@ -29,6 +29,7 @@ class nBestAlignBart(nn.Module):
         self,
         args,
         train_args,
+        tokenizer = None,
         **kwargs
     ):
         super().__init__()
@@ -39,17 +40,22 @@ class nBestAlignBart(nn.Module):
             pretrain_name
         )
         self.embeddding_dim = 768
-        # self.pad = tokenizer.convert_tokens_to_ids("[PAD]")
-        # self.embedding = nn.Embedding(
-        #     num_embeddings = self.model.config.vocab_size, 
-        #     embedding_dim = self.embeddding_dim, 
-        #     padding_idx=self.pad
-        # )
+
+        self.extra_embedding = train_args['extra_embedding']
+        if (train_args['extra_embedding']):
+            assert (tokenizer is not None), f"tokenizer need to be given"
+            self.pad = tokenizer.convert_tokens_to_ids("[PAD]")
+            self.embedding = nn.Embedding(
+                num_embeddings = self.model.config.vocab_size, 
+                embedding_dim = self.embeddding_dim, 
+                padding_idx=self.pad
+            )
         self.align_layer = int(train_args['align_layer'])
         print(f"Layer of aligned linear:{self.align_layer}")
         assert(0 < int(self.align_layer) and int(self.align_layer) <= 2), f"Number of align layer should be 1 or 2"
 
         if (self.align_layer == 1):
+            print(f'{self.embeddding_dim} * {self.nBest} = {self.embeddding_dim * self.nBest}')
             self.alignLinear = torch.nn.Sequential(
                 nn.Dropout(p = 0.1),
                 nn.Linear(self.embeddding_dim * self.nBest, 768),
@@ -69,10 +75,15 @@ class nBestAlignBart(nn.Module):
         input_ids: [B, L ,nBest]
         attention_mask: [B, L]
         """
-        aligned_embedding = self.model.model.shared(input_ids) # [B,L ,nBest, 768]
+        if (self.extra_embedding):
+            aligned_embedding = self.embedding(input_ids)
+            aligned_embedding = torch.flatten(aligned_embedding, start_dim=2)
 
-        aligned_embedding = torch.flatten(aligned_embedding, start_dim = 2)
-        aligned_embedding = self.alignLinear(aligned_embedding) # [B, L, 768 * nBest] -> 
+        else:
+            aligned_embedding = self.model.model.shared(input_ids)  # (L, N, 768)
+            aligned_embedding = torch.flatten(aligned_embedding, start_dim = 2)# (L, 768 * N)
+        
+        aligned_embedding = self.alignLinear(aligned_embedding)
 
         output = self.model(
             inputs_embeds = aligned_embedding,
@@ -85,10 +96,16 @@ class nBestAlignBart(nn.Module):
 
     def recognize(self, input_ids, attention_mask,num_beams = 5 ,max_lens = 150):
         batch_size = input_ids.shape[0]
-        aligned_embedding = self.model.model.shared(input_ids)  # (L, N, 768)
-        aligned_embedding = torch.flatten(aligned_embedding, start_dim = 2)# (L, 768 * N)
-        # aligned_embedding = self.embedding(input_ids)
-        # aligned_embedding = aligned_embedding.flatten(start_dim=2)
+        
+        if (self.extra_embedding):
+            aligned_embedding = self.embedding(input_ids)
+
+            aligned_embedding = aligned_embedding.flatten(start_dim=2)
+        
+        else:
+            aligned_embedding = self.model.model.shared(input_ids)  # (L, N, 768)
+            aligned_embedding = torch.flatten(aligned_embedding, start_dim = 2)# (L, 768 * N)
+
         proj_embedding = self.alignLinear(
             aligned_embedding
         )  # (L, 768 * N) -> (L, 768)
@@ -108,7 +125,7 @@ class nBestAlignBart(nn.Module):
         output = self.model.generate(
             inputs_embeds=proj_embedding,
             attention_mask=attention_mask,
-            decoder_input_ids=decoder_ids,
+            # decoder_input_ids=decoder_ids,
             num_beams=num_beams,
             max_length=max_lens,
             # early_stopping = True

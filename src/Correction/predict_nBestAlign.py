@@ -34,7 +34,7 @@ setting = "withLM" if args["withLM"] else "noLM"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 _, tokenizer = prepare_model(args["dataset"])
-model = nBestAlignBart(args, train_args)
+model = nBestAlignBart(args, train_args, tokenizer = tokenizer)
 
 checkpoint = torch.load(checkpoint)
 model.load_state_dict(checkpoint['checkpoint'])

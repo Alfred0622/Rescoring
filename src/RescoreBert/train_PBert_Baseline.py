@@ -237,7 +237,7 @@ for e in range(start_epoch, train_args["epoch"]):
         )
 
         loss = output["loss"]
-        loss = torch.mean(loss)
+        loss = loss / float(train_args['accumgrad'])
 
         if torch.cuda.device_count() > 1:
             loss = loss.sum()
@@ -278,7 +278,7 @@ for e in range(start_epoch, train_args["epoch"]):
 
 
     wandb.log(
-        {"train_loss": train_epoch_loss, "epoch": e + 1},
+        {"train_epoch_loss": train_epoch_loss / (len(train_batch_sampler) / int(train_args['accumgrad'])), "epoch": e + 1},
         step=(i + 1) + e * len(train_batch_sampler),
     )
 
@@ -300,7 +300,7 @@ for e in range(start_epoch, train_args["epoch"]):
             loss = output["loss"]
             scores = output["score"]
 
-            loss = torch.mean(loss)
+            # loss = torch.mean(loss)
             if torch.cuda.device_count() > 1:
                 loss = loss.sum()
             eval_loss += loss.item()
@@ -341,7 +341,7 @@ for e in range(start_epoch, train_args["epoch"]):
 
         
         wandb.log(
-            {"CE_loss": eval_loss, "eval_CER": min_cer, "epoch": (e + 1)},
+            {"eval_CE_loss": eval_loss, "eval_CER": min_cer, "epoch": (e + 1)},
             step=((e + 1) * len(train_batch_sampler)),
         )
         logging.warning(f"epoch:{e + 1},validation loss:{eval_loss}")

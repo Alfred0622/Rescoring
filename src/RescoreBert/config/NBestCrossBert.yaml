@@ -14,23 +14,17 @@ train:
   lr: 1e-7
   maxlr: 1e-7
   freeze_epoch: -1
-  fuseType: lstm  # lstm , attn, query or None
+  fuseType: none  # lstm , attn or None
   lstm_embedding: 1024
-  useNBestCross: False
+  useNBestCross: True
   trainAttendWeight: False
-  addRes: True
   hardLabel: True
   logSoftmax: False
-  lossType: BCE
+  lossType: CE
   sortByLen: True
   concatCLS: False
-  concatMaskAfter: True # if True [CLS] tokens [SEP] [MASK]  else [CLS] tokens [MASK] [SEP]
   dropout: 0.3
   weightByGrad: False
-  train_cls_first: False
-  sepTask: False
-  2ndTask: # "GT" or "WER"
-  scoreByRank: False
   noCLS: False
   noSEP: False
   warmup_ratio: 0.1

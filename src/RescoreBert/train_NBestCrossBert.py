@@ -158,8 +158,7 @@ start_epoch = 0
 get_num = -1
 if "WANDB_MODE" in os.environ.keys():
     if os.environ["WANDB_MODE"] == "disabled":
-        get_num = 50
-
+        get_num = 100
 
 print(f"tokenizing Train")
 train_dataset = prepareListwiseDataset(
@@ -449,7 +448,7 @@ for e in range(start_epoch, train_args["epoch"]):
                 "epoch": (e + 1),
             }
         )
-
+    exit(0)
     """
     Validation
     """
