@@ -8,10 +8,9 @@ train:
   batch_size: 256
   accumgrad: 1
   print_loss: 5000
-  lr: 5e-6
+  lr: 1e-6
   freeze_epoch: -1
   hard_label: True
-  warmup_step: 10000
   margin_value: 0.1
   converge: 0.1
   margin_mode: 
@@ -19,13 +18,15 @@ train:
   warmup_ratio: 0.1
   loss_type: Entropy
   useTopOnly: True
-  compareWith: SELF # SELF, POOL , SELFCSE or REF
+  compareWith: REF-HARD # SELF, POOL , SELF-CSE, SELF-QE, SELF_LSTM or REF, REF-HARD
   noCLS: True
-  noSEP: False
-  layer_op: LSTM
+  noSEP: True
+  layer_op:
   # lastInit_n, n = number of layers
   temperature: 0.05
   force_Ref: True
+  reduction: sum
+  MWER: 
 
 recog:
   batch: 1

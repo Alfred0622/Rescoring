@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 
 class MaxPooling(torch.nn.Module):
@@ -7,22 +8,26 @@ class MaxPooling(torch.nn.Module):
         self.noCLS = noCLS
         self.noSEP = noSEP
 
-    def forward(self, input_ids, attention_mask):
+    def forward(self, input_ids, input_embeds, attention_mask):
         """
-        # input_ids: (B, L, D)
+        # input_embeds: (B, L, D)
         # attention_mask: (B, L)
         """
 
         if self.noCLS:
-            attention_mask[:, 0] = 0
+            attention_mask[input_ids == 101] = 0
 
         if self.noSEP:
-            attend_index = (attention_mask == 1).nonzero()
-            attention_mask[:, attend_index[-1]] = 0
+            attention_mask[input_ids == 102] = 0
 
-        max_embedding, _ = torch.max(
-            input_ids.clone() * attention_mask.clone().unsqueeze(-1), dim=1
-        )
+        embeds = input_embeds.clone()
+
+        # print(f"embeds:{embeds}")
+        embeds[attention_mask == 0] = -1e9
+        # print(f"embeds after masking:{embeds}")
+
+        max_embedding, _ = torch.max(embeds.clone(), dim=1)
+        # print(f"max_embedding:{max_embedding.shape}")
 
         return max_embedding
 
@@ -33,22 +38,26 @@ class AvgPooling(torch.nn.Module):
         self.noCLS = noCLS
         self.noSEP = noSEP
 
-    def forward(self, input_ids, attention_mask):
+    def forward(self, input_ids, input_embeds, attention_mask):
         """
         # input_ids: (B, L, D)
         # attention_mask: (B, L)
         """
         if self.noCLS:
-            attention_mask[:, 0] = 0
+            attention_mask[input_ids == 101] = 0
 
         if self.noSEP:
-            attend_index = (attention_mask == 1).nonzero()
-            attention_mask[:, attend_index[-1]] = 0
+            attention_mask[input_ids == 102] = 0
 
-        mean_embedding = torch.sum(
-            input_ids.clone() * attention_mask.clone().unsqueeze(-1),
-            dim=1,
-        ).clone() / torch.sum(attention_mask, dim=-1).unsqueeze(-1)
+        seq_length = torch.sum(attention_mask, dim=-1).unsqueeze(-1)
+        seq_length[seq_length <= 0] = 1
+        mean_embedding = (
+            torch.sum(
+                input_embeds.clone() * attention_mask.clone().unsqueeze(-1),
+                dim=1,
+            ).clone()
+            / seq_length
+        )
         return mean_embedding
 
 
@@ -58,20 +67,19 @@ class MinPooling(torch.nn.Module):
         self.noCLS = noCLS
         self.noSEP = noSEP
 
-    def forward(self, input_ids, attention_mask):
+    def forward(self, input_ids, input_embeds, attention_mask):
         """
         # input_ids: (B, L, D)
         # attention_mask: (B, L)
         """
         if self.noCLS:
-            attention_mask[:, 0] = 0
+            attention_mask[input_ids == 101] = 0
 
         if self.noSEP:
-            attention_mask = torch.roll(attention_mask, -1, -1)
-            attention_mask[:, -1] = 0
+            attention_mask[input_ids == 102] = 0
 
         weight = attention_mask.clone()
-        weight[weight == 0] = 1e9
-        min_embedding, _ = torch.min(input_ids * weight, dim=1)
+        weight[weight == 0] = np.Inf
+        min_embedding, _ = torch.min(input_embeds * weight, dim=1)
 
         return min_embedding

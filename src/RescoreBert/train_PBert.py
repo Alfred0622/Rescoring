@@ -68,7 +68,7 @@ setting = "withLM" if (args["withLM"]) else "noLM"
 print(f"batch:{train_args['batch_size']}")
 
 log_path = f"./log/P_BERT/{args['dataset']}/{setting}/{mode}"
-run_name = f"TWCC_{mode}_{args['nbest']}Best_batch{train_args['batch_size']}_lr{train_args['lr']}_Freeze{train_args['freeze_epoch']}"
+run_name = f"TWCC_{mode}_{args['nbest']}Best_batch{train_args['batch_size']}_lr{train_args['lr']}_Reduction{train_args['reduction']}"
 if train_args["hard_label"]:
     collate_func = PBertBatchWithHardLabel
     run_name = run_name + f"_HardLabel_{train_args['loss_type']}"
@@ -81,6 +81,8 @@ if "weightByWER" in train_args.keys() and train_args["weightByWER"] != "none":
 else:
     log_path = log_path + "/normal"
 
+if mode in ["PBERT"]:
+    run_name += f"_{train_args['MWER']}"
 
 if train_args["layer_op"] is not None:
     run_name += f"_{train_args['layer_op']}"
@@ -104,7 +106,7 @@ if mode in ["MARGIN", "MARGIN_TORCH"]:
 elif mode == "CONTRAST":
     run_name = run_name + f"_contrastWeight{train_args['contrast_weight']}"
     run_name += f"_{train_args['compareWith']}"
-    run_name += f"temerature_{train_args['temperature']}"
+    run_name += f"_temerature{train_args['temperature']}"
     if train_args["useTopOnly"]:
         run_name += "_useTopOnly"
 
@@ -131,7 +133,7 @@ valid_set = get_valid_set(args["dataset"])
 
 if mode == "PBERT":
     model, tokenizer = preparePBert(args, train_args, device)
-elif mode == "CONTRAST" or mode in ["MARGIN", "MARGIN_TORCH"]:
+elif mode in ["CONTRAST", "MARGIN", "MARGIN_TORCH"]:
     model, tokenizer = prepareContrastBert(args, train_args, mode)
 
 elif mode == "N-FUSE":
@@ -180,6 +182,7 @@ train_dataset = prepareListwiseDataset(
     paddingNBest=(mode == "N-FUSE"),
     topk=int(args["nbest"]),
     force_Ref=(mode in ["MARGIN", "MARGIN_TORCH"]) and train_args["force_Ref"],
+    add_qe=(mode in ["CONTRAST"] and "SELF-QE" in train_args["compareWith"]),
 )
 print(f"tokenizing Validation")
 valid_dataset = prepareListwiseDataset(
@@ -189,7 +192,8 @@ valid_dataset = prepareListwiseDataset(
     sort_by_len=True,
     get_num=get_num,
     paddingNBest=(mode == "N-FUSE"),
-    topk=int(args["nbest"]),
+    topk=50,  # int(args["nbest"]),
+    add_qe=(mode in ["CONTRAST"] and "SELF-QE" in train_args["compareWith"]),
 )
 
 print(f"tokenizing Test")
@@ -200,7 +204,8 @@ test_dataset = prepareListwiseDataset(
     sort_by_len=True,
     get_num=get_num,
     paddingNBest=(mode == "N-FUSE"),
-    topk=int(args["nbest"]),
+    topk=50,  # int(args["nbest"]),
+    add_qe=(mode in ["CONTRAST"] and "SELF-QE" in train_args["compareWith"]),
 )
 
 print(f"Prepare Sampler")
@@ -276,7 +281,7 @@ lr_scheduler = OneCycleLR(
     wers,
     hyps,
     refs,
-) = prepare_score_dict(valid_json, nbest=args["nbest"])
+) = prepare_score_dict(valid_json, nbest=50)
 
 (
     test_index_dict,
@@ -288,7 +293,7 @@ lr_scheduler = OneCycleLR(
     test_wers,
     test_hyps,
     test_refs,
-) = prepare_score_dict(test_json, nbest=args["nbest"])
+) = prepare_score_dict(test_json, nbest=50)
 
 """
 Initialize wandb
@@ -374,7 +379,9 @@ for e in range(start_epoch, train_args["epoch"]):
                     # print(f"{key}:{type(data[key])}")
                     data[key] = data[key].to(device)
 
-            if mode in ["CONTRAST", "MARGIN"] or (
+            if train_args["MWER"] is not None:
+                pass
+            elif mode in ["CONTRAST", "MARGIN"] or (
                 "weightByWER" in train_args.keys()
                 and train_args["weightByWER"] == "none"
             ):
@@ -382,41 +389,60 @@ for e in range(start_epoch, train_args["epoch"]):
 
             output = model.forward(
                 **data,
+                tokenizer=tokenizer,
                 extra_loss=extra_warmup,
             )
 
+            # print(f"wers:{data['wers']}")
+
             loss = output["loss"]
-            loss = torch.sum(loss)
+            # loss = torch.sum(loss)
+            # print(f"total loss:{loss}")
+            logging_loss += loss.item()
+            train_epoch_loss += loss.item()
 
             if mode in ["CONTRAST", "MARGIN"] and output["contrast_loss"] is not None:
                 epoch_CE_loss += output["CE_loss"].sum().item()
+                logging_CE_loss += output["CE_loss"].sum().item()
                 epoch_contrast_loss += output["contrast_loss"].sum().item()
+                logging_contrastive_loss += output["contrast_loss"].sum().item()
+            elif (mode in ['PBERT']):
+                epoch_CE_loss += output["loss"].sum().item()
+                logging_CE_loss += output["loss"].sum().item()
 
             if torch.cuda.device_count() > 1:
                 loss = loss.sum()
             loss = loss / accum_grad
             loss.backward()
 
-            if ((i + 1) % int(accum_grad)) == 0 or (i + 1) == len(train_batch_sampler):
+            if (
+                (i + 1) % int(accum_grad)
+            ) == 0:  # or (i + 1) == len(train_batch_sampler)
                 grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
                 step += 1
 
-        if (step > 0) and (step % int(train_args["print_loss"])) == 0:
-            logging_loss = logging_loss / step
-            logging.warning(f"epoch:{e + 1} step {i + 1},loss:{logging_loss}")
-            wandb.log(
-                {"train_loss": logging_loss},
-                step=(i + 1) + e * len(train_batch_sampler),
-            )
+            if (step > 0) and (step % int(train_args["print_loss"])) == 0:
+                logging_loss = logging_loss / step
+                log_dict = {"train_loss": logging_loss, "CE_loss" : logging_CE_loss / step}
 
-            logging_loss = torch.tensor([0.0])
-            step = 0
+                if mode == "CONTRAST":
+                    log_dict["contrast_loss"] = logging_contrastive_loss / step
+                    log_dict["CE_loss"] = logging_CE_loss / step
 
-        logging_loss += loss.item()
-        train_epoch_loss += loss.item()
+                    # print(f"{log_dict['contrast_loss']} && \n{log_dict['CE_loss']}")
+                logging.warning(f"epoch:{e + 1} step {i + 1},loss:{logging_loss}")
+                wandb.log(
+                    log_dict,
+                    step=(i + 1) + e * len(train_batch_sampler),
+                )
+
+                logging_loss = torch.tensor([0.0])
+                logging_contrastive_loss = torch.tensor([0.0])
+                logging_CE_loss = torch.tensor([0.0])
+                step = 0
 
     if save_checkpoint and (e == 0 or (e + 1) % 5 == 0):
         checkpoint = {
@@ -428,12 +454,24 @@ for e in range(start_epoch, train_args["epoch"]):
 
         torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_{e+1}.pt")
 
-    if mode in ["CONTRAST", "MARGIN"] and output["contrast_loss"] is not None:
+    if mode in ["CONTRAST", "MARGIN", "MARGIN_TORCH"]:
+        # print(
+        #     f"train_epoch_loss: {train_epoch_loss/ (len(train_batch_sampler) / int(train_args['accumgrad']))}"
+        # )
+        # print(
+        #     f"train_CE_loss: {epoch_CE_loss/ (len(train_batch_sampler) / int(train_args['accumgrad']))}"
+        # )
+        # print(
+        #     f"train_contrastive_loss: {epoch_contrast_loss/ (len(train_batch_sampler) / int(train_args['accumgrad']))}"
+        # )
         wandb.log(
             {
-                "train_epoch_loss": train_epoch_loss,
-                "CE_loss": epoch_CE_loss,
-                "contrast_loss": epoch_contrast_loss,
+                "train_epoch_loss": train_epoch_loss
+                / (len(train_batch_sampler) / int(train_args["accumgrad"])),
+                "train_CE_loss": epoch_CE_loss
+                / (len(train_batch_sampler) / int(train_args["accumgrad"])),
+                "train_contrast_loss": epoch_contrast_loss
+                / (len(train_batch_sampler) / int(train_args["accumgrad"])),
                 "epoch": e + 1,
             },
             step=(i + 1) + e * len(train_batch_sampler),
@@ -441,8 +479,10 @@ for e in range(start_epoch, train_args["epoch"]):
     else:
         wandb.log(
             {
-                "train_epoch_loss": train_epoch_loss,
-                "CE_loss": epoch_CE_loss,
+                "train_epoch_loss": train_epoch_loss
+                / (len(train_batch_sampler) / int(train_args["accumgrad"])),
+                "train_CE_loss": epoch_CE_loss
+                / (len(train_batch_sampler) / int(train_args["accumgrad"])),
                 "epoch": e + 1,
             },
             step=(i + 1) + e * len(train_batch_sampler),
@@ -454,8 +494,6 @@ for e in range(start_epoch, train_args["epoch"]):
     model.eval()
     valid_len = len(valid_batch_sampler)
     eval_loss = torch.tensor([0.0])
-    epoch_CE_loss = torch.tensor([0.0])
-    epoch_contrast_loss = torch.tensor([0.0])
     with torch.no_grad():
         for i, data in enumerate(tqdm(valid_loader, ncols=100)):
             for key in data.keys():
@@ -527,7 +565,7 @@ for e in range(start_epoch, train_args["epoch"]):
             ctc_range=[0, 1],
             lm_range=[0, 1],
             rescore_range=[0, 1],
-            search_step=0.1,
+            search_step=0.2,
             recog_mode=False,
         )
 
@@ -547,19 +585,17 @@ for e in range(start_epoch, train_args["epoch"]):
             best_rescore,
         )
 
-        print(f"epoch:{e + 1},Validation loss:{eval_loss}")
+        print(f"epoch:{e + 1},Validation loss:{eval_loss / len(valid_batch_sampler)}")
         print(
             f"epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}\n test_CER:{test_cer}"
         )
 
-        if mode in ["CONTRAST", "MARGIN"] and output["contrast_loss"] is not None:
+        if mode in ["CONTRAST", "MARGIN", "MARGIN_TORCH"]:
             wandb.log(
                 {
-                    "eval_loss": eval_loss,
+                    "eval_loss": eval_loss / len(valid_batch_sampler),
                     "eval_CER": min_cer,
                     "test_CER": test_cer,
-                    "CE_loss": epoch_CE_loss,
-                    "contrast_loss": epoch_contrast_loss,
                     "epoch": e + 1,
                 },
                 step=(e + 1) * len(train_batch_sampler),
@@ -567,8 +603,8 @@ for e in range(start_epoch, train_args["epoch"]):
         else:
             wandb.log(
                 {
-                    "eval_loss": eval_loss,
-                    "CE_loss": eval_loss,
+                    "eval_loss": eval_loss / len(valid_batch_sampler),
+                    "eval_CE_loss": eval_loss / len(valid_batch_sampler),
                     "test_CER": test_cer,
                     "eval_CER": min_cer,
                     "epoch": (e + 1),

@@ -1,7 +1,7 @@
 args:
   nbest: 50 # max: 50
-  withLM: True
-  dataset: aishell2
+  withLM: False
+  dataset: aishell
 
 train:
   epoch: 10
@@ -15,6 +15,8 @@ train:
   weightByWER: none # positive, inverse, square, none
   warmup_ratio: 0.1
   layer_op: # extra, lastInit_n or none
+  MWER:
+  reduction: sum
 
 recog:
   batch: 1
