@@ -30,17 +30,17 @@ def change_unicode(token_list):
     return token_list
 
 def preprocess_string(string, dataset):
-    string = string.replace("<eos>", "").strip().split()
-    string = [token for token in string]
-
     if (dataset in ['csj']):
-        string = change_unicode(string)
-        string = "".join(string)
+        pass
+        # string = change_unicode(string)
+        # string = "".join(string)
         # print(f"string before segment:{string}")
         # string = jumanpp.analysis(string)
         # string = " ".join([mrph.genkei for mrph in string.mrph_list()])
         # print(f"string after segment:{string}")
     else:
+        string = string.replace("<eos>", "").strip().split()
+        string = [token for token in string]
         string = " ".join(string)
     
     return string
@@ -61,14 +61,15 @@ def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_t
                 topk = 1
             for i, data in enumerate(tqdm(data_json, ncols = 80)):
                 ref = preprocess_string(data['ref'], dataset)
-
-
+                temp_ref = "".join(data['ref'].split())
+                temp_ref = " ".join([t for t in temp_ref])
                 label = tokenizer(ref)["input_ids"]
 
-
                 for hyp in data['hyps'][:topk]:
-                    hyp = hyp.replace('<eos>', "").strip()
-                    if (wer(data['ref'], hyp) > 0.3): continue
+                    temp_hyp = hyp.replace('<eos>', "").strip()
+                    temp_hyp = "".join(temp_hyp.split())
+                    temp_hyp = " ".join([t for t in temp_hyp])
+                    if (wer([temp_ref], [temp_hyp]) > 0.3): continue
 
                     hyp = preprocess_string(hyp, dataset)
                     output = tokenizer(hyp)

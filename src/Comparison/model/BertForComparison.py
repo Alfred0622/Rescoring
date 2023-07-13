@@ -179,7 +179,7 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
             hidden_size = hidden_size,
             num_layers = 1,
             batch_first = True,
-            # dropout = dropout,
+            # dropout = 0.3,
             bidirectional = True,
             proj_size = output_size
         ).to(device) # output: 64 * 2(bidirectional)
@@ -228,8 +228,10 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
 
         concat_state = torch.cat([avg_state, avg_state], dim = -1) # (B, 128 + 128)
         concat_state = concat_state.squeeze(1)
+        concat_state = self.dropout(concat_state)
         # print(f'concat_state:{concat_state.shape}')
         concat_state = self.fc1(concat_state) # (B, 256) -> (B, 128)
+        concat_state = self.dropout(concat_state)
 
         am_score = (1 - self.ctc_weight) * am_score + self.ctc_weight * ctc_score
 

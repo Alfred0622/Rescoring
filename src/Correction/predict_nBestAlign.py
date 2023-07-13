@@ -66,6 +66,7 @@ for task in recog_set:
         tokenizer=tokenizer,
         data_type="align",
         topk=int(args["nbest"]),
+        sep_token=train_args["sep_token"],
     )
 
     dataloader = DataLoader(
@@ -99,15 +100,20 @@ for task in recog_set:
             #     print(f'ref:{ref}')
             #     print(f'=============================')
 
-            for name, hyp, top_hyp, ref in zip(
-                data["name"], hyp_tokens, data["top_hyp"], data["ref_text"]
-            ):
-                hyps.append(hyp)
-                top_hyps.append(top_hyp)
-                refs.append(ref)
-                names.append(name)
+            hyps += hyp_tokens
+            top_hyps += data['top_hyp']
+            refs += data['ref_text']
+            names += data['name']
 
-    for name, hyp, top_hyp, ref_token in zip(names, hyp, top_hyps, refs):
+            # for name, hyp, top_hyp, ref in zip(
+            #     data["name"], hyp_tokens, data["top_hyp"], data["ref_text"]
+            # ):
+            #     hyps.append(hyp)
+            #     top_hyps.append(top_hyp)
+            #     refs.append(ref)
+            #     names.append(name)
+
+    for name, hyp, top_hyp, ref_token in zip(names, hyps, top_hyps, refs):
         corrupt_flag = "Missed"  # Missed only for debug purpose, to detect if there is any data accidentally ignored
         if top_hyp == ref_token:
             if hyp != ref_token:

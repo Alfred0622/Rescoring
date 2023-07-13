@@ -111,6 +111,9 @@ if (not os.path.exists(f"./log/{args['dataset']}/{args['nbest']}_{task_name}/{se
 
 train_path = f"../../data/{args['dataset']}/data/{setting}/train/data.json"
 valid_path = f"../../data/{args['dataset']}/data/{setting}/{dev_set}/data.json"
+if (args['dataset'] in ['csj']):
+    train_path = f"./data/csj/{setting}/train/data.json"
+    valid_path = f"./data/csj/{setting}/dev/data.json"
 
 with open(train_path) as train, open(valid_path) as valid:
     train_json = json.load(train)

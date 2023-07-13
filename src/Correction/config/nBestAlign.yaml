@@ -16,7 +16,7 @@ train:
   data_type: align
   sep_token: '-'
   from_pretrain: True
-  align_layer: 2
+  align_layer: 1
 
 recog:
   batch: 256
