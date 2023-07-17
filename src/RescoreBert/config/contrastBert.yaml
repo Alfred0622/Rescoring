@@ -17,8 +17,8 @@ train:
   contrast_weight: 1.0
   warmup_ratio: 0.1
   loss_type: Entropy
-  useTopOnly: True
-  compareWith: REF-HARD # SELF, POOL , SELF-CSE, SELF-QE, SELF_LSTM or REF, REF-HARD
+  useTopOnly: False
+  compareWith: SELF-LSTM # SELF, POOL , SELF-CSE, SELF-QE, SELF_LSTM or REF, REF-HARD
   noCLS: True
   noSEP: True
   layer_op:

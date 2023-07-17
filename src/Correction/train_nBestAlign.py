@@ -46,7 +46,9 @@ logging.basicConfig(
     format=FORMAT,
 )
 
-print(f"sep token:{train_args['sep_token']} = {tokenizer.convert_tokens_to_ids(train_args['sep_token'])}")
+print(
+    f"sep token:{train_args['sep_token']} = {tokenizer.convert_tokens_to_ids(train_args['sep_token'])}"
+)
 
 if args["dataset"] in ["aishell", "tedlium2", "csj"]:
     valid = "dev"
@@ -114,7 +116,7 @@ if __name__ == "__main__":
     else:
         pretrain_name = "Scratch"
 
-    optimizer = AdamW(model.parameters(), lr=float(train_args["lr"]), weight_decay = 0.02)
+    optimizer = AdamW(model.parameters(), lr=float(train_args["lr"]), weight_decay=0.02)
     scheduler = OneCycleLR(
         optimizer,
         epochs=int(train_args["epoch"]),
@@ -138,10 +140,12 @@ if __name__ == "__main__":
     }
 
     run_name = f"{args['dataset']}, {setting} : {args['nbest']}-Align{train_args['align_layer']}"
-    if (train_args['extra_embedding']):
+    if train_args["extra_embedding"]:
         run_name = run_name + "_extra_embedding"
     wandb.init(
-        project=f"NBestCorrect_{args['dataset']}_{setting}", config=config, name=run_name
+        project=f"NBestCorrect_{args['dataset']}_{setting}",
+        config=config,
+        name=run_name,
     )
     wandb.watch(model)
     optimizer.zero_grad()
@@ -152,7 +156,7 @@ if __name__ == "__main__":
         epoch_loss = 0.0
         step = 0
         data_count = 0
-        
+
         for n, data in enumerate(tqdm(train_loader, ncols=100)):
             # logging.warning(f'token.shape:{token.shape}')
             token = data["input_ids"].to(device)
@@ -175,16 +179,11 @@ if __name__ == "__main__":
                 optimizer.zero_grad()
                 step += 1
 
-            if (
-                step > 0
-                and step % train_args["print_loss"] == 0
-            ):
+            if step > 0 and step % train_args["print_loss"] == 0:
                 logging.warning(
                     f"Training epoch :{e + 1} step:{n + 1}, training loss:{logging_loss / data_count}"
                 )
-                wandb.log(
-                    {"loss": logging_loss / step}, step=e * len(train_loader) + n
-                )
+                wandb.log({"loss": logging_loss / step}, step=e * len(train_loader) + n)
 
                 logging_loss = 0.0
                 step = 0
@@ -192,7 +191,7 @@ if __name__ == "__main__":
 
         checkpoint = {"epoch": e + 1, "checkpoint": model.state_dict()}
 
-        if (train_args['extra_embedding']):
+        if train_args["extra_embedding"]:
             checkpoint_path = Path(
                 f"./checkpoint/{args['dataset']}/{args['nbest']}Align_{train_args['align_layer']}layer_{train_args['epoch']}_extra_embedding/{setting}"
             )
@@ -205,7 +204,7 @@ if __name__ == "__main__":
             checkpoint,
             f"{checkpoint_path}/checkpoint_train_{e+1}.pt",
         )
-# eval ============================
+        # eval ============================
         model.eval()
         val_loss = 0.0
         hyps = []
@@ -219,16 +218,16 @@ if __name__ == "__main__":
                 loss = model(token, mask, label)
 
                 output = model.recognize(token, mask)
-                output = tokenizer.batch_decode(output, skip_special_tokens= True)
+                output = tokenizer.batch_decode(output, skip_special_tokens=True)
                 hyps += output
-                refs += data['ref_text']
+                refs += data["ref_text"]
                 val_loss += loss
 
         val_loss = val_loss / len(dev_loader)
 
         cer = wer(refs, hyps)
-        print(f'len of hyp:{len(hyps)}')
-        print(f'cer:{cer}')
+        print(f"len of hyp:{len(hyps)}")
+        print(f"cer:{cer}")
         print(f"hyp:{hyps[-1]}, ref:{refs[-1]}")
 
         logging.warning(f"epoch :{e + 1}, validation_loss:{val_loss}")
@@ -248,7 +247,7 @@ if __name__ == "__main__":
                 checkpoint,
                 f"{checkpoint_path}/checkpoint_valBest.pt",
             )
-        if (cer < min_cer):
+        if cer < min_cer:
             min_cer = cer
             torch.save(
                 checkpoint,
