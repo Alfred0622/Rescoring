@@ -135,9 +135,16 @@ if mode == "PBERT":
     model, tokenizer = preparePBert(args, train_args, device)
 elif mode in ["CONTRAST", "MARGIN", "MARGIN_TORCH"]:
     model, tokenizer = prepareContrastBert(args, train_args, mode)
+    if mode == "CONTRAST" and "LSTM" in train_args["compareWith"]:
+        print(f"load LSTM checkpoint")
+        checkpoint = torch.load(checkpoint_path)
+        model.load_state_dict(checkpoint["model"])
+        print(f"Freeze LSTM")
+        for params in model.LSTM.parameters():
+            params.requires_grad = False
 
 elif mode == "N-FUSE":
-    model, tokenizer = prepareFuseBert(args, train_args)
+    model, tokenizer = prepareFuseBert(args, train_args, device)
 
 print(type(model))
 model = model.to(device)
@@ -179,7 +186,7 @@ train_dataset = prepareListwiseDataset(
     tokenizer=tokenizer,
     sort_by_len=True,
     get_num=get_num,
-    paddingNBest=(mode == "N-FUSE"),
+    paddingNBest=False,
     topk=int(args["nbest"]),
     force_Ref=(mode in ["MARGIN", "MARGIN_TORCH"]) and train_args["force_Ref"],
     add_qe=(mode in ["CONTRAST"] and "SELF-QE" in train_args["compareWith"]),
@@ -191,7 +198,7 @@ valid_dataset = prepareListwiseDataset(
     tokenizer=tokenizer,
     sort_by_len=True,
     get_num=get_num,
-    paddingNBest=(mode == "N-FUSE"),
+    paddingNBest=False,
     topk=50,  # int(args["nbest"]),
     add_qe=(mode in ["CONTRAST"] and "SELF-QE" in train_args["compareWith"]),
 )
@@ -203,7 +210,7 @@ test_dataset = prepareListwiseDataset(
     tokenizer=tokenizer,
     sort_by_len=True,
     get_num=get_num,
-    paddingNBest=(mode == "N-FUSE"),
+    paddingNBest=False,
     topk=50,  # int(args["nbest"]),
     add_qe=(mode in ["CONTRAST"] and "SELF-QE" in train_args["compareWith"]),
 )
@@ -217,9 +224,21 @@ print(f"len of train_sampler:{len(train_sampler)}")
 print(f"len of valid_sampler:{len(valid_sampler)}")
 print(f"len of test_sampler:{len(test_sampler)}")
 
-train_batch_sampler = BatchSampler(train_sampler, train_args["batch_size"])
-valid_batch_sampler = BatchSampler(valid_sampler, train_args["batch_size"])
-test_batch_sampler = BatchSampler(test_sampler, train_args["batch_size"])
+train_batch_sampler = BatchSampler(
+    train_sampler,
+    train_args["batch_size"],
+    batch_by_len=(train_args["layer_op"] == "LSTM"),
+)
+valid_batch_sampler = BatchSampler(
+    valid_sampler,
+    train_args["batch_size"],
+    batch_by_len=(train_args["layer_op"] == "LSTM"),
+)
+test_batch_sampler = BatchSampler(
+    test_sampler,
+    train_args["batch_size"],
+    batch_by_len=(train_args["layer_op"] == "LSTM"),
+)
 
 print(f"len of train_batch_sampler:{len(train_batch_sampler)}")
 print(f"len of valid_batch_sampler:{len(valid_batch_sampler)}")
@@ -265,7 +284,7 @@ print(f"total steps : {len(train_batch_sampler) * int(train_args['epoch'])}")
 
 lr_scheduler = OneCycleLR(
     optimizer,
-    max_lr=float(train_args["lr"]),
+    max_lr=0.01,  # float(train_args["lr"]) * 10,
     epochs=int(train_args["epoch"]),
     steps_per_epoch=len(train_batch_sampler),
     pct_start=float(train_args["warmup_ratio"]),
@@ -406,7 +425,7 @@ for e in range(start_epoch, train_args["epoch"]):
                 logging_CE_loss += output["CE_loss"].sum().item()
                 epoch_contrast_loss += output["contrast_loss"].sum().item()
                 logging_contrastive_loss += output["contrast_loss"].sum().item()
-            elif (mode in ['PBERT']):
+            elif mode in ["PBERT"]:
                 epoch_CE_loss += output["loss"].sum().item()
                 logging_CE_loss += output["loss"].sum().item()
 
@@ -426,7 +445,11 @@ for e in range(start_epoch, train_args["epoch"]):
 
             if (step > 0) and (step % int(train_args["print_loss"])) == 0:
                 logging_loss = logging_loss / step
-                log_dict = {"train_loss": logging_loss, "CE_loss" : logging_CE_loss / step}
+                log_dict = {
+                    "train_loss": logging_loss,
+                    "CE_loss": logging_CE_loss / step,
+                    "lr": optimizer.param_groups[0]["lr"],
+                }
 
                 if mode == "CONTRAST":
                     log_dict["contrast_loss"] = logging_contrastive_loss / step
@@ -443,6 +466,10 @@ for e in range(start_epoch, train_args["epoch"]):
                 logging_contrastive_loss = torch.tensor([0.0])
                 logging_CE_loss = torch.tensor([0.0])
                 step = 0
+
+        print(
+            f'optimizer:{optimizer.param_groups[0]["lr"]}, scheduler:{lr_scheduler.get_last_lr()}'
+        )
 
     if save_checkpoint and (e == 0 or (e + 1) % 5 == 0):
         checkpoint = {
@@ -472,6 +499,7 @@ for e in range(start_epoch, train_args["epoch"]):
                 / (len(train_batch_sampler) / int(train_args["accumgrad"])),
                 "train_contrast_loss": epoch_contrast_loss
                 / (len(train_batch_sampler) / int(train_args["accumgrad"])),
+                "lr": optimizer.param_groups[0]["lr"],
                 "epoch": e + 1,
             },
             step=(i + 1) + e * len(train_batch_sampler),
@@ -483,6 +511,7 @@ for e in range(start_epoch, train_args["epoch"]):
                 / (len(train_batch_sampler) / int(train_args["accumgrad"])),
                 "train_CE_loss": epoch_CE_loss
                 / (len(train_batch_sampler) / int(train_args["accumgrad"])),
+                "lr": optimizer.param_groups[0]["lr"],
                 "epoch": e + 1,
             },
             step=(i + 1) + e * len(train_batch_sampler),
