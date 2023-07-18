@@ -41,7 +41,10 @@ model, tokenizer = preparePBert(args, train_args, device = device)
 model = model.to(device)
 model.eval()
 checkpoint = torch.load(checkpoint_path)
+print(f"checkpoint:{checkpoint.keys()}")
+print(f"checkpoint[model]: {checkpoint['model'].keys()}")
 model.load_state_dict(checkpoint["model"])
+
 
 recog_set = get_recog_set(args["dataset"])
 dev_set = recog_set[0]

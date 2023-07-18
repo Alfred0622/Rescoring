@@ -16,7 +16,7 @@ train:
   warmup_ratio: 0.1
   layer_op: # extra, lastInit_n or none
   MWER:
-  reduction: sum
+  reduction: mean
 
 recog:
   batch: 1

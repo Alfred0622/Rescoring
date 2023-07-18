@@ -118,7 +118,7 @@ if __name__ == "__main__":
     scheduler = OneCycleLR(
         optimizer,
         epochs=int(train_args["epoch"]),
-        steps_per_epoch=len(train_loader),
+        steps_per_epoch=len(train_loader) // int(train_args['accumgrad']) + 1,
         pct_start=0.3,
         anneal_strategy="linear",
         max_lr=float(train_args["lr"]),
@@ -137,7 +137,7 @@ if __name__ == "__main__":
         "optimizer": optimizer,
     }
 
-    run_name = f"{args['dataset']}, {setting} : {args['nbest']}-Align{train_args['align_layer']}"
+    run_name = f"{args['dataset']}, {setting}, lr = {train_args['lr']}, sep = {train_args['sep_token']} : {args['nbest']}-Align{train_args['align_layer']}"
     if (train_args['extra_embedding']):
         run_name = run_name + "_extra_embedding"
     wandb.init(
@@ -194,11 +194,11 @@ if __name__ == "__main__":
 
         if (train_args['extra_embedding']):
             checkpoint_path = Path(
-                f"./checkpoint/{args['dataset']}/{args['nbest']}Align_{train_args['align_layer']}layer_{train_args['epoch']}_extra_embedding/{setting}"
+                f"./checkpoint/{args['dataset']}/{args['nbest']}Align_{train_args['align_layer']}layer_{train_args['epoch']}_lr{train_args['lr']}_{train_args['sep_token']}_extra_embedding/{setting}"
             )
         else:
             checkpoint_path = Path(
-                f"./checkpoint/{args['dataset']}/{args['nbest']}Align_{train_args['align_layer']}layer_{train_args['epoch']}/{setting}"
+                f"./checkpoint/{args['dataset']}/{args['nbest']}Align_{train_args['align_layer']}layer_lr{train_args['lr']}_{train_args['sep_token']}_{train_args['epoch']}/{setting}"
             )
         checkpoint_path.mkdir(parents=True, exist_ok=True)
         torch.save(

@@ -47,13 +47,12 @@ else:
 
 config_path = "./config/PBert.yaml"
 
-
 args, train_args, recog_args = load_config(config_path)
 
 setting = "withLM" if (args["withLM"]) else "noLM"
 
 log_path = f"./log/P_BERT/{args['dataset']}/{setting}/{mode}"
-run_name = f"NLP3090_{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_Freeze{train_args['freeze_epoch']}"
+run_name = f"NLP3090_{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_Freeze{train_args['freeze_epoch']}_{train_args['epoch']}epochs_Reduction{train_args['reduction']}"
 if train_args["hard_label"]:
     run_name = run_name + "_HardLabel_Entropy"
 else:
@@ -103,7 +102,6 @@ Load checkpoint
 """
 start_epoch = 0
 print(f"\n train_args:{train_args} \n")
-
 
 get_num = -1
 if "WANDB_MODE" in os.environ.keys() and os.environ["WANDB_MODE"] == "disabled":
@@ -166,7 +164,7 @@ print(f"total steps : {len(train_batch_sampler) * int(train_args['epoch'])}")
 
 lr_scheduler = OneCycleLR(
     optimizer,
-    max_lr=float(train_args["lr"]) * 10,
+    max_lr=float(train_args["lr"]),
     epochs=int(train_args["epoch"]),
     steps_per_epoch=len(train_batch_sampler),
     pct_start=float(train_args["warmup_ratio"]),
@@ -183,6 +181,8 @@ lr_scheduler = OneCycleLR(
     hyps,
     refs,
 ) = prepare_score_dict(valid_json, nbest=args["nbest"])
+
+rescores_flush = rescores.copy()
 
 """
 Initialize wandb
@@ -350,8 +350,9 @@ for e in range(start_epoch, train_args["epoch"]):
         )
 
         last_val_cer = min_cer
-
-        rescores = np.zeros(rescores.shape, dtype=float)
+        assert(not np.array_equal(rescores, rescores_flush)), "Not Deep Copy"
+        rescores = rescores_flush.copy()
+        
 
         if eval_loss < min_val_loss:
             torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_best.pt")

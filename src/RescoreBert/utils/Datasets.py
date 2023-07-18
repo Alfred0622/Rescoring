@@ -977,6 +977,8 @@ def prepareSimpleListwiseDataset(
             for hyp in data["hyps"][:topk]:
                 hyp = preprocess_string(hyp, dataset)
 
+                # print(f'hyp:{hyp}')
+
                 output = tokenizer(hyp)
 
                 input_ids.append(output["input_ids"])

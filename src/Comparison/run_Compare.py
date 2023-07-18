@@ -124,10 +124,13 @@ valid_loader = DataLoader(
     pin_memory=True
 )
 
+steps_per_epoch = int(len(train_loader) / train_args['accumgrad']) + 1
+print(f'steps_per_epoch:{steps_per_epoch}')
+
 scheduler = OneCycleLR(
     optimizer, 
     max_lr = float(train_args['lr']), 
-    steps_per_epoch = int(len(train_loader) / train_args['accumgrad']) + 1,
+    steps_per_epoch = steps_per_epoch,
     epochs = train_args['epoch'],
     pct_start = 0.02,
     anneal_strategy = 'linear'
@@ -144,12 +147,13 @@ wandb_config.batch_size = train_args['train_batch']
 cal_batch = int(train_args['train_batch']) * train_args['accumgrad']
 
 wandb.init( 
-    project = f"Bertsem_{args['dataset']}",
+    project = f"Bertsem_{args['dataset']}_{setting}",
     config = wandb_config, 
     name = f"batch{train_args['train_batch']}_accum{train_args['accumgrad']}_lr{train_args['lr']}"
 )
 optimizer.zero_grad(set_to_none=True)
 step = 0
+log_flag = True
 for e in range(start_epoch, train_args["epoch"]):
     model.train()
     train_loss = 0.0
@@ -189,16 +193,17 @@ for e in range(start_epoch, train_args["epoch"]):
             scheduler.step()
             optimizer.zero_grad(set_to_none=True)
             step += 1
+            if (not log_flag):
+                log_flag = True
             
-        if ( (step > 0) and (step % train_args["print_loss"] == 0) ):
+        if ( (step > 0) and (step % train_args["print_loss"] == 0) and log_flag):
             logging.warning(f"Training epoch :{e + 1} step:{n + 1}, loss:{logging_loss}")
             wandb.log(
                 {"loss": logging_loss},
-                step = (n+1) + e * len(train_loader)
-            )
-
+                step = step + e * len(train_loader)
+            )  
+            log_flag = False
             logging_loss = 0.0
-            step = 0
 
     train_checkpoint = dict()
     train_checkpoint["state_dict"] = model.bert.state_dict() if torch.cuda.device_count() == 1 else  model.module.bert.state_dict()
@@ -231,7 +236,7 @@ for e in range(start_epoch, train_args["epoch"]):
             "valid_loss":valid_loss,
             "epoch": e + 1
         },
-        step = len(train_loader) * (e + 1)
+        step = steps_per_epoch * (e + 1)
     )
     
     if (valid_loss < min_loss):

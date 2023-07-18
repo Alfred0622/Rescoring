@@ -1,20 +1,20 @@
 args:
   stage: 0 
   stop_stage: 1
-  nbest: 3
+  nbest: 4
   withLM: False
   dataset: aishell
 
 train:
   start_epoch: 0
-  epoch: 10
+  epoch: 30
   train_batch: 128
   valid_batch: 128
   accumgrad: 2
   print_loss: 2000
-  lr: 1e-4
+  lr: 5e-5
   data_type: align
-  sep_token: '-'
+  sep_token: '[PAD]'
   from_pretrain: True
   align_layer: 1
   extra_embedding: True

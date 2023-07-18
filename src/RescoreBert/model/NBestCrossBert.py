@@ -689,6 +689,8 @@ class pBertSimp(torch.nn.Module):
         self.activation_fn = SoftmaxOverNBest()
         self.weightByWER = False
 
+        self.reduction = train_args['reduction']
+
         print(f"output_attention:{self.output_attention}")
         print(f"weightByWER:{self.weightByWER}")
 
@@ -722,7 +724,10 @@ class pBertSimp(torch.nn.Module):
         if labels is not None:
             scores = self.activation_fn(scores, nBestIndex, log_score=False)
             loss = labels * torch.log(scores)
-            loss = torch.sum(torch.neg(loss))
+            if (self.reduction == 'mean'):
+                loss = torch.mean(torch.neg(loss))
+            elif (self.reduction == 'sum'):
+                loss = torch.sum(torch.neg(loss))
 
         return {
             "loss": loss,
