@@ -137,10 +137,13 @@ class nBestAlignBart(nn.Module):
         return list(self.model.parameters()) + list(self.alignLinear.parameters())
 
     def state_dict(self):
-        return{
+        checkpoint = {
             "model": self.model.state_dict(),
             "alignLinear": self.alignLinear.state_dict()
         }
+        if (self.extra_embedding):
+            checkpoint['embedding'] = self.embedding
+        return checkpoint
 
     def load_state_dict(self, checkpoint):
         """
@@ -152,6 +155,8 @@ class nBestAlignBart(nn.Module):
         """
         self.model.load_state_dict(checkpoint['model'])
         self.alignLinear.load_state_dict(checkpoint['alignLinear'])
+        if (self.extra_embedding):
+            self.embedding.load_state_dict(checkpoint['embedding'])
 
 
 class nBestTransformer(nn.Module):

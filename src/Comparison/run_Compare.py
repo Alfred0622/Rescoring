@@ -124,7 +124,7 @@ valid_loader = DataLoader(
     pin_memory=True
 )
 
-steps_per_epoch = int(len(train_loader) / train_args['accumgrad']) + 1
+steps_per_epoch = (len(train_loader) // train_args['accumgrad']) + 1
 print(f'steps_per_epoch:{steps_per_epoch}')
 
 scheduler = OneCycleLR(
@@ -149,11 +149,12 @@ cal_batch = int(train_args['train_batch']) * train_args['accumgrad']
 wandb.init( 
     project = f"Bertsem_{args['dataset']}_{setting}",
     config = wandb_config, 
-    name = f"batch{train_args['train_batch']}_accum{train_args['accumgrad']}_lr{train_args['lr']}"
+    name = f"batch{train_args['train_batch']}_{args['nbest']}Best_accum{train_args['accumgrad']}_lr{train_args['lr']}"
 )
 optimizer.zero_grad(set_to_none=True)
 step = 0
 log_flag = True
+logging_loss = 0.0
 for e in range(start_epoch, train_args["epoch"]):
     model.train()
     train_loss = 0.0
@@ -176,8 +177,6 @@ for e in range(start_epoch, train_args["epoch"]):
                 param.require_grad = True
 
     for n, data in enumerate(tqdm(train_loader, ncols = 100)):
-        
-        logging_loss = 0.0
         data = {k: v.to(device) for k, v in data.items()}
     
         loss = model(**data).loss
@@ -187,7 +186,7 @@ for e in range(start_epoch, train_args["epoch"]):
         logging_loss += loss.item()
         train_loss += loss.item()
 
-        if ((n + 1) % train_args["accumgrad"] == 0) or ((n + 1) == len(train_loader)):
+        if ((n + 1) % train_args["accumgrad"] == 0):
             optimizer.step()
             # lrs.append(model.optimizer.param_groups[0]["lr"])
             scheduler.step()
@@ -196,11 +195,11 @@ for e in range(start_epoch, train_args["epoch"]):
             if (not log_flag):
                 log_flag = True
             
-        if ( (step > 0) and (step % train_args["print_loss"] == 0) and log_flag):
-            logging.warning(f"Training epoch :{e + 1} step:{n + 1}, loss:{logging_loss}")
+        if (log_flag and (step > 0) and (step % train_args["print_loss"] == 0)):
+            logging.warning(f"Training epoch :{e + 1} step:{step}, loss:{logging_loss}")
             wandb.log(
                 {"loss": logging_loss},
-                step = step + e * len(train_loader)
+                step = step + e * steps_per_epoch
             )  
             log_flag = False
             logging_loss = 0.0
@@ -222,7 +221,7 @@ for e in range(start_epoch, train_args["epoch"]):
     model.eval()
     valid_loss = 0.0   
     with torch.no_grad():
-        for n, data in enumerate(tqdm(valid_loader, ncols = 80)):
+        for val_n, data in enumerate(tqdm(valid_loader, ncols = 80)):
             data = {k: v.to(device) for k,v in data.items()}
             loss = model(**data).loss
 

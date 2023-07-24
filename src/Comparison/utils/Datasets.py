@@ -87,6 +87,18 @@ def get_recogDataset(data_json, dataset,tokenizer):
 
     return concatTrainerDataset(data_list)
 
+def get_recogDatasetFromRaw(data_json, dataset, tokenizer):
+    data_list = list()
+    
+    if (isinstance(data_json, dict)):
+        for i, key in enumerate(tqdm(data_json.keys(), ncols = 100)):
+            name = data_json[key]['name']
+
+            for hyp in data_json[key]['hyps'][:topk]
+            
+            
+        
+
 def get_BertAlsemrecogDataset(data_json, dataset, tokenizer):
     data_list = list()
     for data in tqdm(data_json, ncols = 100):    

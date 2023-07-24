@@ -177,7 +177,7 @@ print(f"\n train_args:{train_args} \n")
 get_num = -1
 save_checkpoint = True
 if "WANDB_MODE" in os.environ.keys() and os.environ["WANDB_MODE"] == "disabled":
-    get_num = 200
+    get_num = 1000
     save_checkpoint = False
 print(f"tokenizing Train")
 train_dataset = prepareListwiseDataset(
@@ -284,7 +284,7 @@ print(f"total steps : {len(train_batch_sampler) * int(train_args['epoch'])}")
 
 lr_scheduler = OneCycleLR(
     optimizer,
-    max_lr=0.01,  # float(train_args["lr"]) * 10,
+    max_lr= float(train_args["lr"]),
     epochs=int(train_args["epoch"]),
     steps_per_epoch=len(train_batch_sampler),
     pct_start=float(train_args["warmup_ratio"]),
@@ -516,7 +516,8 @@ for e in range(start_epoch, train_args["epoch"]):
             },
             step=(i + 1) + e * len(train_batch_sampler),
         )
-
+    # print(f"loss:{train_epoch_loss}")
+    # exit(0)
     """
     Validation
     """
@@ -556,7 +557,6 @@ for e in range(start_epoch, train_args["epoch"]):
                 zip(data["name"], data["indexes"], scores)
             ):
                 rescores[index_dict[name]][index] += score.item()
-
         print(f"forward test")
         for i, data in enumerate(tqdm(test_loader, ncols=100)):
             for key in data.keys():

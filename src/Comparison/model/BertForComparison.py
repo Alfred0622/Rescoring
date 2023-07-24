@@ -223,8 +223,8 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
 
         LSTM_state, (h, c) = self.rnn(last_hidden_states) # (B, L, 128)
 
-        avg_state = self.avg_pool(LSTM_state, attention_mask)
-        max_state = self.max_pool(LSTM_state, attention_mask)
+        avg_state = self.avg_pool(input_ids, LSTM_state, attention_mask)
+        max_state = self.max_pool(input_ids, LSTM_state, attention_mask)
 
         concat_state = torch.cat([avg_state, avg_state], dim = -1) # (B, 128 + 128)
         concat_state = concat_state.squeeze(1)

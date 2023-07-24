@@ -2,8 +2,8 @@ args:
   stage: 0
   stop_stage: 100
   nbest: 50
-  withLM: False
-  dataset: librispeech
+  withLM: True
+  dataset: aishell2
   MLM: False
   jp_split: False
 

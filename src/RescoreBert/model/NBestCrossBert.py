@@ -676,13 +676,18 @@ class pBertSimp(torch.nn.Module):
         config = BertConfig.from_pretrained(pretrain_name)
         config.output_attentions = True
         config.output_hidden_states = True
+        self.combineScore = train_args['combineScore']
 
         self.bert = BertModel(config=config).from_pretrained(pretrain_name).to(device)
-        self.linear = torch.nn.Linear(770, 1).to(device)
+        if (self.combineScore):
+            self.linear = torch.nn.Linear(769, 1).to(device)
+        else:
+            self.linear = torch.nn.Linear(770, 1).to(device)
 
         self.hardLabel = True
         self.loss_type = "Entropy"
         self.loss = torch.nn.KLDivLoss(reduction="batchmean")
+        self.dropout = torch.nn.Dropout(p=config.hidden_dropout_prob)
 
         self.output_attention = output_attention
 
@@ -690,6 +695,7 @@ class pBertSimp(torch.nn.Module):
         self.weightByWER = False
 
         self.reduction = train_args['reduction']
+
 
         print(f"output_attention:{self.output_attention}")
         print(f"weightByWER:{self.weightByWER}")
@@ -701,6 +707,7 @@ class pBertSimp(torch.nn.Module):
         nBestIndex,
         am_score=None,
         ctc_score=None,
+        scores = None,
         labels=None,
         wers=None,  # not None if weightByWER = True
         *args,
@@ -713,21 +720,30 @@ class pBertSimp(torch.nn.Module):
         )
 
         output = bert_output.pooler_output
+        output = self.dropout(output)
 
-        clsConcatoutput = torch.cat([output, am_score], dim=-1)
-        clsConcatoutput = torch.cat([clsConcatoutput, ctc_score], dim=-1)
+        if (self.combineScore):
+            scores = scores.unsqueeze(-1)
+            clsConcatoutput = torch.cat([output, scores], dim = -1)
+        else:
+            clsConcatoutput = torch.cat([output, am_score], dim=-1)
+            clsConcatoutput = torch.cat([clsConcatoutput, ctc_score], dim=-1)
 
         scores = self.linear(clsConcatoutput).squeeze(-1)
+        # print(f'scores:{scores}')
         final_score = scores.clone().detach()
 
         loss = None
         if labels is not None:
+            # print(f'labels:{labels}')
             scores = self.activation_fn(scores, nBestIndex, log_score=False)
             loss = labels * torch.log(scores)
             if (self.reduction == 'mean'):
                 loss = torch.mean(torch.neg(loss))
             elif (self.reduction == 'sum'):
                 loss = torch.sum(torch.neg(loss))
+        
+        # print(f'final_scores:{final_score}')
 
         return {
             "loss": loss,
@@ -735,6 +751,19 @@ class pBertSimp(torch.nn.Module):
             "attention_weight": bert_output.attentions,
         }
 
+    def parameters(self):
+        parameters = list(self.bert.parameters()) + list(self.linear.parameters())
+
+        return parameters
+
+    def state_dict(self):
+        return {
+            "bert": self.bert.state_dict(),
+            "linear": self.linear.state_dict(),
+        }
+    def load_state_dict(self, checkpoint):
+        self.bert.load_state_dict(checkpoint['bert'])
+        self.linear.load_state_dict(checkpoint['linear'])
 
 class pBert(torch.nn.Module):
     def __init__(
@@ -809,10 +838,12 @@ class pBert(torch.nn.Module):
         clsConcatoutput = torch.cat([clsConcatoutput, ctc_score], dim=-1)
 
         scores = self.linear(clsConcatoutput).squeeze(-1)
+        # print(f'scores:{scores}')
         final_score = scores.clone().detach()
 
         loss = None
         if labels is not None:
+            # print(f'labels:{labels}')
             if self.hardLabel:
                 scores = self.activation_fn(scores, nBestIndex, log_score=False)
                 if self.loss_type == "Entropy":
@@ -868,7 +899,7 @@ class pBert(torch.nn.Module):
                     discriminative_loss = torch.neg(
                         softmax_wers * torch.log(smoothed_score)
                     )
-                    # print(f"loss:{loss}")
+                    print(f"loss:{loss}")
                     # print(f"discriminative_loss:{discriminative_loss}")
                     loss = loss + discriminative_loss
 
@@ -877,6 +908,8 @@ class pBert(torch.nn.Module):
                     loss = torch.sum(loss)
                 elif (self.reduction == 'mean'):
                     loss = torch.mean(loss)
+        
+        # print(f'final_scores:{final_score}')
         return {
             "loss": loss,
             "score": final_score,

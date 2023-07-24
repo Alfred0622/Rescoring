@@ -1,7 +1,7 @@
 args:
   nbest: 50 # max: 50
   withLM: False
-  dataset: aishell
+  dataset: aishell2
 
 train:
   epoch: 10
@@ -10,13 +10,14 @@ train:
   print_loss: 5000
   lr: 1e-6
   freeze_epoch: -1
-  hard_label: False
+  hard_label: True
   loss_type: Entropy
   weightByWER: none # positive, inverse, square, none
   warmup_ratio: 0.1
-  layer_op: lastInit_1 # extra, lastInit_n or none
+  layer_op: # extra, lastInit_n or none
   MWER:
   reduction: mean
+  combineScore: False
 
 recog:
   batch: 1

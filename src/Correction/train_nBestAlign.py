@@ -139,7 +139,9 @@ if __name__ == "__main__":
         "optimizer": optimizer,
     }
 
-    run_name = f"{args['dataset']}, {setting}, lr = {train_args['lr']}, sep = {train_args['sep_token']} : {args['nbest']}-Align{train_args['align_layer']}"
+    sep_token = train_args['sep_token'].replace('[' , '').replace(']', '')
+
+    run_name = f"{args['dataset']}, {setting}, lr = {train_args['lr']}, sep = {sep_token} : {args['nbest']}-Align{train_args['align_layer']}"
     if (train_args['extra_embedding']):
         run_name = run_name + "_extra_embedding"
     wandb.init(

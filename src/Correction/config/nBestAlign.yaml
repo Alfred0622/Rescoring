@@ -3,21 +3,21 @@ args:
   stop_stage: 1
   nbest: 4
   withLM: False
-  dataset: aishell
+  dataset: tedlium2
 
 train:
   start_epoch: 0
-  epoch: 30
-  train_batch: 128
-  valid_batch: 128
-  accumgrad: 2
+  epoch: 10
+  train_batch: 64
+  valid_batch: 64
+  accumgrad: 4
   print_loss: 2000
   lr: 5e-5
   data_type: align
   sep_token: '[PAD]'
   from_pretrain: True
   align_layer: 1
-  extra_embedding: True
+  extra_embedding: False
 
 recog:
-  batch: 256
+  batch: 128

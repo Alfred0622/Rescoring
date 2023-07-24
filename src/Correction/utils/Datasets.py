@@ -51,6 +51,8 @@ def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_t
     """
     assert(isinstance(topk, int))
 
+    print(f'sep_token:{sep_token}')
+
     if (topk < 1):
         topk = 1
     data_list = list()
@@ -161,6 +163,11 @@ def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_t
                     input_ids.append(token_ids)
                 # print(f'input_ids:{input_ids}')
                 align_hyp_ids = align(input_ids, nBest = topk, placeholder = tokenizer.convert_tokens_to_ids(sep_token))
+
+                if (len(align_hyp_ids) < topk - 1):
+                    print(f'len:{len(align_hyp_ids)} , topk:{topk}')
+                    print(f'align_hyp_ids:{align_hyp_ids}')
+                    print(f'input_ids:{input_ids}')
                 
                 input_ids = alignNbest(align_hyp_ids, placeholder = tokenizer.convert_tokens_to_ids(sep_token))
                 # print(f'align_hyp_ids:{input_ids}')

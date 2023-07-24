@@ -131,6 +131,7 @@ training_args = TrainingArguments(
     greater_is_better=False,
     gradient_accumulation_steps=int(train_args["accumgrad"]),
     run_name=f"{args['dataset']}/{lm_name}",
+    load_best_model_at_end = True
 )
 
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm=args["MLM"])

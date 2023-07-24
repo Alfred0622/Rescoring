@@ -16,13 +16,13 @@ import numpy as np
 from functools import partial
 from torch.utils.data import DataLoader
 from src_utils.LoadConfig import load_config
-from utils.Datasets import prepareSimpleListwiseDataset
+from utils.Datasets import prepareSimpleListwiseDataset, prepareListwiseDataset
 from utils.CollateFunc import NBestSampler, BatchSampler
 from torch.optim import AdamW, Adam
 from torch.optim.lr_scheduler import OneCycleLR
 from src_utils.get_recog_set import get_valid_set
 from utils.PrepareModel import preparePBertSimp
-from utils.CollateFunc import  SimplePBertBatchWithHardLabel
+from utils.CollateFunc import  SimplePBertBatchWithHardLabel, PBertBatchWithHardLabel
 from utils.PrepareScoring import prepare_score_dict, calculate_cer
 
 # from accelerate import Accelerator
@@ -63,6 +63,10 @@ if "weightByWER" in train_args.keys() and train_args["weightByWER"] != "none":
     log_path = log_path + "/weightByWER"
 else:
     log_path = log_path + "/normal"
+
+if (train_args['combineScore']):
+    run_name = run_name + f"_combineScore"
+    log_path = log_path + "/combineScore"
 
 log_path = Path(f"./log/RescoreBERT/{args['dataset']}/{setting}/{mode}")
 log_path.mkdir(parents=True, exist_ok=True)
@@ -105,9 +109,9 @@ print(f"\n train_args:{train_args} \n")
 
 get_num = -1
 if "WANDB_MODE" in os.environ.keys() and os.environ["WANDB_MODE"] == "disabled":
-    get_num = 1000
+    get_num = 100
 print(f"tokenizing Train")
-train_dataset = prepareSimpleListwiseDataset(
+train_dataset = prepareListwiseDataset(
     data_json=train_json,
     dataset=args["dataset"],
     tokenizer=tokenizer,
@@ -115,7 +119,7 @@ train_dataset = prepareSimpleListwiseDataset(
     get_num=get_num,
 )
 print(f"tokenizing Validation")
-valid_dataset = prepareSimpleListwiseDataset(
+valid_dataset = prepareListwiseDataset(
     data_json=valid_json,
     dataset=args["dataset"],
     tokenizer=tokenizer,
@@ -129,14 +133,13 @@ valid_sampler = NBestSampler(valid_dataset)
 
 print(f"len of sampler:{len(train_sampler)}")
 
-train_batch_sampler = BatchSampler(train_sampler, train_args["batch_size"])
-valid_batch_sampler = BatchSampler(valid_sampler, train_args["batch_size"])
+train_batch_sampler = BatchSampler(train_sampler, train_args["batch_size"], batch_by_len=False)
+valid_batch_sampler = BatchSampler(valid_sampler, train_args["batch_size"], batch_by_len=False)
 
 print(f"len of batch sampler:{len(train_batch_sampler)}")
 
-train_collate_func = SimplePBertBatchWithHardLabel
-valid_collate_func = SimplePBertBatchWithHardLabel
-
+train_collate_func = partial(PBertBatchWithHardLabel, use_Margin=False)
+valid_collate_func = partial(PBertBatchWithHardLabel, use_Margin=False)
 
 train_loader = DataLoader(
     dataset=train_dataset,
@@ -227,13 +230,27 @@ for e in range(start_epoch, train_args["epoch"]):
     model.train()
 
     for i, data in enumerate(tqdm(train_loader, ncols=100)):
-        for key in data.keys():
-            if key not in ["name", "indexes", "wer_rank"] and data[key] is not None:
-                # print(f"{key}:{type(data[key])}")
-                data[key] = data[key].to(device)
+        # for key in data.keys():
+        #     if key not in ["name", "indexes", "wer_rank"] and data[key] is not None:
+        #         # print(f"{key}:{type(data[key])}")
+        #         data[key] = data[key].to(device)
+        input_ids = data['input_ids'].to(device)
+        attention_mask = data['attention_mask'].to(device)
+        nBestIndex = data['nBestIndex'].to(device)
+
+        scores = data['asr_score'].to(device)
+        am_score = data['am_score'].to(device)
+        ctc_score = data['ctc_score'].to(device)
+        labels = data['labels'].to(device)
 
         output = model.forward(
-            **data,
+            input_ids = input_ids,
+            attention_mask = attention_mask,
+            nBestIndex = nBestIndex,
+            am_score = am_score,
+            ctc_score = ctc_score,
+            scores = scores,
+            labels = labels
         )
 
         loss = output["loss"]
@@ -276,7 +293,6 @@ for e in range(start_epoch, train_args["epoch"]):
 
         torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_{e+1}.pt")
 
-
     wandb.log(
         {"train_epoch_loss": train_epoch_loss / (len(train_batch_sampler) / int(train_args['accumgrad'])), "epoch": e + 1},
         step=(i + 1) + e * len(train_batch_sampler),
@@ -285,17 +301,38 @@ for e in range(start_epoch, train_args["epoch"]):
     """
     Validation
     """
+    print(
+            f'optimizer:{optimizer.param_groups[0]["lr"]}, scheduler:{lr_scheduler.get_last_lr()}'
+        )
+    # print(f'loss:{train_epoch_loss}')
+    # exit(0)
     model.eval()
     valid_len = len(valid_batch_sampler)
     eval_loss = torch.tensor([0.0])
 
     with torch.no_grad():
         for i, data in enumerate(tqdm(valid_loader, ncols=100)):
-            for key in data.keys():
-                if key not in ["name", "indexes", "wer_rank"] and data[key] is not None:
-                    data[key] = data[key].to(device)
+            # for key in data.keys():
+            #     if key not in ["name", "indexes", "wer_rank"] and data[key] is not None:
+            #         data[key] = data[key].to(device)
+            
+            input_ids = data['input_ids'].to(device)
+            attention_mask = data['attention_mask'].to(device)
+            nBestIndex = data['nBestIndex'].to(device)
+            am_score = data['am_score'].to(device)
+            ctc_score = data['ctc_score'].to(device)
+            scores = data['asr_score'].to(device)
+            labels = data['labels'].to(device)
 
-            output = model.forward(**data)
+            output = model.forward(
+                input_ids = input_ids,
+                attention_mask = attention_mask,
+                nBestIndex = nBestIndex,
+                am_score = am_score,
+                ctc_score = ctc_score,
+                scores = scores,
+                labels = labels
+            )
 
             loss = output["loss"]
             scores = output["score"]

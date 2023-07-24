@@ -365,7 +365,7 @@ def SimplePBertBatchWithHardLabel(batch):
     am_scores = torch.as_tensor([], dtype=torch.float32)
     ctc_scores = torch.as_tensor([], dtype=torch.float32)
     errors = torch.as_tensor([], dtype=torch.float32)
-    labels = torch.as_tensor([], dtype = torch.int32)
+    labels = torch.as_tensor([], dtype = torch.float32)
     indexs = torch.as_tensor([], dtype = torch.int32)
 
     for sample in batch:
@@ -417,6 +417,8 @@ def PBertBatchWithHardLabel(batch, use_Margin):
 
     am_scores = torch.as_tensor([], dtype=torch.float32)
     ctc_scores = torch.as_tensor([], dtype=torch.float32)
+    scores = torch.as_tensor([], dtype = torch.float32)
+    asr_scores = torch.as_tensor([], dtype = torch.float32)
     wer = torch.as_tensor([], dtype=torch.float32)
     errors = torch.as_tensor([], dtype=torch.float32)
 
@@ -430,6 +432,8 @@ def PBertBatchWithHardLabel(batch, use_Margin):
 
         am_scores = torch.cat([am_scores, sample["am_score"]], dim=-1)
         ctc_scores = torch.cat([ctc_scores, sample["ctc_score"]], dim=-1)
+        scores = torch.cat([scores, sample['score']])
+        asr_scores = torch.cat([asr_scores, sample['asr_score']])
 
         label_score = torch.zeros((sample["nbest"]), dtype=torch.float32)  #
         label_score[sample["wer_rank"][0]] = 1  # Add hard label 1
@@ -471,6 +475,8 @@ def PBertBatchWithHardLabel(batch, use_Margin):
         "attention_mask": attention_mask,
         "am_score": am_scores,
         "ctc_score": ctc_scores,
+        "score": scores,
+        "asr_score": asr_scores,
         "labels": wer,
         "wers": errors,
         "nBestIndex": nBest,

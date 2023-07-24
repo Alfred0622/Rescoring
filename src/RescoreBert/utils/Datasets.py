@@ -127,6 +127,16 @@ def get_Dataset(
                     "tedlium2_conformer",
                     "librispeech",
                 ]:
+                    bos_token = (
+                        tokenizer.cls_token
+                        if tokenizer.bos_token is None
+                        else tokenizer.bos_token
+                    )
+                    eos_token = (
+                        tokenizer.sep_token
+                        if tokenizer.eos_token is None
+                        else tokenizer.eos_token
+                    )
                     hyp = hyp + "."
                     hyp = f"{bos_token} {hyp} {eos_token}"
 
@@ -644,6 +654,10 @@ def prepareListwiseDataset(
 
     In this function, we will NOT split the N-best List
     """
+    if paddingNBest:
+        print(f'paddingNbest')
+    if force_Ref:
+        print(f'force_Ref')
 
     print(f"type:{type(data_json)}")
     data_list = list()
@@ -662,6 +676,7 @@ def prepareListwiseDataset(
                     data_json[key]["ctc_score"] += [0.0 for _ in range(pad_len)]
 
             if force_Ref:
+
                 if not (data_json[key]["ref"] in data_json[key]["hyps"][:topk]):
                     data_json[key]["hyps"][1:] = data_json[key]["hyps"][0:-1]
                     data_json[key]["hyps"][0] = data_json[key]["ref"]
@@ -691,6 +706,7 @@ def prepareListwiseDataset(
             ctc_scores = torch.as_tensor(
                 data_json[key]["ctc_score"][:topk], dtype=torch.float32
             )
+            asr_scores = 0.3 * am_scores + 0.7 * ctc_scores
 
             input_ids = []
             attention_masks = []
@@ -735,6 +751,7 @@ def prepareListwiseDataset(
                     "score": scores,
                     "am_score": am_scores,
                     "ctc_score": ctc_scores,
+                    "asr_score": asr_scores,
                     "errs": data_json[key]["err"][:topk],
                     "wer": wers_tensor.float(),
                     "avg_err": avg_errs,
@@ -794,6 +811,8 @@ def prepareListwiseDataset(
             am_scores = torch.as_tensor(data["am_score"][:topk], dtype=torch.float32)
             ctc_scores = torch.as_tensor(data["ctc_score"][:topk], dtype=torch.float32)
 
+            asr_scores = 0.3 * am_scores + 0.7 * ctc_scores
+
             input_ids = []
             attention_masks = []
             avg_errs = []
@@ -839,6 +858,7 @@ def prepareListwiseDataset(
                     "score": scores,
                     "am_score": am_scores,
                     "ctc_score": ctc_scores,
+                    "asr_score": asr_scores,
                     "errs": data["err"],
                     "wer": wers_tensor.float(),
                     "avg_err": avg_errs,
@@ -885,6 +905,7 @@ def prepareSimpleListwiseDataset(
     """
 
     data_list = list()
+    print(f'{type(data_json)}')
     if isinstance(data_json, dict):
         for i, key in enumerate(tqdm(data_json.keys(), ncols=100)):
             wers = []
@@ -893,7 +914,7 @@ def prepareSimpleListwiseDataset(
                 wers.append(err["err"])
             # print(f'wers:{wers}')
             wers_tensor = np.array(wers, dtype=np.float32)
-            top_index = np.argmax(wers_tensor).astype(np.int32)
+            top_index = np.argmin(wers_tensor).astype(np.int32)
             top_index = torch.from_numpy(top_index)
 
             scores = torch.as_tensor(
@@ -959,8 +980,12 @@ def prepareSimpleListwiseDataset(
             for err in data["err"][:topk]:
                 wers.append(err["err"])
             # print(f'wers:{wers}')
-            wers_tensor = np.array(wers)
-            top_index = np.argmax(wers_tensor).astype(np.int32)
+            wers_tensor = np.array(wers, dtype=np.float32)
+            wers_rank = np.argsort(wers_tensor, kind="stable").astype(np.int32)
+            wers_rank = torch.from_numpy(wers_rank).type(torch.int32)
+
+            top_index = wers_rank[0]
+            # top_index = np.argmin(wers_tensor).astype(np.int32)
             # top_index = torch.from_numpy(top_index).dtype(torch.long)
 
             scores = torch.as_tensor(data["score"][:topk], dtype=torch.float32)
@@ -991,7 +1016,7 @@ def prepareSimpleListwiseDataset(
 
             nbest = len(data["hyps"][:topk])
 
-            labels = torch.zeros((nbest), dtype=torch.long)
+            labels = torch.zeros(wers_rank.shape, dtype=torch.long)
             labels[top_index] = 1
             indexs = torch.tensor([i for i in range(nbest)], dtype=torch.int32)
 
