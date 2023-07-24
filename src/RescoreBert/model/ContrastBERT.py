@@ -266,7 +266,7 @@ class marginalBert(nn.Module):
             "bert": self.bert.state_dict(),
             "linear": self.linear.state_dict(),
         }
-        if self.layerOp is not None and self.layerOp == "LSTM":
+        if self.layerOp is not None and "LSTM" in self.compare:
             checkpoint["LSTM"] = self.LSTM.state_dict()
             checkpoint["concatLSTM"] = self.concatLSTM.state_dict()
             checkpoint["concatCLSLinear"] = self.concatCLSLinear.state_dict()
@@ -303,6 +303,7 @@ class contrastBert(nn.Module):
         self.temperature = float(train_args["temperature"])
 
         self.BCE = torch.nn.BCELoss(reduction=self.reduction)
+        self.CE = torch.nn.CrossEntropyLoss(reduction=self.reduction)
         self.dropout = torch.nn.Dropout(p=0.1)
         self.softmax = torch.nn.Softmax(dim=-1)
 
@@ -317,7 +318,7 @@ class contrastBert(nn.Module):
                 print(f"init Layer:{layer_init}")
                 for i in range(1, int(layer_init) + 1):
                     self.bert.encoder.layer[-i] = BertLayer(config)
-        if "SELF-LSTM" in self.compare:
+        if "LSTM" in self.compare:
             self.LSTM = torch.nn.LSTM(
                 input_size=768,
                 hidden_size=1024,
@@ -329,6 +330,15 @@ class contrastBert(nn.Module):
             )
             self.concatLSTM = torch.nn.Sequential(
                 nn.Dropout(p=0.1), nn.Linear(2 * 2 * 768, 768), nn.ReLU()
+            )
+            self.pretrain_classifier = torch.nn.Sequential(
+                nn.Dropout(p=0.1), nn.Linear(2 * 2 * 768, 1), nn.Sigmoid()
+            )
+
+            self.LSTMLMHead = torch.nn.Sequential(
+                nn.Dropout(p=0.1),
+                nn.Linear(2 * 768, self.bert.config.vocab_size),
+                nn.ReLU(),
             )
 
             self.maxPool = MaxPooling(
@@ -474,18 +484,37 @@ class contrastBert(nn.Module):
                     elif self.reduction == "mean":
                         contrastLoss = torch.neg(torch.mean(torch.log(sim_value)))
 
-            elif self.compare == "SELF-CSE":
-                dropout_1 = self.dropout(bert_output)
-                dropout_2 = self.dropout(bert_output)
+            elif self.compare in ["SELF-CSE", "SELF-CSE-HARD"]:
+                dropout_1 = output.last_hidden_state[:, 0]
+                dropout_2 = self.bert(
+                    input_ids=input_ids, attention_mask=attention_mask
+                ).last_hidden_state[
+                    :, 0
+                ]  # forward again
 
-                norm_1 = torch.norm(dropout_1, dim=-1).unsqueeze(-1)
-                norm_2 = torch.norm(dropout_2, dim=-1)
+                norm_1 = torch.norm(dropout_1, dim=-1)[:, None]
+                norm_2 = torch.norm(dropout_2, dim=-1)[:, None]
 
-                sim_matrix = torch.tensordot(dropout_1, dropout_2, dims=([1], [1]))
-                sim_matrix = (sim_matrix / norm_1) / norm_2
+                # print(f"dropout:{dropout_1.shape}")
+                # print(f"norm:{norm_1.shape}")
+
+                dropout_1_norm = dropout_1 / torch.max(
+                    norm_1, 1e-6 * torch.ones(norm_1.shape, device=dropout_1.device)
+                )
+                dropout_2_norm = dropout_2 / torch.max(
+                    norm_1, 1e-6 * torch.ones(norm_2.shape, device=dropout_2.device)
+                )
+
+                sim_matrix = torch.matmul(
+                    dropout_1_norm, dropout_2_norm.transpose(0, 1)
+                )
+                # sim_matrix = (sim_matrix / norm_1) / norm_2
 
                 sim_matrix = sim_matrix / self.temperature
-                sim_matrix = self.activation_fn(sim_matrix, nBestIndex)
+                if self.compare == "SELF-CSE":
+                    sim_matrix = self.activation_fn(sim_matrix, nBestIndex)
+                elif self.compare == "SELF-CSE-HARD":
+                    sim_matrix = self.softmax(sim_matrix)
                 sim_value = torch.diagonal(sim_matrix, 0)
                 if self.useTopOnly:
                     top_index = labels == 1
@@ -528,7 +557,7 @@ class contrastBert(nn.Module):
                 cls_norm = torch.norm(bert_output, dim=-1)
                 sim_matrix = sim_matrix / cls_norm
 
-                if (self.compare == 'REF-HARD'):
+                if self.compare == "REF-HARD":
                     sim_matrix = self.softmax(sim_matrix)
                 else:
                     sim_matrix = self.activation_fn(sim_matrix, nBestIndex)
@@ -554,8 +583,59 @@ class contrastBert(nn.Module):
             "contrast_loss": contrastLoss,
         }
 
+    def pretrain(
+        self,
+        input_ids,
+        attention_mask,
+        labels,
+        classifier_labels,
+        add_classify=True,
+        *args,
+        **kwargs,
+    ):
+        """Only used in layer_op == LSTM currently"""
+        assert "LSTM" in self.compare, "Only used in layer_op == LSTM currently"
+
+        output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        bert_output = output.last_hidden_state
+
+        lstm_output, (h, c) = self.LSTM(bert_output)
+
+        lm_output = self.LSTMLMHead(lstm_output)
+        LM_loss = self.CE(lm_output.transpose(1, 2), labels)
+
+        if add_classify:
+            max_pool = self.maxPool(input_ids, lstm_output, attention_mask)
+            avg_pool = self.avgPool(input_ids, lstm_output, attention_mask)
+
+            concat_state = torch.cat([max_pool, avg_pool], dim=-1)
+
+            scores = self.pretrain_classifier(concat_state).squeeze(-1)
+            # print(f"scores:{scores}")
+            # print(f"classifier:{classifier_labels}")
+            classifier_loss = self.BCE(scores, classifier_labels)
+
+            pretrain_loss = LM_loss + classifier_loss
+        else:
+            pretrain_loss = LM_loss
+            classifier_loss = None
+
+        return {
+            "loss": pretrain_loss,
+            "LM_loss": LM_loss,
+            "classifier_loss": classifier_loss,
+        }
+
     def parameters(self):
         parameters = list(self.bert.parameters()) + list(self.linear.parameters())
+
+        if "LSTM" in self.compare:
+            parameters = (
+                parameters
+                + list(self.LSTM.parameters())
+                + list(self.concatLSTM.parameters())
+                + list(self.LSTMLMHead.parameters())
+            )
 
         return parameters
 
@@ -564,10 +644,11 @@ class contrastBert(nn.Module):
             "bert": self.bert.state_dict(),
             "linear": self.linear.state_dict(),
         }
-        if self.compare == "LSTM":
+        if "LSTM" in self.compare:
             checkpoint["LSTM"] = self.LSTM.state_dict()
             checkpoint["concatLSTM"] = self.concatLSTM.state_dict()
-            checkpoint["concatCLSLinear"] = self.concatCLSLinear.state_dict()
+            # checkpoint["concatCLSLinear"] = self.concatCLSLinear.state_dict()
+            checkpoint["LSTMLMHead"] = self.LSTMLMHead.state_dict()
 
         return checkpoint
 

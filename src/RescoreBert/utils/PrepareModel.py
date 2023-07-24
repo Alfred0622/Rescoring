@@ -152,8 +152,6 @@ def prepareNBestCrossBert(
     dataset,
     device,
     lstm_dim=512,
-    useNbestCross=False,
-    trainAttendWeight=False,
     addRes=False,
     fuseType="lstm",
     lossType="KL",
@@ -170,8 +168,6 @@ def prepareNBestCrossBert(
         dataset,
         device,
         lstm_dim=lstm_dim,
-        use_fuseAttention=useNbestCross,
-        use_learnAttnWeight=trainAttendWeight,
         addRes=addRes,
         fuseType=fuseType,
         taskType=taskType,
@@ -226,10 +222,10 @@ def preparePoolingBert(args, train_args):
     return model, tokenizer
 
 
-def prepareFuseBert(args, train_args):
+def prepareFuseBert(args, train_args, device):
     pretrain_name = getBertPretrainName(args["dataset"])
 
-    model = nBestfuseBert(args, train_args)
+    model = nBestfuseBert(args, train_args, device=device)
     tokenizer = BertTokenizer.from_pretrained(pretrain_name)
 
     return model, tokenizer

@@ -34,7 +34,7 @@ checkpoint = None
 # assert (choose_mode in ['pbert', 'nbestcrossbert']), 'Mode should be PBert or NBestCrossBert'
 
 if len(sys.argv) == 2:
-    checkpoint_path = sys.argv[1]
+    checkpoint = sys.argv[1]
 
 elif len(sys.argv) >= 3:
     assert len(sys.argv) == 3
@@ -58,16 +58,16 @@ for key in train_args.keys():
     print(f"{key}: {train_args[key]}")
 print("\n")
 
-# if train_args["useNBestCross"]:
-#     if train_args["trainAttendWeight"]:
-#         mode = "CrossAttend_TrainWeight"
-#     else:
-#         mode = "CrossAttend"
+if train_args["useNBestCross"]:
+    if train_args["trainAttendWeight"]:
+        mode = "CrossAttend_TrainWeight"
+    else:
+        mode = "CrossAttend"
 
-#     if train_args["addRes"]:
-#         mode = mode + "_ResOnNbest"
+    if train_args["addRes"]:
+        mode = mode + "_ResOnNbest"
 
-#     mode = mode + f"_Att_{train_args['AttLayer']}Layers"
+    mode = mode + f"_Att_{train_args['AttLayer']}Layers"
 
 mode = mode + f"_{train_args['fuseType']}"
 
@@ -79,8 +79,14 @@ if train_args["sortByLen"]:
     mode = mode + "_sortByLength"
 if train_args["concatCLS"]:
     mode = mode + "_ResCLS"
-# if train_args["weightByGrad"]:
-#     mode = mode + "_weightByGrad"
+if train_args["weightByGrad"]:
+    mode = mode + "_weightByGrad"
+if train_args["sepTask"]:
+    mode = mode + "_sepMaskTask"
+    mode = mode + f"_{train_args['2ndTask']}"
+    if train_args["fuseType"] == "query":
+        if train_args["concatMaskAfter"]:
+            mode = mode + "_concatMaskAfter"
 if train_args["noCLS"]:
     mode = mode + "_noCLS"
 if train_args["noSEP"]:
@@ -119,10 +125,15 @@ model, tokenizer = prepareNBestCrossBert(
     args["dataset"],
     device,
     lstm_dim=train_args["lstm_embedding"],
+    useNbestCross=train_args["useNBestCross"],
+    trainAttendWeight=False,
+    addRes=train_args["addRes"],
     fuseType=train_args["fuseType"],
+    taskType=train_args["2ndTask"],
     lossType="Entropy" if train_args["hardLabel"] else train_args["lossType"],
     concatCLS=train_args["concatCLS"],
     dropout=dropout,
+    sepTask=train_args["sepTask"],
     noCLS=train_args["noCLS"],
     noSEP=train_args["noSEP"],
 )
@@ -130,16 +141,8 @@ model, tokenizer = prepareNBestCrossBert(
 model = model.to(device)
 if torch.cuda.device_count() > 1:
     model = torch.nn.DataParallel(model)
-if train_args["fuseType"] == "lstm" and len(sys.argv) == 2:
-    checkpoint = torch.load(checkpoint_path)
-    print(f"load LSTM")
-    # print(checkpoint['model'].keys())
-    model.lstm.load_state_dict(checkpoint["model"]["LSTM"])
-    model.concatLinear.load_state_dict(checkpoint["model"]["concatLSTM"])
-
-
-optimizer = AdamW(model.parameters(), lr=float(train_args["lr"]))
-# optimizer = Adam(model.parameters(), lr=float(train_args["lr"]))
+# optimizer = AdamW(model.parameters(), lr = float(train_args['lr']))
+optimizer = Adam(model.parameters(), lr=float(train_args["lr"]))
 
 with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, open(
     f"../../data/{args['dataset']}/data/{setting}/{valid_set}/data.json"
@@ -165,6 +168,7 @@ train_dataset = prepareListwiseDataset(
     sort_by_len=train_args["sortByLen"],
     get_num=get_num,
     maskEmbedding=train_args["fuseType"] == "query",
+    concatMask=train_args["concatMaskAfter"],
 )
 print(f"tokenizing Validation")
 valid_dataset = prepareListwiseDataset(
@@ -174,6 +178,7 @@ valid_dataset = prepareListwiseDataset(
     sort_by_len=train_args["sortByLen"],
     get_num=get_num,
     maskEmbedding=train_args["fuseType"] == "query",
+    concatMask=train_args["concatMaskAfter"],
 )
 
 test_dataset = prepareListwiseDataset(
@@ -183,6 +188,7 @@ test_dataset = prepareListwiseDataset(
     sort_by_len=train_args["sortByLen"],
     get_num=get_num,
     maskEmbedding=train_args["fuseType"] == "query",
+    concatMask=train_args["concatMaskAfter"],
 )
 
 print(f"Prepare Sampler")
@@ -267,37 +273,34 @@ lr_scheduler = OneCycleLR(
     test_refs,
 ) = prepare_score_dict(test_json, nbest=args["nbest"])
 
-rescores_flush = rescores.copy()
-test_rescores_flush = test_rescores.copy()
-
 """
 Initialize wandb
 """
 config = dict()
-# if train_args["useNBestCross"]:
-#     config = {
-#         "args": args,
-#         "train_args": train_args,
-#         "Bert_config": model.bert.config.to_dict()
-#         if (torch.cuda.device_count() <= 1)
-#         else model.module.bert.config.to_dict(),
-#         "CrossAttentionConfig": model.fuseAttention.config
-#         if (torch.cuda.device_count() <= 1)
-#         else model.module.fuseAttention.config,
-#     }
-# else:
-config = {
-    "args": args,
-    "train_args": train_args,
-    "Bert_config": model.bert.config.to_dict()
-    if (torch.cuda.device_count() <= 1)
-    else model.module.bert.config.to_dict(),
-}
+if train_args["useNBestCross"]:
+    config = {
+        "args": args,
+        "train_args": train_args,
+        "Bert_config": model.bert.config.to_dict()
+        if (torch.cuda.device_count() <= 1)
+        else model.module.bert.config.to_dict(),
+        "CrossAttentionConfig": model.fuseAttention.config
+        if (torch.cuda.device_count() <= 1)
+        else model.module.fuseAttention.config,
+    }
+else:
+    config = {
+        "args": args,
+        "train_args": train_args,
+        "Bert_config": model.bert.config.to_dict()
+        if (torch.cuda.device_count() <= 1)
+        else model.module.bert.config.to_dict(),
+    }
 
 wandb.init(
     project=f"myBert_{args['dataset']}_{setting}",
     config=config,
-    name=f"{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_freeze{train_args['freeze_epoch']}_warmup{train_args['warmup_ratio']}_fromPretrain",
+    name=f"{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_freeze{train_args['freeze_epoch']}_warmup{train_args['warmup_ratio']}",
 )
 
 checkpoint_path = Path(
@@ -505,43 +508,43 @@ for e in range(start_epoch, train_args["epoch"]):
                 test_rescores[test_index_dict[name]][index] += score.item()
 
         print(f"Validation: Calcuating CER")
-        # if not train_args["sepTask"] or not train_args["scoreByRank"]:
-        best_am, best_ctc, best_lm, best_rescore, min_cer = calculate_cer(
-            am_scores,
-            ctc_scores,
-            lm_scores,
-            rescores,
-            wers,
-            am_range=[0, 1],
-            ctc_range=[0, 1],
-            lm_range=[0, 1],
-            rescore_range=[0, 1],
-            search_step=0.2,
-            recog_mode=False,
-        )
-        print(
-            f"epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}"
-        )
+        if not train_args["sepTask"] or not train_args["scoreByRank"]:
+            best_am, best_ctc, best_lm, best_rescore, min_cer = calculate_cer(
+                am_scores,
+                ctc_scores,
+                lm_scores,
+                rescores,
+                wers,
+                am_range=[0, 1],
+                ctc_range=[0, 1],
+                lm_range=[0, 1],
+                rescore_range=[0, 1],
+                search_step=0.2,
+                recog_mode=False,
+            )
+            print(
+                f"epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}"
+            )
 
-        test_cer, _ = get_result(
-            test_index_dict,
-            test_am_scores,
-            test_ctc_scores,
-            test_lm_scores,
-            test_rescores,
-            test_wers,
-            test_hyps,
-            test_refs,
-            best_am,
-            best_ctc,
-            best_lm,
-            best_rescore,
-        )
+            test_cer, _ = get_result(
+                test_index_dict,
+                test_am_scores,
+                test_ctc_scores,
+                test_lm_scores,
+                test_rescores,
+                test_wers,
+                test_hyps,
+                test_refs,
+                best_am,
+                best_ctc,
+                best_lm,
+                best_rescore,
+            )
 
-        # else:
-        #     min_cer = calculate_cerOnRank(
-        #         am_scores, ctc_scores, lm_scores, rescores, wers, withLM=args["withLM"]
-        # )
+        else:
+            min_cer = calculate_cerOnRank(
+                am_scores, ctc_scores, lm_scores, rescores, wers, withLM=args["withLM"]
+            )
         print(f"epoch:{e + 1},Validation CER:{min_cer}, Testing CER: {test_cer}")
         print(f"epoch:{e + 1},Validation loss:{eval_loss}")
 
@@ -575,8 +578,7 @@ for e in range(start_epoch, train_args["epoch"]):
             )
         logging.warning(f"epoch:{e + 1},validation loss:{eval_loss}")
 
-        rescores = rescores_flush.copy()
-        test_rescores = test_rescores.copy()
+        rescores = np.zeros(rescores.shape, dtype=float)
 
         if eval_loss < min_val_loss:
             torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_best.pt")

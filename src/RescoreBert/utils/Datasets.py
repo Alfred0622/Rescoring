@@ -3,6 +3,7 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from torch.nn import Softmax
 import numpy as np
+from torch.nn.utils.rnn import pad_sequence
 
 
 class LM_Dataset(Dataset):
@@ -35,6 +36,40 @@ def preprocess_string(string, dataset):
         string = " ".join(string)
 
     return string
+
+
+def preparePretrainDataset(data_json, dataset, tokenizer, get_num=-1):
+    data_list = list()
+
+    for i, data in enumerate(tqdm(data_json, ncols=100)):
+        process_hyp = preprocess_string(data["hyp"], dataset)
+        process_ref = preprocess_string(data["ref"], dataset)
+        classifier_label = data["label"]
+
+        hyp_output = tokenizer(process_hyp, return_tensors="pt")
+        ref_output = tokenizer(process_ref, return_tensors="pt")
+
+        align_output = [
+            hyp_output["input_ids"].squeeze(0),
+            hyp_output["attention_mask"].squeeze(0),
+            ref_output["input_ids"].squeeze(0),
+        ]
+        align_output = pad_sequence(align_output, batch_first=True)
+        align_output[2][align_output[2] == 0] = -100
+
+        data_list.append(
+            {
+                "input_ids": align_output[0],
+                "attention_mask": align_output[1],
+                "labels": align_output[2],
+                "classifier_labels": classifier_label,
+            }
+        )
+
+        if get_num > 0 and i > get_num:
+            break
+
+    return LM_Dataset(data_list)
 
 
 def get_Dataset(
@@ -771,18 +806,18 @@ def prepareListwiseDataset(
                     data["ctc_score"][1:] = data["ctc_score"][0:-1]
                     # print(f"hyps after replace:{data['hyps'][:topk]}")
 
-            if paddingNBest:
-                hyp_len = len(data["hyps"])
-                nBestMask = [1 for _ in range(hyp_len)]
-                if hyp_len < topk:
-                    pad_len = topk - hyp_len
-                    data["hyps"] += ["" for _ in range(pad_len)]
-                    nBestMask += [0 for _ in range(pad_len)]
-                    data["score"] += [-1e9 for _ in range(pad_len)]
-                    data["am_score"] += [-1e9 for _ in range(pad_len)]
-                    data["ctc_score"] += [-1e9 for _ in range(pad_len)]
-                    print(f"input_ids:{input_ids}")
-                    print(f"attention_mask:{attention_masks}")
+            # if paddingNBest:
+            #     hyp_len = len(data["hyps"])
+            #     nBestMask = [1 for _ in range(hyp_len)]
+            #     if hyp_len < topk:
+            #         pad_len = topk - hyp_len
+            #         data["hyps"] += ["" for _ in range(pad_len)]
+            #         nBestMask += [0 for _ in range(pad_len)]
+            #         data["score"] += [-1e9 for _ in range(pad_len)]
+            #         data["am_score"] += [-1e9 for _ in range(pad_len)]
+            #         data["ctc_score"] += [-1e9 for _ in range(pad_len)]
+            #         print(f"input_ids:{input_ids}")
+            #         print(f"attention_mask:{attention_masks}")
 
             wers_rank = np.argsort(wers_tensor, kind="stable")
             wers_rank = torch.from_numpy(wers_rank).type(torch.int32)

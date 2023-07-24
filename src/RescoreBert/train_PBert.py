@@ -135,7 +135,7 @@ if mode == "PBERT":
     model, tokenizer = preparePBert(args, train_args, device)
 elif mode in ["CONTRAST", "MARGIN", "MARGIN_TORCH"]:
     model, tokenizer = prepareContrastBert(args, train_args, mode)
-    if mode == "CONTRAST" and "LSTM" in train_args["compareWith"]:
+    if mode == "CONTRAST" and "LSTM" in train_args["compareWith"] and len(sys.argv) >= 3:
         print(f"load LSTM checkpoint")
         checkpoint = torch.load(checkpoint_path)
         model.load_state_dict(checkpoint["model"])

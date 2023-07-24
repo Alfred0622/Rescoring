@@ -11,20 +11,16 @@ train:
   valid_batch: 1
   accumgrad: 1
   print_loss: 5000
-  lr: 1e-7
-  maxlr: 1e-7
+  lr: 1e-6
   freeze_epoch: -1
-  fuseType: none  # lstm , attn or None
+  fuseType: lstm # lstm , attn or None
   lstm_embedding: 1024
-  useNBestCross: True
-  trainAttendWeight: False
   hardLabel: True
   logSoftmax: False
-  lossType: CE
+  lossType: Entropy
   sortByLen: True
   concatCLS: False
   dropout: 0.3
-  weightByGrad: False
   noCLS: False
   noSEP: False
   warmup_ratio: 0.1
