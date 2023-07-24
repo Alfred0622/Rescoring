@@ -22,7 +22,7 @@ from torch.optim import AdamW, Adam
 from torch.optim.lr_scheduler import OneCycleLR
 from src_utils.get_recog_set import get_valid_set
 from utils.PrepareModel import preparePBertSimp
-from utils.CollateFunc import  SimplePBertBatchWithHardLabel, PBertBatchWithHardLabel
+from utils.CollateFunc import SimplePBertBatchWithHardLabel, PBertBatchWithHardLabel
 from utils.PrepareScoring import prepare_score_dict, calculate_cer
 
 # from accelerate import Accelerator
@@ -82,9 +82,7 @@ logging.basicConfig(
 valid_set = get_valid_set(args["dataset"])
 
 if mode == "PBERT":
-    model, tokenizer = preparePBertSimp(
-        args, train_args, device
-    )
+    model, tokenizer = preparePBertSimp(args, train_args, device)
 print(type(model))
 model = model.to(device)
 if torch.cuda.device_count() > 1:
@@ -254,7 +252,7 @@ for e in range(start_epoch, train_args["epoch"]):
         )
 
         loss = output["loss"]
-        loss = loss / float(train_args['accumgrad'])
+        loss = loss / float(train_args["accumgrad"])
 
         if torch.cuda.device_count() > 1:
             loss = loss.sum()
@@ -294,7 +292,11 @@ for e in range(start_epoch, train_args["epoch"]):
         torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_{e+1}.pt")
 
     wandb.log(
-        {"train_epoch_loss": train_epoch_loss / (len(train_batch_sampler) / int(train_args['accumgrad'])), "epoch": e + 1},
+        {
+            "train_epoch_loss": train_epoch_loss
+            / (len(train_batch_sampler) / int(train_args["accumgrad"])),
+            "epoch": e + 1,
+        },
         step=(i + 1) + e * len(train_batch_sampler),
     )
 
@@ -376,7 +378,6 @@ for e in range(start_epoch, train_args["epoch"]):
             f"epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}"
         )
 
-        
         wandb.log(
             {"eval_CE_loss": eval_loss, "eval_CER": min_cer, "epoch": (e + 1)},
             step=((e + 1) * len(train_batch_sampler)),

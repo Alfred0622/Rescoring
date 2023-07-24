@@ -26,6 +26,7 @@ from utils.Pooling import MaxPooling, AvgPooling, MinPooling
 from transformers import BertModel, BertConfig
 from torch.nn import TransformerEncoder, TransformerEncoderLayer, KLDivLoss
 from utils.activation_function import SoftmaxOverNBest
+import torch.nn as nn
 
 
 def check_sublist(src, target):
@@ -42,7 +43,9 @@ class NBestAttentionLayer(BertModel):
         self.hidden_size = input_dim
         self.num_hidden_layers = n_layers
         config = BertConfig(
-            hidden_size=self.input_dim, num_hidden_layers=n_layers, attention_dropout=0.1
+            hidden_size=self.input_dim,
+            num_hidden_layers=n_layers,
+            attention_dropout=0.1,
         )
         BertModel.__init__(self, config)
 
@@ -65,13 +68,16 @@ class NBestAttentionLayer(BertModel):
         attention_matrix = attention_matrix.unsqueeze(0)
 
         # print(f'attention_mask:{attention_matrix.shape}')
-        # print(f'attention_mask:{attention_matrix}')
+        # print(f'attention_matrix:{attention_matrix}')
         # print(f'input_embeds.shape:{inputs_embeds.shape}')
-
+        # print(f'check:{check.shape}')
+        # print(f'attention_matrix:{attention_matrix.shape}')
 
         # We can provide a self-attention mask of dimensions [batch_size, from_seq_length, to_seq_length]
         # ourselves in which case we just need to make it broadcastable to all heads.
-        extended_attention_mask: torch.Tensor = self.get_extended_attention_mask(attention_matrix, input_shape)
+        extended_attention_mask: torch.Tensor = self.get_extended_attention_mask(
+            attention_matrix, input_shape
+        )
 
         # print(f"extended_attention_mask:{extended_attention_mask.shape}")
 
@@ -111,10 +117,15 @@ class NBestAttentionLayer(BertModel):
 
         if not return_dict:
             return (sequence_output, pooled_output) + encoder_outputs[1:]
-        
-        # print(f"attention_weight:{encoder_outputs.attentions[-1].shape}")
 
-        print(f"attention_weight:{encoder_outputs.attentions[-1]}")
+        # print(f"attention_weight:{encoder_outputs.attentions[-1].shape}")
+        attention_weight = encoder_outputs.attentions[-1].sum(dim=1)
+        check = attention_weight != 0
+        # print(f'check:{check.shape}')
+        # print(f'attention_matrix:{attention_matrix.shape}')
+        assert torch.not_equal(check, attention_matrix.bool()).count_nonzero() == 0
+
+        # print(f"attention_weight:{encoder_outputs.attentions[-1]}")
 
         # print(f'pooler_output:{pooled_output}')
 
@@ -131,8 +142,7 @@ class NBestAttentionLayer(BertModel):
 class nBestCrossBert(torch.nn.Module):
     def __init__(
         self,
-        args,
-        train_args,
+        dataset,
         device,
         lstm_dim=1024,
         use_fuseAttention=False,
@@ -150,7 +160,7 @@ class nBestCrossBert(torch.nn.Module):
     ):
         print(f"noCLS:{noCLS}, noSEP:{noSEP}")
         super().__init__()
-        pretrain_name = getBertPretrainName(args['dataset'])
+        pretrain_name = getBertPretrainName(dataset)
 
         self.activation_fn = SoftmaxOverNBest()
 
@@ -161,8 +171,9 @@ class nBestCrossBert(torch.nn.Module):
         self.KL = lossType == "KL"
         self.useRank = useRank
         self.taskType = taskType
-        self.noCLS = train_args["noCLS"]
-        self.noSEP = train_args["noSEP"]
+        self.noCLS = noCLS
+        self.noSEP = noSEP
+        self.resCLS = addRes
 
         print(f"taskType:{self.taskType}")
 
@@ -204,7 +215,7 @@ class nBestCrossBert(torch.nn.Module):
         if fuseType == "lstm":
             self.lstm = torch.nn.LSTM(
                 input_size=768,
-                hidden_size=lstm_dim,
+                hidden_size=1024,
                 num_layers=2,
                 dropout=0.1,
                 batch_first=True,
@@ -212,7 +223,7 @@ class nBestCrossBert(torch.nn.Module):
                 proj_size=768,
             )
 
-            self.concat_dim = 2 * 768 if concatCLS else 2 * 2 * lstm_dim
+            self.concat_dim = 2 * 768 if concatCLS else 2 * 2 * 768
 
         elif fuseType == "attn":
             encoder_layer = TransformerEncoderLayer(
@@ -234,7 +245,7 @@ class nBestCrossBert(torch.nn.Module):
             )  # if concatCLS, we only use the CLS part before and after LSTM / Attention
 
         self.concatLinear = torch.nn.Sequential(
-            torch.nn.Linear(self.concat_dim, 768), torch.nn.ReLU()
+            nn.Dropout(0.1), torch.nn.Linear(self.concat_dim, 768), torch.nn.ReLU()
         )  # concat the pooling output
         self.clsConcatLinear = torch.nn.Sequential(
             torch.nn.Linear(2 * 768, 768), torch.nn.ReLU()
@@ -257,11 +268,11 @@ class nBestCrossBert(torch.nn.Module):
         self,
         input_ids,
         attention_mask,
-        crossAttentionMask,
+        # crossAttentionMask,
         am_score,
         ctc_score,
-        ref_ids,
-        ref_masks,
+        # ref_ids,
+        # ref_masks,
         labels=None,
         nBestIndex=None,
         use_cls_loss=False,
@@ -321,63 +332,62 @@ class nBestCrossBert(torch.nn.Module):
                     fuse_state = token_embeddings
                     attn_mask = attention_mask.clone()
 
-                avg_state = self.avgPool(fuse_state, attn_mask)
-                max_state = self.maxPool(fuse_state, attn_mask)
+                avg_state = self.avgPool(input_ids, fuse_state, attn_mask)
+                max_state = self.maxPool(input_ids, fuse_state, attn_mask)
                 concat_state = torch.cat([avg_state, max_state], dim=-1)
 
-                concat_state = self.dropout(concat_state)
                 concatTrans = self.concatLinear(concat_state).squeeze(1)
 
-                if self.sepTask:
-                    cls_concat = torch.cat([cls, am_score], dim=-1)
-                    cls_concat = torch.cat([cls_concat, ctc_score], dim=-1)
+                # if self.sepTask:
+                #     cls_concat = torch.cat([cls, am_score], dim=-1)
+                #     cls_concat = torch.cat([cls_concat, ctc_score], dim=-1)
 
-                    mask_concat = torch.cat([concatTrans, am_score], dim=-1)
-                    mask_concat = torch.cat([mask_concat, ctc_score], dim=-1)
-                    cls_score = self.finalLinear(cls_concat).squeeze(-1)
-                    mask_score = self.finalExLinear(mask_concat).squeeze(-1)
+                #     mask_concat = torch.cat([concatTrans, am_score], dim=-1)
+                #     mask_concat = torch.cat([mask_concat, ctc_score], dim=-1)
+                #     cls_score = self.finalLinear(cls_concat).squeeze(-1)
+                #     mask_score = self.finalExLinear(mask_concat).squeeze(-1)
 
-                    cls_prob = self.activation_fn(cls_score, nBestIndex)
+                #     cls_prob = self.activation_fn(cls_score, nBestIndex)
 
-                    if self.taskType == "GT":
-                        cls_loss = labels * torch.log(cls_prob)
-                        cls_loss = torch.sum(torch.neg(cls_loss)).float()
+                #     if self.taskType == "GT":
+                #         cls_loss = labels * torch.log(cls_prob)
+                #         cls_loss = torch.sum(torch.neg(cls_loss)).float()
 
-                        ref_cls = self.bert(
-                            input_ids=ref_ids, attention_mask=ref_masks
-                        ).pooler_output
+                #         ref_cls = self.bert(
+                #             input_ids=ref_ids, attention_mask=ref_masks
+                #         ).pooler_output
 
-                        oracle_index = labels == 1
-                        oracle_cls = cls[oracle_index].clone()
+                #         oracle_index = labels == 1
+                #         oracle_cls = cls[oracle_index].clone()
 
-                        mask_loss = self.l2Loss(oracle_cls, ref_cls)
+                #         mask_loss = self.l2Loss(oracle_cls, ref_cls)
 
-                        loss = cls_loss + mask_loss
+                #         loss = cls_loss + mask_loss
 
-                        logits = cls_score
+                #         logits = cls_score
 
-                    elif self.taskType == "WER":
-                        cls_loss = labels * torch.log(cls_prob)
-                        cls_loss = torch.sum(torch.neg(cls_loss))
+                #     elif self.taskType == "WER":
+                #         cls_loss = labels * torch.log(cls_prob)
+                #         cls_loss = torch.sum(torch.neg(cls_loss))
 
-                        mask_loss = self.l2Loss(wers, mask_score)
+                #         mask_loss = self.l2Loss(wers, mask_score)
 
-                        loss = cls_loss + mask_loss
+                #         loss = cls_loss + mask_loss
 
-                        if not self.useRank:
-                            logits = cls_score - mask_score
-                    else:
-                        logits = cls_score
+                #         if not self.useRank:
+                #             logits = cls_score - mask_score
+                #     else:
+                #         logits = cls_score
 
-                    attMap = None
+                # attMap = None
 
-                    return {
-                        "loss": loss,
-                        "score": logits,
-                        "attention_map": attMap,
-                        "cls_loss": cls_loss,
-                        "mask_loss": mask_loss,
-                    }
+                # return {
+                #     "loss": loss,
+                #     "score": logits,
+                #     "attention_map": attMap,
+                #     "cls_loss": cls_loss,
+                #     "mask_loss": mask_loss,
+                # }
 
             elif self.fuseType == "query":
                 mask_index = (input_ids == 103).nonzero(as_tuple=False).transpose(1, 0)
@@ -565,6 +575,7 @@ class nBestCrossBert(torch.nn.Module):
             else:
                 loss = labels * torch.log(finalScore)
                 loss = torch.neg(loss)
+                loss = torch.mean(loss)
 
         return {"loss": loss, "score": logits, "attention_map": attMap}
 
@@ -791,7 +802,7 @@ class pBert(torch.nn.Module):
 
         self.output_attention = output_attention
 
-        self.reduction = train_args['reduction']
+        self.reduction = train_args["reduction"]
 
         self.activation_fn = SoftmaxOverNBest()
         self.weightByWER = train_args["weightByWER"]
@@ -809,6 +820,35 @@ class pBert(torch.nn.Module):
                 self.bert.encoder.layer[-i] = BertLayer(config)
         elif self.layer_op == "extra":
             self.extra_layer = BertLayer(config)
+        elif self.layer_op == "LSTM":
+            self.LSTM = torch.nn.LSTM(
+                input_size=768,
+                hidden_size=1024,
+                batch_first=True,
+                num_layers=2,
+                dropout=0.1,
+                bidirectional=True,
+                proj_size=768,
+            )
+            self.concatLSTM = torch.nn.Sequential(
+                nn.Dropout(p=0.1), nn.Linear(2 * 2 * 768, 768), nn.ReLU()
+            )
+            self.pretrain_classifier = torch.nn.Sequential(
+                nn.Dropout(p=0.1), nn.Linear(2 * 2 * 768, 1), nn.Sigmoid()
+            )
+
+            self.LSTMLMHead = torch.nn.Sequential(
+                nn.Dropout(p=0.1),
+                nn.Linear(2 * 768, self.bert.config.vocab_size),
+                nn.ReLU(),
+            )
+
+            self.maxPool = MaxPooling(
+                noCLS=train_args["noCLS"], noSEP=train_args["noSEP"]
+            )
+            self.avgPool = AvgPooling(
+                noCLS=train_args["noCLS"], noSEP=train_args["noSEP"]
+            )
 
         print(f"output_attention:{self.output_attention}")
         print(f"weightByWER:{self.weightByWER}")
@@ -904,9 +944,9 @@ class pBert(torch.nn.Module):
                     loss = loss + discriminative_loss
 
             else:
-                if (self.reduction == 'sum'):
+                if self.reduction == "sum":
                     loss = torch.sum(loss)
-                elif (self.reduction == 'mean'):
+                elif self.reduction == "mean":
                     loss = torch.mean(loss)
         
         # print(f'final_scores:{final_score}')
@@ -939,7 +979,7 @@ class pBert(torch.nn.Module):
         cls_attention_weight = attention_weight[:, 0, :]
         # print(f'check:{torch.sum(attention_weight, dim = -1)}')
         target[attention_mask == 0] = 0
-        target[input_ids == 102] += 0.2 / (length[:, -1])
+        target[input_ids == 102] = 1
         target[input_ids == 101] = 0
 
         cls_attention_weight[attention_mask == 0] = 1e-9
@@ -991,7 +1031,7 @@ class nBestfuseBert(torch.nn.Module):
         self.fuse_config = BertConfig.from_pretrained(pretrain_name)
         self.fuse_config.num_hidden_layers = 1
 
-        self.fuse_model = NBestAttentionLayer(input_dim = 768, device = device, n_layers = 2)
+        self.fuse_model = NBestAttentionLayer(input_dim=768, device=device, n_layers=2)
         self.finalLinear = torch.nn.Linear(770, 1)
 
         self.activation_fn = SoftmaxOverNBest()
@@ -1017,28 +1057,35 @@ class nBestfuseBert(torch.nn.Module):
         )
         batch_size = input_ids.shape[0] // self.nBest
 
-        cls = output.pooler_output
+        cls = output.pooler_output.unsqueeze(0)
 
         # cls = cls.view(batch_size, self.nBest, -1)
         nBestFuseCLS = self.fuse_model(
-            inputs_embeds=cls, attention_mask=nBestMask
-        ).last_hidden_state
+            inputs_embeds=cls, attention_matrix=nBestMask
+        ).last_hidden_state.squeeze(0)
 
-        am_score = am_score.view(batch_size, -1, 1)
-        ctc_score = ctc_score.view(batch_size, -1, 1)
+        # print(f'nBestFuseCLS:{nBestFuseCLS.shape}')
+
+        # am_score = am_score.view(batch_size, -1, 1)
+        # ctc_score = ctc_score.view(batch_size, -1, 1)
         nBestFuseCLS = torch.cat([nBestFuseCLS, am_score], dim=-1)
         nBestFuseCLS = torch.cat([nBestFuseCLS, ctc_score], dim=-1)
 
-        nBestScore = self.finalLinear(nBestFuseCLS)
-        print(f"nBestScore:{nBestScore.shape}")
-        nBestProb = self.activation_fn(
-            nBestScore, nBestIndex, paddingNbest=True, topk=50
-        )
+        nBestScore = self.finalLinear(nBestFuseCLS).squeeze(-1)
+
+        nBestProb = self.activation_fn(nBestScore.clone(), nBestIndex, topk=50)
+
+        # print(f"nBestProb:{nBestProb}")
 
         if labels is not None:
             loss = labels * torch.log(nBestProb)
             loss = torch.neg(torch.sum(loss))
-            
+
+        # print(f"label:{labels}")
+        # print(f"loss:{loss}")
+
+        # print(f"score:{nBestScore}")
+        # print(f"prob:{nBestProb}")
 
         return {"score": nBestScore, "loss": loss}
 

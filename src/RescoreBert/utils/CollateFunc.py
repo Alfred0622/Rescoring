@@ -309,6 +309,29 @@ def PBertBatch(batch):
     }
 
 
+def pretrainBatch(batch):
+    input_ids = [sample["input_ids"].squeeze(0) for sample in batch]
+    attention_mask = [sample["attention_mask"].squeeze(0) for sample in batch]
+    labels = [torch.as_tensor(sample["labels"]).squeeze(0) for sample in batch]
+    classifier_labels = [sample["classifier_labels"] for sample in batch]
+
+    input_ids = pad_sequence(input_ids, batch_first=True)
+    attention_mask = pad_sequence(attention_mask, batch_first=True)
+    labels = pad_sequence(labels, batch_first=True, padding_value=-100)
+    classifier_labels = torch.tensor(classifier_labels, dtype=torch.float32)
+
+    assert (
+        input_ids.shape == labels.shape
+    ), f"input:{input_ids.shape}, ref:{labels.shape}"
+
+    return {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "labels": labels,
+        "classifier_labels": classifier_labels,
+    }
+
+
 # def MarginBatchwithHardLabel(batch):
 #     names = []
 #     input_ids = []
@@ -365,15 +388,13 @@ def SimplePBertBatchWithHardLabel(batch):
     am_scores = torch.as_tensor([], dtype=torch.float32)
     ctc_scores = torch.as_tensor([], dtype=torch.float32)
     errors = torch.as_tensor([], dtype=torch.float32)
-    labels = torch.as_tensor([], dtype = torch.float32)
-    indexs = torch.as_tensor([], dtype = torch.int32)
+    labels = torch.as_tensor([], dtype=torch.int32)
+    indexs = torch.as_tensor([], dtype=torch.int32)
 
     for sample in batch:
         # print(f"nbest:{sample['nbest']}")
         names += [sample["name"] for _ in range(sample["nbest"])]
-        input_ids += [
-            torch.as_tensor(s, dtype=torch.long) for s in sample["input_ids"]
-        ]
+        input_ids += [torch.as_tensor(s, dtype=torch.long) for s in sample["input_ids"]]
         attention_mask += [
             torch.as_tensor(s, dtype=torch.long) for s in sample["attention_mask"]
         ]
@@ -381,8 +402,8 @@ def SimplePBertBatchWithHardLabel(batch):
         am_scores = torch.cat([am_scores, sample["am_score"]], dim=-1)
         ctc_scores = torch.cat([ctc_scores, sample["ctc_score"]], dim=-1)
 
-        labels = torch.cat([labels, sample['label']], dim = -1)
-        indexs = torch.cat([indexs, sample['index']], dim = -1)
+        labels = torch.cat([labels, sample["label"]], dim=-1)
+        indexs = torch.cat([indexs, sample["index"]], dim=-1)
         nBest.append(sample["nbest"])
 
     input_ids = pad_sequence(input_ids, batch_first=True)
@@ -400,7 +421,7 @@ def SimplePBertBatchWithHardLabel(batch):
         "labels": labels,
         "wers": errors,
         "nBestIndex": nBest,
-        "indexes": indexs
+        "indexes": indexs,
     }
 
 
@@ -411,7 +432,6 @@ def PBertBatchWithHardLabel(batch, use_Margin):
     nBest = []
     indexes = []
     wers_rank = []
-    nBestMask = []
     ref_ids = []
     ref_mask = []
 
@@ -451,8 +471,6 @@ def PBertBatchWithHardLabel(batch, use_Margin):
         wers_rank.append(rank_tensor.long())
         nBest.append(sample["nbest"])
         indexes += [rank for rank in range(sample["nbest"])]
-        if sample["nBestMask"] is not None:
-            nBestMask.append(sample["nBestMask"])
 
         ref_ids += [torch.as_tensor(sample["ref_ids"])]
         ref_mask += [torch.as_tensor(sample["ref_mask"])]
@@ -464,11 +482,13 @@ def PBertBatchWithHardLabel(batch, use_Margin):
     ref_ids = pad_sequence(ref_ids, batch_first=True)
     ref_mask = pad_sequence(ref_mask, batch_first=True)
     nBest = torch.as_tensor(nBest, dtype=torch.int64)
-    if len(nBestMask) == 0:
-        nBestMask = None
-    else:
-        nBestMask = torch.tensor(nBestMask, dtype=torch.long)
-    # print(f"nBest:{nBest}")
+
+    batch_size = input_ids.shape[0]
+    nBestMask = torch.zeros((batch_size, batch_size), dtype=torch.int32)
+    startIndex = 0
+    for N in nBest:
+        nBestMask[startIndex : startIndex + N, startIndex : startIndex + N] = 1
+        startIndex += N
     return {
         "name": names,
         "input_ids": input_ids,
@@ -589,7 +609,6 @@ def RescoreBertBatch(batch):
 
 
 def MDTrainBatch(batch):
-
     input_ids = [
         torch.as_tensor(sample["input_ids"], dtype=torch.int64) for sample in batch
     ]
@@ -865,7 +884,6 @@ def pllScoringBatch(sample):
 
 #  MD distillation
 def rescoreBertBatch(sample):
-
     tokens = []
     texts = []
 
@@ -1007,7 +1025,6 @@ def lmRecogBatch(sample):
 
 
 def myCollate(batch):
-
     names = [sample["name"] for sample in batch]
 
     bert_ids = [torch.as_tensor(sample["bert_input_ids"]) for sample in batch]
