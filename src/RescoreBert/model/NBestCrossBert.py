@@ -862,6 +862,7 @@ class pBert(torch.nn.Module):
         ctc_score=None,
         labels=None,
         wers=None,  # not None if weightByWER = True
+        avg_wers = None,
         *args,
         **kwargs,
     ):
@@ -915,11 +916,10 @@ class pBert(torch.nn.Module):
                     loss = loss * wers
 
                 if self.MWER is not None and self.MWER == "MWED":
-                    softmax_wers = self.activation_fn(wers, nBestIndex)
+                    start_index = 0
                     temperature = torch.zeros(
                         softmax_wers.shape, device=final_score.device
                     )
-                    start_index = 0
                     for N in nBestIndex:
                         temp_score = torch.sum(
                             final_score[start_index : start_index + N]
@@ -928,21 +928,22 @@ class pBert(torch.nn.Module):
                         temperature[start_index : start_index + N] = (
                             temp_score / temp_wer
                         )
-                        # print(f"temperature:{temperature}")
                         smoothed_score = final_score / temperature
-                        # print(f"final_score:{final_score}")
-                        # print(f"smoothed_score:{smoothed_score}")
                         smoothed_score = self.activation_fn(smoothed_score, nBestIndex)
-                        # print(f"smoothed_score after softmax:{smoothed_score}")
                         start_index += N
 
                     discriminative_loss = torch.neg(
                         softmax_wers * torch.log(smoothed_score)
                     )
-                    print(f"loss:{loss}")
                     # print(f"discriminative_loss:{discriminative_loss}")
                     loss = loss + discriminative_loss
-
+    
+                elif (self.MWER == 'MWER'):
+                    sub_wers = wers - avg_wers
+                    softmax_wers = self.activation_fn(wers, nBestIndex)
+                    discriminative_loss = scores * sub_wers
+                    # print(f"discriminative_loss:{discriminative_loss}")
+                    loss = loss + discriminative_loss
             else:
                 if self.reduction == "sum":
                     loss = torch.sum(loss)
@@ -1063,6 +1064,8 @@ class nBestfuseBert(torch.nn.Module):
         nBestFuseCLS = self.fuse_model(
             inputs_embeds=cls, attention_matrix=nBestMask
         ).last_hidden_state.squeeze(0)
+
+        nBestFuseCLS = nBestFuseCLS + cls
 
         # print(f'nBestFuseCLS:{nBestFuseCLS.shape}')
 
