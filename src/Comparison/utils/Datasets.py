@@ -87,17 +87,119 @@ def get_recogDataset(data_json, dataset,tokenizer):
 
     return concatTrainerDataset(data_list)
 
-def get_recogDatasetFromRaw(data_json, dataset, tokenizer):
+def get_recogDatasetFromRaw(data_json, dataset, tokenizer, topk = 50):
     data_list = list()
+
+    pairs = list()
+
+    hyp_list = list()
+    am_score = list()
+    ctc_score = list()
+    lm_score = list()
     
     if (isinstance(data_json, dict)):
         for i, key in enumerate(tqdm(data_json.keys(), ncols = 100)):
             name = data_json[key]['name']
 
-            for hyp in data_json[key]['hyps'][:topk]
-            
-            
-        
+            for index1, (hyp1, am_score1, ctc_score1, lm_score1) in enumerate(
+                zip(
+                    data_json[key]['hyps'][:topk], 
+                    data_json[key]['am_score'][:topk],
+                    data_json[key]['ctc_score'][:topk],
+                    data_json[key]['lm_score'][:topk]
+                )
+            ):
+                data_list = list()
+                pairs = list()
+                hyp_list = list()
+                am_score = list()
+                ctc_score = list()
+                lm_score = list()
+
+                for index2, (hyp2, am_score2, ctc_score2, lm_score2) in enumerate(
+                    zip(
+                        data_json[key]['hyps'][:topk],
+                        data_json[key]['am_score'][:topk],
+                        data_json[key]['ctc_score'][:topk],
+                        data_json[key]['lm_score'][:topk]
+                    )
+                ):
+                    if (index1 == index2): continue
+                    hyp1 = preprocess_string(hyp1, dataset)
+                    hyp2 = preprocess_string(hyp2, dataset)
+                    hyp_list.append([hyp1,hyp2])
+
+                    am_score.append([am_score1, am_score2])
+                    ctc_score.append([ctc_score1, ctc_score2])
+                    lm_score.append([lm_score1, lm_score2])
+
+                    pairs.append([index1, index2])
+
+                output = tokenizer.batch_encode_plus(hyp_list, return_tensors = 'pt')
+                data_list.append(
+                    {   
+                        "name":name,
+                        'input_ids': output['input_ids'],
+                        'token_type_ids': output['token_type_ids'],
+                        "attention_mask": output['attention_mask'],
+                        "pair": pairs,
+                        "am_score": am_score,
+                        "ctc_score": ctc_score,
+                        "lm_score": lm_score
+                    }
+                )
+    elif (isinstance(data_json, list)):
+        for i, data in enumerate(tqdm(data_json, ncols = 100)):
+            name = data['name']
+
+            for index1, (hyp1, am_score1, ctc_score1, lm_score1) in enumerate(
+                zip(
+                    data['hyps'][:topk], 
+                    data['am_score'][:topk],
+                    data['ctc_score'][:topk],
+                    data['lm_score'][:topk]
+                )
+            ):
+                data_list = list()
+                pairs = list()
+                hyp_list = list()
+                am_score = list()
+                ctc_score = list()
+                lm_score = list()
+
+                for index2, (hyp2, am_score2, ctc_score2, lm_score2) in enumerate(
+                    zip(
+                        data['hyps'][:topk],
+                        data['am_score'][:topk],
+                        data['ctc_score'][:topk],
+                        data['lm_score'][:topk]
+                    )
+                ):
+                    if (index1 == index2): continue
+                    hyp1 = preprocess_string(hyp1, dataset)
+                    hyp2 = preprocess_string(hyp2, dataset)
+                    hyp_list.append([hyp1,hyp2])
+
+                    am_score.append([am_score1, am_score2])
+                    ctc_score.append([ctc_score1, ctc_score2])
+                    lm_score.append([lm_score1, lm_score2])
+
+                    pairs.append([index1, index2])
+
+                output = tokenizer.batch_encode_plus(hyp_list, return_tensors = 'pt')
+                data_list.append(
+                    {   
+                        "name":name,
+                        'input_ids': output['input_ids'],
+                        'token_type_ids': output['token_type_ids'],
+                        "attention_mask": output['attention_mask'],
+                        "pair": pairs,
+                        "am_score": am_score,
+                        "ctc_score": ctc_score,
+                        "lm_score": lm_score
+                    }
+                )
+    return concatTrainerDataset(data_list)
 
 def get_BertAlsemrecogDataset(data_json, dataset, tokenizer):
     data_list = list()

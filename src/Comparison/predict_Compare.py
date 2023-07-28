@@ -5,9 +5,9 @@ import json
 import torch
 from tqdm import tqdm
 from torch.utils.data import DataLoader 
-from utils.Datasets import get_recogDataset
+from utils.Datasets import get_recogDataset, get_recogDatasetFromRaw
 from src_utils.LoadConfig import load_config
-from utils.CollateFunc import recogBatch
+from utils.CollateFunc import recogBatch, recogWholeBatch
 from utils.PrepareModel import prepare_model
 from utils.FindWeight import find_weight
 
@@ -71,7 +71,10 @@ for task in recog_set:
 
         index_dict, inverse_dict, am_scores, ctc_scores, lm_scores, rescores, wers = prepare_score_dict(data_json, nbest = args['nbest'])
 
-        dataset = get_recogDataset(data_json, args['dataset'], tokenizer)
+        if (args['nbest'] == 50):
+            dataset = get_recogDatasetFromRaw(data_json, args['dataset'], tokenizer)
+        else:
+            dataset = get_recogDataset(data_json, args['dataset'], tokenizer)
 
         data_json = json.load(hyp_f)
         hyps_dict = prepare_hyps_dict(data_json, nbest = args['nbest'])
@@ -80,7 +83,7 @@ for task in recog_set:
         dataloader = DataLoader(
             dataset = dataset,
             batch_size = recog_args['batch'],
-            collate_fn = recogBatch,
+            collate_fn = recogBatch if (args['nbest'] != 50) else recogWholeBatch,
             num_workers = 4
         )
 

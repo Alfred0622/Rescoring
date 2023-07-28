@@ -146,6 +146,7 @@ def crossNBestBatch(batch, hard_label=False):
     NBestTokenTypeId = []
     min_lens = []
     max_lens = []
+    avg_wers = []
 
     ref_ids = []
     ref_mask = []
@@ -154,6 +155,7 @@ def crossNBestBatch(batch, hard_label=False):
     ctc_scores = torch.as_tensor([], dtype=torch.float32)
     labels = torch.as_tensor([], dtype=torch.float32)
     wers = torch.as_tensor([], dtype=torch.float32)
+
 
     utt_count = 0
     for sample in batch:

@@ -398,13 +398,14 @@ for e in range(start_epoch, train_args["epoch"]):
                     # print(f"{key}:{type(data[key])}")
                     data[key] = data[key].to(device)
 
-            if train_args["MWER"] is not None:
+            if train_args["MWER"] == 'MWER':
                 pass
             elif mode in ["CONTRAST", "MARGIN"] or (
                 "weightByWER" in train_args.keys()
                 and train_args["weightByWER"] == "none"
             ):
                 data["wers"] = None
+
 
             output = model.forward(
                 **data,

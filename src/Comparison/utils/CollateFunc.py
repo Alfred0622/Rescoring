@@ -59,6 +59,30 @@ def recogBatch(batch):
         "pair": pairs,
     }
 
+def recogWholeBatch(batch):
+    name = []
+
+    input_ids = [sample['input_ids'] for sample in batch]
+    token_type_ids = [sample['token_type_ids'] for sample in batch]
+    attention_mask = [sample['attention_mask'] for sample in batch]
+    am_scores = [sample['am_score'] for sample in batch]
+    ctc_scores = [sample['ctc_score'] for sample in batch]
+    lm_scores = [sample['lm_score'] for sample in batch]
+    scores = [sample['score'] for sample in batch]
+
+    input_ids = pad_sequence(input_ids , batch_first = True)
+    token_type_ids = pad_sequence(token_type_ids , batch_first = True, padding_value=1)
+    attention_mask = pad_sequence(attention_mask, batch_first = True)
+
+    return {
+        "input_ids": input_ids,
+        "token_type_ids": token_type_ids,
+        "attention_mask": attention_mask,
+        "am_score": am_scores,
+        "ctc_score": ctc_scores,
+        "lm_score": lm_scores
+    }
+
 def bertAlsemBatch(batch):
     input_ids = []
     token_type_ids = []

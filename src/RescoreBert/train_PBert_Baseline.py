@@ -114,6 +114,7 @@ train_dataset = prepareListwiseDataset(
     dataset=args["dataset"],
     tokenizer=tokenizer,
     sort_by_len=True,
+    topk=int(args['nbest']),
     get_num=get_num,
 )
 print(f"tokenizing Validation")
@@ -122,6 +123,7 @@ valid_dataset = prepareListwiseDataset(
     dataset=args["dataset"],
     tokenizer=tokenizer,
     sort_by_len=True,
+    topk=int(args['nbest']),
     get_num=get_num,
 )
 
@@ -240,6 +242,8 @@ for e in range(start_epoch, train_args["epoch"]):
         am_score = data['am_score'].to(device)
         ctc_score = data['ctc_score'].to(device)
         labels = data['labels'].to(device)
+
+        # print(f"nBestindex:{data['nBestIndex']}")
 
         output = model.forward(
             input_ids = input_ids,
