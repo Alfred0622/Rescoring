@@ -436,6 +436,7 @@ def PBertBatchWithHardLabel(batch, use_Margin):
     wers_rank = []
     ref_ids = []
     ref_mask = []
+    avg_wers = []
 
     am_scores = torch.as_tensor([], dtype=torch.float32)
     ctc_scores = torch.as_tensor([], dtype=torch.float32)
@@ -451,6 +452,8 @@ def PBertBatchWithHardLabel(batch, use_Margin):
         attention_mask += [
             torch.as_tensor(s, dtype=torch.long) for s in sample["attention_mask"]
         ]
+
+        avg_wers += [sample['avg_err'] for _ in range(sample['nbest'])]
 
         am_scores = torch.cat([am_scores, sample["am_score"]], dim=-1)
         ctc_scores = torch.cat([ctc_scores, sample["ctc_score"]], dim=-1)
@@ -484,6 +487,7 @@ def PBertBatchWithHardLabel(batch, use_Margin):
     ref_ids = pad_sequence(ref_ids, batch_first=True)
     ref_mask = pad_sequence(ref_mask, batch_first=True)
     nBest = torch.as_tensor(nBest, dtype=torch.int64)
+    avg_wers = torch.as_tensor(avg_wers, dtype=torch.float32)
 
     batch_size = input_ids.shape[0]
     nBestMask = torch.zeros((batch_size, batch_size), dtype=torch.int32)
@@ -501,6 +505,7 @@ def PBertBatchWithHardLabel(batch, use_Margin):
         "asr_score": asr_scores,
         "labels": wer,
         "wers": errors,
+        "avg_wers": avg_wers,
         "nBestIndex": nBest,
         "indexes": indexes,
         "wer_rank": wers_rank,
