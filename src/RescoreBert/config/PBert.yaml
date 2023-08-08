@@ -1,7 +1,7 @@
 args:
   nbest: 10 # max: 50
-  withLM: True
-  dataset: aishell2
+  withLM: False
+  dataset: aishell
 
 train:
   epoch: 10
@@ -20,5 +20,5 @@ train:
   combineScore: False
 
 recog:
-  batch: 1
+  batch: 256
   find_weight: True 

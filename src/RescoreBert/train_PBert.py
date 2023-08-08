@@ -177,7 +177,7 @@ print(f"\n train_args:{train_args} \n")
 get_num = -1
 save_checkpoint = True
 if "WANDB_MODE" in os.environ.keys() and os.environ["WANDB_MODE"] == "disabled":
-    get_num = 1000
+    get_num = 500
     save_checkpoint = False
 print(f"tokenizing Train")
 train_dataset = prepareListwiseDataset(

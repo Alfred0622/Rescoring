@@ -160,8 +160,9 @@ if "WANDB_MODE" in os.environ.keys():
 print(f"tokenizing Train")
 train_dataset = prepareListwiseDataset(
     data_json=train_json,
-    dataset=args["dataset"],
     tokenizer=tokenizer,
+    dataset=args["dataset"],
+    topk = int(args['nbest']),
     sort_by_len=train_args["sortByLen"],
     get_num=get_num,
     maskEmbedding=train_args["fuseType"] == "query",
@@ -171,6 +172,7 @@ valid_dataset = prepareListwiseDataset(
     data_json=valid_json,
     dataset=args["dataset"],
     tokenizer=tokenizer,
+    topk = int(args['nbest']),
     sort_by_len=train_args["sortByLen"],
     get_num=get_num,
     maskEmbedding=train_args["fuseType"] == "query",
@@ -180,6 +182,7 @@ test_dataset = prepareListwiseDataset(
     data_json=test_json,
     dataset=args["dataset"],
     tokenizer=tokenizer,
+    topk = int(args['nbest']),
     sort_by_len=train_args["sortByLen"],
     get_num=get_num,
     maskEmbedding=train_args["fuseType"] == "query",
@@ -297,7 +300,7 @@ config = {
 wandb.init(
     project=f"myBert_{args['dataset']}_{setting}",
     config=config,
-    name=f"{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_freeze{train_args['freeze_epoch']}_warmup{train_args['warmup_ratio']}_fromPretrain",
+    name=f"{mode}_batch{train_args['batch_size']}_lr{train_args['lr']}_freeze{train_args['freeze_epoch']}_warmup{train_args['warmup_ratio']}",
 )
 
 checkpoint_path = Path(

@@ -26,6 +26,8 @@ from RescoreBert.utils.PrepareScoring import (
     get_result,
     get_result_simp
 )
+import torch
+import time
 
 checkpoint_path = sys.argv[1]
 
@@ -41,8 +43,11 @@ model, tokenizer = prepare_GPT2(args['dataset'], device)
 
 # if (tokenizer.pad_token is None):
 #     tokenizer.pad_token = tokenizer.eos_token
+for_train = True
 
-if (args['dataset'] in ["csj"]):
+if (for_train):
+    recog_set = ["train"]
+elif (args['dataset'] in ["csj"]):
     recog_set = ['dev', 'eval1', 'eval2', 'eval3']
 elif (args['dataset'] in ["aishell2"]):
     recog_set = ['dev_ios', 'test_ios', 'test_android', 'test_mic']
@@ -50,6 +55,7 @@ elif (args['dataset'] in ['librispeech']):
     recog_set = ['valid', 'dev_clean', 'dev_other', 'test_clean', 'test_other']
 else:
     recog_set = ['dev', 'test']
+
 
 
 print('get token id')
@@ -71,10 +77,12 @@ for task in recog_set:
     with open(f"../../data/{args['dataset']}/data/{setting}/{task}/data.json" , 'r') as f:
         data_json = json.load(f)
         print(f'# of {task} : {len(data_json)}')
-
+    
+    data_len = 0
     # if (args['dataset'] in ['aishell']):
     #     index_dict, scores, rescores, wers = prepare_score_dict_simp(data_json, int(args['nbest']))
     # else:
+    total_time = 0.0
     index_dict, inverse_dict , am_scores, ctc_scores, lm_scores, rescores, wers, hyps, refs = prepare_score_dict(data_json, int(args['nbest']))
     print(rescores.shape)
      
@@ -87,23 +95,34 @@ for task in recog_set:
         num_workers=4
     )
 
+    name_set = set()
+
     with torch.no_grad():
         for data in tqdm(dataloader, ncols = 100):
             names = data['name']
             indexs = data['index']
             input_ids = data['input_ids'].to(device)
             attention_mask = data['attention_mask'].to(device)
+
+            data_len += 1
+            
+            torch.cuda.synchronize()
+            t0 = time.time()
             output = model(
                 input_ids = input_ids,
                 attention_mask = attention_mask,
             ).logits
+            torch.cuda.synchronize()
+            t1 = time.time()
 
             output_scores = log_softmax(output, dim = -1) #(B, L, V)
 
             score = get_sentence_score(output_scores, input_ids, bos, eos, pad)
 
+            total_time += (t1-t0)
             for i, (name, index) in enumerate(zip(names, indexs)):
                 rescores[index_dict[name]][index] = score[i].item()
+                name_set.add(name)
 
     # best_am_weight = 0
     # best_ctc_weight = 0
@@ -133,26 +152,44 @@ for task in recog_set:
     # if (args['dataset'] in ['aishell']):
     #     am, ctc, lm, res, cer = get_result_simp(scores, rescores, wers, best_alpha, best_beta)
     # else:
-    cer, result_dict = get_result(
-        inverse_dict,
-        am_scores,
-        ctc_scores,
-        lm_scores,
-        rescores,
-        wers,
-        hyps,
-        refs,
-        best_am_weight,
-        best_ctc_weight,
-        best_lm_weight,
-        best_rescore_weight
-    )
+    if (not for_train):
+        cer, result_dict = get_result(
+            inverse_dict,
+            am_scores,
+            ctc_scores,
+            lm_scores,
+            rescores,
+            wers,
+            hyps,
+            refs,
+            best_am_weight,
+            best_ctc_weight,
+            best_lm_weight,
+            best_rescore_weight
+        )
+        print(f"{args['dataset']} {task} -- {setting} CER : {cer} \n")
+
+    rescore_data = []
+    for name in name_set:
+        rescore_data.append(
+            {
+                "name": name,
+                "hyps": hyps[index_dict[name]],
+                "ref": refs[index_dict[name]],
+                "rescore": rescores[index_dict[name]].tolist()
+            }
+        )    
     
-    save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}")
+    save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}/{args['nbest']}best/CLM")
     save_path.mkdir(exist_ok = True, parents = True)
 
-    with open(f"{save_path}/CLM_rerank_result.json", 'w') as f:
-        json.dump(result_dict, f, ensure_ascii = False, indent = 1)
+    if (not for_train):
+        with open(f"{save_path}/analysis.json", 'w') as f:
+            json.dump(result_dict, f, ensure_ascii = False, indent = 1)
+
+    with open(f"{save_path}/data.json", 'w') as f:
+        json.dump(rescore_data, f, ensure_ascii = False, indent = 1)
 
     # print(f'{am}, {ctc}, {lm}, {res}')
-    print(f"{args['dataset']} {task} -- {setting} CER : {cer} \n")
+
+    print(f"decode time:{total_time / data_len}")

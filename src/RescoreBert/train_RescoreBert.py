@@ -72,7 +72,7 @@ log_path.mkdir(parents=True, exist_ok=True)
 FORMAT = "%(asctime)s :: %(filename)s (%(lineno)d) %(levelname)s : %(message)s"
 logging.basicConfig(
     level=logging.INFO,
-    filename=f"{log_path}/train_batch{train_args['train_batch']}_accum{train_args['accumgrad']}Grads_{train_args['lr']}",
+    filename=f"{log_path}/train_batch{train_args['train_batch']}_accum{train_args['accumgrad']}Grads_{train_args['lr']}_reduction{train_args['reduction']}",
     filemode="w",
     format=FORMAT,
 )
@@ -84,7 +84,7 @@ elif args["dataset"] in ["librispeech"]:
 else:
     dev_set = "dev"
 
-model, tokenizer = prepare_RescoreBert(args["dataset"], device)
+model, tokenizer = prepare_RescoreBert(args["dataset"], device, train_args['reduction'])
 model = model.to(device)
 
 if torch.cuda.device_count() > 1:
@@ -120,17 +120,19 @@ with open(
     valid_json = json.load(dev)
 
 if "WANDB_MODE" in os.environ.keys() and os.environ["WANDB_MODE"] == "disabled":
-    fetch_num = -1
+    fetch_num = 100
 else:
     fetch_num = -1
 
+print(f'topk:{args["nbest"]}')
+
 print(f" Tokenization : train")
 train_dataset = getRescoreDataset(
-    train_json, args["dataset"], tokenizer, topk=args["nbest"], mode=mode
+    train_json, args["dataset"], tokenizer, topk=args["nbest"], mode=mode, fetch_num = fetch_num
 )
 print(f" Tokenization : valid")
 valid_dataset = getRescoreDataset(
-    valid_json, args["dataset"], tokenizer, topk=args["nbest"], mode=mode
+    valid_json, args["dataset"], tokenizer, topk=args["nbest"], mode=mode, fetch_num = fetch_num
 )
 
 
@@ -168,7 +170,7 @@ if use_MWED or use_MWER:
         # batch_size=train_args['train_batch'],
         batch_sampler=train_batch_sampler,
         collate_fn=MWERBatch,
-        num_workers=8,
+        num_workers=16,
         pin_memory=True,
     )
 
@@ -177,7 +179,7 @@ if use_MWED or use_MWER:
         # batch_size = 1,
         batch_sampler=valid_batch_sampler,
         collate_fn=MWERBatch,
-        num_workers=8,
+        num_workers=16,
         pin_memory=True,
     )
 
@@ -192,7 +194,7 @@ else:
         batch_size=train_args["train_batch"],
         # sampler = train_sampler,
         collate_fn=MDTrainBatch,
-        num_workers=8,
+        num_workers=16,
         pin_memory=True,
     )
 
@@ -201,7 +203,7 @@ else:
         batch_size=train_args["train_batch"],
         # sampler = valid_sampler,
         collate_fn=MDTrainBatch,
-        num_workers=8,
+        num_workers=16,
         pin_memory=True,
     )
 
@@ -220,13 +222,13 @@ cal_batch = int(train_args["train_batch"]) * train_args["accumgrad"]
 wandb.init(
     project=f"Rescore_{args['dataset']}_{setting}",
     config=wandb_config,
-    name=f"RescoreBert_{mode}_batch{train_args['train_batch']}_accum{train_args['accumgrad']}grads_lr{train_args['lr']}",
+    name=f"{args['nbest']}Best_RescoreBert_{mode}_batch{train_args['train_batch']}_accum{train_args['accumgrad']}grads_lr{train_args['lr']}_reduction{train_args['reduction']}",
 )
 
 optimizer.zero_grad(set_to_none=True)
 
 checkpoint_path = Path(
-    f"./checkpoint/{args['dataset']}/RescoreBert/{setting}/{mode}/{args['nbest']}best/batch{train_args['train_batch']}_accum{train_args['accumgrad']}grads_lr{train_args['lr']}"
+    f"./checkpoint/{args['dataset']}/RescoreBert/{setting}/{mode}/{args['nbest']}best/batch{train_args['train_batch']}_accum{train_args['accumgrad']}grads_lr{train_args['lr']}_reduction{train_args['reduction']}"
 )
 checkpoint_path.mkdir(parents=True, exist_ok=True)
 
@@ -241,7 +243,7 @@ for e in range(start_epoch, train_args["epoch"]):
     print(f"score_weight:{score_weight}")
     logging_loss = torch.tensor([0.0], device=device)
     for i, data in enumerate(tqdm(train_loader, ncols=100)):
-
+        # print(f"name:{data['name']}")
         data["input_ids"] = data["input_ids"].to(device)
         data["attention_mask"] = data["attention_mask"].to(device)
         data["labels"] = data["labels"].to(device)
@@ -318,6 +320,8 @@ for e in range(start_epoch, train_args["epoch"]):
             index = 0
             T = scoreSum / werSum  # Temperature T
 
+            # print(f"T:{T}")
+
             combined_score = combined_score / T
             assert (
                 scoreSum.shape == combined_score.shape
@@ -325,6 +329,9 @@ for e in range(start_epoch, train_args["epoch"]):
             assert (
                 werSum.shape == combined_score.shape
             ), f"werSum:{werSum.shape} != combined_score:{combined_score}"
+        
+            # print(f"combined_score:{combined_score}")
+            # print(f"wer:{wer}")
 
             for nbest in data["nbest"]:
                 combined_score[index : index + nbest] = torch.softmax(
@@ -335,6 +342,9 @@ for e in range(start_epoch, train_args["epoch"]):
                 )
 
                 index = index + nbest
+            
+            # print(f"combined_score after softmax:{combined_score}")
+            # print(f"wer after softmax:{wer}")
 
             loss_MWED = wer * torch.log(combined_score)
             loss_MWED = loss_MWED.sum()
@@ -399,13 +409,18 @@ for e in range(start_epoch, train_args["epoch"]):
             loss = output["loss"]
 
             if mode in ["MWER", "MWED"]:
-                for n, (name, score) in enumerate(zip(data["name"], output["score"])):
-                    rescores[index_dict[name]][n] = score.item()
-                    valid_rescore[valid_name_index[name]][n] = score.item()
+                for n, (name, index,score) in enumerate(zip(data["name"],data['index'], output["score"])):
+                    # print(F'index:{index}')
+                    # print(f"rescores:{rescores[index_dict[name]][index]}")
+                    rescores[index_dict[name]][index] = score.item()
+                    valid_rescore[valid_name_index[name]][index] = score.item()
+                    # print(f"rescores after:{rescores[index_dict[name]]}")
 
             else:
-                for n, (name, score) in enumerate(zip(data["name"], output["score"])):
-                    rescores[index_dict[name]][n] = score.item()
+                # print(f"name:{len(data['name'])}")
+                # print(f"score:{len(output['score'])}")
+                for n, (name, index, score) in enumerate(zip(data["name"], data['index'], output["score"])):
+                    rescores[index_dict[name]][index] = score.item()
 
             if mode == "MWER":
                 data["wer"] = data["wer"].to(device)

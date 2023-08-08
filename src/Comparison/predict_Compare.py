@@ -21,6 +21,7 @@ from utils.PrepareScoring import (
     prepare_hyps_dict,
 )
 from pathlib import Path
+import time
 
 # load_config
 config_path = "./config/comparison.yaml"
@@ -46,7 +47,6 @@ checkpoint = torch.load(checkpoint_path)
 model.bert.load_state_dict(checkpoint['state_dict'])
 model.linear.load_state_dict(checkpoint['fc_checkpoint'])
 
-
 best_am = 0.0
 best_ctc = 0.0
 best_lm = 0.0
@@ -68,6 +68,8 @@ for task in recog_set:
     hyps_file_name = f"../../data/{args['dataset']}/data/{setting}/{task}/data.json"
     with open(file_name) as f, open(hyps_file_name) as hyp_f:
         data_json = json.load(f)
+        data_num = 0
+        total_time = 0.0
 
         index_dict, inverse_dict, am_scores, ctc_scores, lm_scores, rescores, wers = prepare_score_dict(data_json, nbest = args['nbest'])
 
@@ -77,9 +79,12 @@ for task in recog_set:
             dataset = get_recogDataset(data_json, args['dataset'], tokenizer)
 
         data_json = json.load(hyp_f)
+        for data in  data_json:
+            hyps = data['hyps'][:int(args['nbest'])]
+            data_num += len(hyps)
+
         hyps_dict = prepare_hyps_dict(data_json, nbest = args['nbest'])
 
-        
         dataloader = DataLoader(
             dataset = dataset,
             batch_size = recog_args['batch'],
@@ -92,16 +97,41 @@ for task in recog_set:
             token_type_ids = data['token_type_ids'].to(device)
             attention_mask = data['attention_mask'].to(device)
 
+            torch.cuda.synchronize()
+            t0 = time.time()
             output = model.recognize(
                 input_ids = input_ids,
                 token_type_ids = token_type_ids,
                 attention_mask = attention_mask
             ).squeeze(-1)
+            # print(f'output:{type(output)}')
+            torch.cuda.synchronize()
+            t1 = time.time()
+            total_time += (t1-t0)
     
             for i, (name, pair) in enumerate(zip(data['name'], data['pair'])):
                 first, second = pair
-                rescores[index_dict[name]][first] += output[i].item()
-                rescores[index_dict[name]][second] += (1 - output[i].item())
+                if (len(output.shape) == 0):
+                    rescores[index_dict[name]][first] += output.item()
+                    rescores[index_dict[name]][second] += (1 - output.item())
+                else:
+                    rescores[index_dict[name]][first] += output[i].item()
+                    rescores[index_dict[name]][second] += (1 - output[i].item())
+
+        rescore_data = []
+        for name in index_dict.keys():
+            rescore_data.append(
+                {
+                    "name": name,
+                    "hyps": hyps_dict[name]['hyps'],
+                    "ref": hyps_dict[name]['ref'],
+                    "rescore": rescores[index_dict[name]].tolist()
+                }
+            )
+        save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}/{args['nbest']}best/Bert_sem")
+        save_path.mkdir(exist_ok = True, parents = True)
+        with open(f"{save_path}/data.json", 'w') as f:
+            json.dump(rescore_data, f, ensure_ascii=False, indent = 1)
 
         if (task in ['dev', 'dev_ios', 'valid']): # find Best Weight
             print(f'find_best_weight')
@@ -133,12 +163,13 @@ for task in recog_set:
             lm_weight = best_lm,
             rescore_weight = best_rescore 
         )
-        save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}")
+        save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}/{args['nbest']}best/Compare")
         save_path.mkdir(exist_ok = True, parents = True)
 
-        with open(f"{save_path}/{args['nbest']}_Compare_rerank_result.json", 'w') as f:
+        with open(f"{save_path}/analysis.json", 'w') as f:
             json.dump(result_dict, f, ensure_ascii = False, indent = 1) 
         
         print(f"Dataset:{args['dataset']} {setting} {task} -- CER = {cer}")
+        print(f'avg decode time:{total_time / data_num}')
         # print(f'result_dict:{result_dict}')
             

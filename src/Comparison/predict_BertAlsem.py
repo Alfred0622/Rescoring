@@ -45,6 +45,10 @@ best_rescore = 0.0
 
 model.eval()
 
+for_train = False
+if (for_train):
+    recog_set = ['train']
+
 for task in recog_set:
     print(f'task:{task}')
     file_name = f"./data/{args['dataset']}/{task}/{setting}/{args['nBest']}best/data.json"
@@ -59,7 +63,7 @@ for task in recog_set:
         dataset = get_BertAlsemrecogDataset(data_json, args['dataset'] ,tokenizer)
 
         data_json = json.load(hyp_f)
-
+        name_set = set()
         hyps_dict = prepare_hyps_dict(data_json, nbest = args['nBest'])
 
         dataloader = DataLoader(
@@ -96,6 +100,24 @@ for task in recog_set:
 
                 rescores[index_dict[name]][first] += output[i].item()
                 rescores[index_dict[name]][second] += (1 - output[i].item())
+
+                name_set.add(name)
+        
+        rescore_data = []
+        for name in name_set:
+            rescore_data.append(
+                {
+                    'name': name,
+                    'rescore': rescores[index_dict[name]].tolist()
+                }
+            )
+
+        save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}/{args['nBest']}best/BertAlsem")
+        save_path.mkdir(exist_ok = True, parents = True)
+
+        with open(f"{save_path}/data.json", 'w') as f:
+            json.dump(result_dict, f, ensure_ascii = False, indent = 1)
+
         
         if (task in ['dev', 'dev_ios','valid']): # find Best Weight
             print(f'find_best_weight')
@@ -112,25 +134,25 @@ for task in recog_set:
                 rescore_range= [0, 1],
                 search_step = 0.1
             )
-        
-        cer, result_dict = get_result(
-            am_scores = am_scores,
-            ctc_scores = ctc_scores,
-            lm_scores = lm_scores,
-            rescores = rescores,
-            wers = wers,
-            name_dict = inverse_dict,
-            hyp_dict = hyps_dict,
-            am_weight = best_am,
-            ctc_weight = best_ctc,
-            lm_weight = best_lm,
-            rescore_weight = best_rescore 
-        )
+        if (not for_train):
+            cer, result_dict = get_result(
+                am_scores = am_scores,
+                ctc_scores = ctc_scores,
+                lm_scores = lm_scores,
+                rescores = rescores,
+                wers = wers,
+                name_dict = inverse_dict,
+                hyp_dict = hyps_dict,
+                am_weight = best_am,
+                ctc_weight = best_ctc,
+                lm_weight = best_lm,
+                rescore_weight = best_rescore 
+            )
 
-        save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}")
-        save_path.mkdir(exist_ok = True, parents = True)
+            save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}/{args['nBest']}best/BertAlsem")
+            save_path.mkdir(exist_ok = True, parents = True)
 
-        with open(f"{save_path}/{args['nBest']}_Alsem_rerank_result.json", 'w') as f:
-            json.dump(result_dict, f, ensure_ascii = False, indent = 1) 
+            with open(f"{save_path}/analysis.json", 'w') as f:
+                json.dump(result_dict, f, ensure_ascii = False, indent = 1)
         
         print(f"Dataset:{args['dataset']} {setting} {task} -- CER = {cer}")

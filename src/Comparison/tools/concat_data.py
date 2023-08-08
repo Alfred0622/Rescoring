@@ -8,9 +8,9 @@ import torch
 from transformers import BertTokenizer
 
 random.seed(42)
-nbest = 20
+nbest = 10
 
-name = 'librispeech'
+name = 'aishell'
 setting = ['noLM', 'withLM']
 
 if (name in ['tedlium2', 'librispeech']):
@@ -20,7 +20,7 @@ elif (name in ['aishell', 'aishell2']):
 elif (name in ['csj']):
     pass
 
-concat_train = False
+concat_train = True
 concat_test = True
 
 # train & valid
@@ -43,7 +43,7 @@ if (concat_train):
 
             if (task in ['dev', 'dev_trim', 'dev_ios', 'dev_clean', 'dev_other']):
                 save_file = 'valid'
-                concat_nbest = 5
+                concat_nbest = 10
             else: 
                 save_file = task
                 concat_nbest = nbest
