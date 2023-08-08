@@ -146,10 +146,11 @@ def crossNBestBatch(batch, hard_label=False):
     NBestTokenTypeId = []
     min_lens = []
     max_lens = []
-    avg_wers = []
 
     ref_ids = []
     ref_mask = []
+
+    avg_wers = []
 
     am_scores = torch.as_tensor([], dtype=torch.float32)
     ctc_scores = torch.as_tensor([], dtype=torch.float32)
@@ -167,6 +168,8 @@ def crossNBestBatch(batch, hard_label=False):
         attention_mask += [
             torch.as_tensor(s, dtype=torch.int64) for s in sample["attention_mask"]
         ]
+
+        avg_wers += sample['avg_err']
 
         am_scores = torch.cat([am_scores, sample["am_score"]], dim=-1)
         ctc_scores = torch.cat([ctc_scores, sample["ctc_score"]], dim=-1)
@@ -232,6 +235,7 @@ def crossNBestBatch(batch, hard_label=False):
         "ctc_score": ctc_scores,
         "labels": labels,
         "wers": wers,
+        "avg_wers": torch.as_tensor(avg_wers),
         "nBestIndex": nBest,
         "indexes": indexes,
         "NBestTokenTypeId": NBestTokenTypeId,
@@ -438,6 +442,8 @@ def PBertBatchWithHardLabel(batch, use_Margin):
     ref_mask = []
     avg_wers = []
 
+    avg_wers = []
+
     am_scores = torch.as_tensor([], dtype=torch.float32)
     ctc_scores = torch.as_tensor([], dtype=torch.float32)
     scores = torch.as_tensor([], dtype = torch.float32)
@@ -487,7 +493,7 @@ def PBertBatchWithHardLabel(batch, use_Margin):
     ref_ids = pad_sequence(ref_ids, batch_first=True)
     ref_mask = pad_sequence(ref_mask, batch_first=True)
     nBest = torch.as_tensor(nBest, dtype=torch.int64)
-    avg_wers = torch.as_tensor(avg_wers, dtype=torch.float32)
+    avg_wers = torch.as_tensor(avg_wers , dtype = torch.float32)
 
     batch_size = input_ids.shape[0]
     nBestMask = torch.zeros((batch_size, batch_size), dtype=torch.int32)
@@ -616,6 +622,8 @@ def RescoreBertBatch(batch):
 
 
 def MDTrainBatch(batch):
+    names = [sample['name'] for sample in batch]
+    indexs = [sample['index'] for sample in batch]
     input_ids = [
         torch.as_tensor(sample["input_ids"], dtype=torch.int64) for sample in batch
     ]
@@ -643,6 +651,8 @@ def MDTrainBatch(batch):
     # print(f"labels: {labels.shape}")
 
     return {
+        'name': names,
+        "index": indexs,
         "input_ids": input_ids,
         "attention_mask": attention_masks,
         "labels": labels,
@@ -660,6 +670,7 @@ def MWERBatch(batch):
     wers = []
     avg_errors = []
     nbest = []
+    indexs = []
 
     for sample in batch:
         # print(sample)
@@ -671,6 +682,7 @@ def MWERBatch(batch):
         errs += sample["errs"]
         avg_errors += sample["avg_err"]
         wers += sample["wer"]
+        indexs += sample['index']
 
         labels += sample["rescore"]
 
@@ -690,6 +702,7 @@ def MWERBatch(batch):
         "attention_mask": attention_masks,
         "score": scores,
         "labels": labels,
+        "index": indexs,
         "err": errs,
         "wer": wers,
         "avg_error": avg_errors,

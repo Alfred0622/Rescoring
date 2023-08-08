@@ -58,6 +58,9 @@ if train_args["hard_label"]:
 else:
     run_name = run_name + train_args["loss_type"]
 
+if (len(sys.argv) >= 3):
+    run_name += f"_fromMLMTraining"
+
 if "weightByWER" in train_args.keys() and train_args["weightByWER"] != "none":
     run_name = run_name + f"_weightByWER{train_args['weightByWER']}"
     log_path = log_path + "/weightByWER"
@@ -224,6 +227,7 @@ last_val_cer = 1e6
 logging_loss = torch.tensor([0.0])
 logging_CE_loss = torch.tensor([0.0])
 logging_contrastive_loss = torch.tensor([0.0])
+print(f'run_name:{run_name}')
 
 for e in range(start_epoch, train_args["epoch"]):
     train_epoch_loss = torch.tensor([0.0])

@@ -25,6 +25,7 @@ from  pathlib import Path
 args, train_args, recog_args = load_config(f'./config/RescoreBert.yaml')
 
 from tqdm import tqdm
+import time
 
 checkpoint_path = sys.argv[1]
 mode = sys.argv[2]
@@ -32,7 +33,6 @@ mode = sys.argv[2]
 setting = 'withLM' if (args['withLM']) else 'noLM'
 
 print(f"{args['dataset']} : {setting}")
-
 dev = "dev"
 
 # @njit()
@@ -85,41 +85,68 @@ best_ctc = 0.0
 best_lm = 0.0
 best_rescore = 0.0
 
+for_train = True
+if (for_train):
+    recog_set = ['train']
+
 for task in recog_set:
     # get score_dict
+    total_time = 0.0
     recog_path = f"./data/{args['dataset']}/{setting}/50best/MLM/{task}/rescore_data.json"
 
     with open(recog_path) as f:
         recog_json = json.load(f)
 
+    data_len = 0
+
     # if (args['dataset'] in ['aishell']):
     #     print(f'simp')
     #     index_dict, scores, rescores, wers = prepare_score_dict_simp(recog_json, nbest = args['nbest'])
-    
     # else:
     print(f'complex')
     index_dict, inverse_dict,am_scores, ctc_scores, lm_scores, rescores, wers, hyps, refs = prepare_score_dict(recog_json, nbest = args['nbest'])
     
-    recog_dataset = getRecogDataset(recog_json, args['dataset'], tokenizer)
+    recog_dataset = getRecogDataset(recog_json, args['dataset'], tokenizer, topk = 10)
 
     recog_loader = DataLoader(
         recog_dataset,
         batch_size = recog_args['recog_batch'],
         collate_fn=RescoreBertRecogBatch,
     )
-
+    name_set = set()
     for data in tqdm(recog_loader, ncols = 100):
+        data_len += 1
         input_ids = data['input_ids'].to(device)
         attention_mask = data['attention_mask'].to(device)
-
+        torch.cuda.synchronize()
+        t0 = time.time()
         output = model(
             input_ids = input_ids,
             attention_mask = attention_mask
             )['score']
+        torch.cuda.synchronize()
+        t1 = time.time()
 
         for n, (name, index, score) in enumerate(zip(data['name'], data['index'], output)):
             rescores[index_dict[name]][index] += score.item()
+            name_set.add(name)
+        
+        total_time += (t1-t0)
     
+    rescore_data = []
+    for name in name_set:
+        rescore_data.append(
+            {
+                'name': name,
+                'rescore': rescores[index_dict[name]].tolist()
+            }
+        )
+    save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}/{args['nbest']}best/RescoreBert_{mode}")
+    save_path.mkdir(exist_ok=True, parents=True)
+
+    with open(f'{save_path}/data.json', 'w') as f:
+        json.dump(rescore_data, f, ensure_ascii=False, indent=1) 
+
     if task in ['dev', 'dev_ios', 'dev_clean', 'valid']:
         print(f'find weight')
 
@@ -161,31 +188,35 @@ for task in recog_set:
     #     )
 
     # else:
-    cer, result_dict = get_result(
-        inverse_dict,
-        am_scores,
-        ctc_scores,
-        lm_scores,
-        rescores,
-        wers,
-        hyps,
-        refs,
-        am_weight = best_am,
-        ctc_weight = best_ctc,
-        lm_weight = best_lm,
-        rescore_weight = best_rescore
-    )
-    
-    print(f"Dataset:{args['dataset']}")
-    print(f'setting:{setting}')
-    print(f'task:{task}')
-    # print(f"length_norm:{recog_args['length_norm']}")
-    print(f'CER : {cer}')
+    if (not for_train):
+        cer, result_dict = get_result(
+            inverse_dict,
+            am_scores,
+            ctc_scores,
+            lm_scores,
+            rescores,
+            wers,
+            hyps,
+            refs,
+            am_weight = best_am,
+            ctc_weight = best_ctc,
+            lm_weight = best_lm,
+            rescore_weight = best_rescore
+        )
+        
+        print(f"Dataset:{args['dataset']}")
+        print(f'setting:{setting}')
+        print(f'task:{task}')
+        # print(f"length_norm:{recog_args['length_norm']}")
+        print(f'CER : {cer}')
+        save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}/{args['nbest']}best/RescoreBert_{mode}")
+        save_path.mkdir(exist_ok=True, parents=True)
 
-    save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}")
-    save_path.mkdir(exist_ok=True, parents=True)
+        with open(f'{save_path}/analysis.json', 'w') as f:
+            json.dump(result_dict, f, ensure_ascii=False, indent=1) 
 
-    with open(f'{save_path}/RescoreBert_{mode}_result.json', 'w') as f:
-        json.dump(result_dict, f, ensure_ascii=False, indent=1) 
+    print(f'average time:{total_time / data_len}')
+
+
 
 

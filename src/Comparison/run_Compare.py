@@ -155,6 +155,7 @@ optimizer.zero_grad(set_to_none=True)
 step = 0
 log_flag = True
 logging_loss = 0.0
+forward_count = 0
 for e in range(start_epoch, train_args["epoch"]):
     model.train()
     train_loss = 0.0
@@ -186,7 +187,9 @@ for e in range(start_epoch, train_args["epoch"]):
         logging_loss += loss.item()
         train_loss += loss.item()
 
-        if ((n + 1) % train_args["accumgrad"] == 0):
+        forward_count += 1
+
+        if ((forward_count) % train_args["accumgrad"] == 0):
             optimizer.step()
             # lrs.append(model.optimizer.param_groups[0]["lr"])
             scheduler.step()
@@ -199,7 +202,7 @@ for e in range(start_epoch, train_args["epoch"]):
             logging.warning(f"Training epoch :{e + 1} step:{step}, loss:{logging_loss}")
             wandb.log(
                 {"loss": logging_loss},
-                step = step + e * steps_per_epoch
+                step = step # + e * steps_per_epoch
             )  
             log_flag = False
             logging_loss = 0.0
@@ -224,18 +227,17 @@ for e in range(start_epoch, train_args["epoch"]):
         for val_n, data in enumerate(tqdm(valid_loader, ncols = 80)):
             data = {k: v.to(device) for k,v in data.items()}
             loss = model(**data).loss
-
-
             valid_loss += loss.sum().item()
 
     logging.warning(f'epoch:{e + 1} validation loss:{valid_loss}')
+    print(f'epoch:{e + 1} validation loss:{valid_loss}')
+    print(f"wandb log: epoch:{e + 1}, step: {steps_per_epoch * (e + 1)}")
     wandb.log(
         {
             "train_epoch_loss": train_loss,
             "valid_loss":valid_loss,
             "epoch": e + 1
-        },
-        step = steps_per_epoch * (e + 1)
+        }, step = steps_per_epoch * (e + 1)
     )
     
     if (valid_loss < min_loss):

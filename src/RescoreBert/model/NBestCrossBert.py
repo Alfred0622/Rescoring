@@ -151,6 +151,8 @@ class nBestCrossBert(torch.nn.Module):
         fuseType="None",
         lossType="KL",
         concatCLS=False,
+        wers = None,
+        avg_wers = None,
         dropout=0.1,
         sepTask=False,
         taskType="WER",
@@ -579,6 +581,40 @@ class nBestCrossBert(torch.nn.Module):
 
         return {"loss": loss, "score": logits, "attention_map": attMap}
 
+    def recognize(
+            self, 
+            input_ids,
+            attention_mask,
+            # crossAttentionMask,
+            am_score,
+            ctc_score,
+            *args,
+            **kwargs
+        ):
+        output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        cls = output.pooler_output  # (B, 768)
+        token_embeddings = output.last_hidden_state
+        fuse_state, (h, c) = self.lstm(token_embeddings)  # (B, L, 768)
+        attn_mask = attention_mask.clone()
+
+        avg_state = self.avgPool(input_ids, fuse_state, attn_mask)
+        max_state = self.maxPool(input_ids, fuse_state, attn_mask)
+        concat_state = torch.cat([avg_state, max_state], dim=-1)
+
+        concatTrans = self.concatLinear(concat_state).squeeze(1)
+
+        cls = torch.concat([cls, concatTrans], dim = -1)
+        cls = self.clsConcatLinear(cls)
+        cls = torch.concat([cls, am_score], dim = -1)
+        cls = torch.concat([cls, ctc_score], dim = -1)
+
+        logits = self.finalLinear(cls).squeeze(-1)
+
+        return {
+            "score": logits
+        }
+
+
     def parameters(self):
         parameter = (
             list(self.bert.parameters())
@@ -761,6 +797,29 @@ class pBertSimp(torch.nn.Module):
             "score": final_score,
             "attention_weight": bert_output.attentions,
         }
+    def recognize(
+        self,
+        input_ids,
+        attention_mask,
+        am_score=None,
+        ctc_score=None,
+        *args,
+        **kwargs):
+        
+        output = self.bert(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_attentions=self.output_attention,
+        ).pooler_output
+
+        clsConcatoutput = torch.cat([output, am_score], dim=-1)
+        clsConcatoutput = torch.cat([clsConcatoutput, ctc_score], dim=-1)
+        scores = self.linear(clsConcatoutput).squeeze(-1)
+
+        return {
+            "score": scores
+        }
+
 
     def parameters(self):
         parameters = list(self.bert.parameters()) + list(self.linear.parameters())

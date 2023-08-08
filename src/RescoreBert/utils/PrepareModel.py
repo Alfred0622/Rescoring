@@ -30,12 +30,12 @@ support_dataset = ["aishell", "aishell2", "tedlium2", "librispeech", "csj"]
 
 
 class RescoreBert(torch.nn.Module):
-    def __init__(self, pretrain_name, device):
+    def __init__(self, pretrain_name, device, reduction):
         super().__init__()
         self.bert = BertModel.from_pretrained(pretrain_name).to(device)
         self.linear = torch.nn.Linear(768, 1)
 
-        self.l2_loss = torch.nn.MSELoss()
+        self.l2_loss = torch.nn.MSELoss(reduction = reduction)
         self.nll_loss = torch.nn.NLLLoss()
 
     def forward(
@@ -107,15 +107,15 @@ def prepare_MLM(dataset, device):
     return model, tokenizer
 
 
-def prepare_RescoreBert(dataset, device):
+def prepare_RescoreBert(dataset, device, reduction = 'mean'):
     if dataset in ["aishell", "aishell2"]:
-        model = RescoreBert("bert-base-chinese", device)
+        model = RescoreBert("bert-base-chinese", device, reduction = reduction)
         tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
     elif dataset in ["tedlium2", "librispeech"]:
-        model = RescoreBert("bert-base-uncased", device)
+        model = RescoreBert("bert-base-uncased", device, reduction = reduction)
         tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
     elif dataset in ["csj"]:
-        model = RescoreBert("cl-tohoku/bert-base-japanese", device)
+        model = RescoreBert("cl-tohoku/bert-base-japanese", device, reduction = reduction)
         tokenizer = BertJapaneseTokenizer.from_pretrained(
             "cl-tohoku/bert-base-japanese"
         )

@@ -1,12 +1,12 @@
 args:
-  nbest: 50 # max: 50
-  withLM: False
+  nbest: 10 # max: 50
+  withLM: True
   dataset: aishell
   seed: 42
 
 train:
   epoch: 10
-  AttLayer: 1
+  AttLayer: 
   batch_size: 256
   valid_batch: 1
   accumgrad: 1
@@ -26,5 +26,5 @@ train:
   warmup_ratio: 0.1
 
 recog:
-  batch: 1
+  batch: 128
   find_weight: True

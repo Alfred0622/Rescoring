@@ -115,7 +115,7 @@ def prepare_score_dict(data_json, nbest):
 
             wer_rescores.append([0.0 for _ in range(legal_length)])
 
-            utt_wer = [[value for value in wer.values()] for wer in data["err"]]
+            utt_wer = [[value for value in wer.values()] for wer in data["err"][:nbest]]
             wers.append(np.array(utt_wer))
 
             hyps.append(data["hyps"][:nbest])
@@ -328,6 +328,7 @@ def get_result(
         hyp_wers = [num[0] for num in wers[utt]]
 
         min_index = np.argmin(hyp_wers)
+        # print(f'hyp_wers:{hyp_wers}')
         index_before_min = None
         hyp_before_min = None
         score_before_min = None

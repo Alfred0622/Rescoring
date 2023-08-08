@@ -22,5 +22,5 @@ train:
   noSEP: False
 
 recog:
-  batch: 1
+  batch: 256
   find_weight: True 

@@ -24,6 +24,8 @@ from pathlib import Path
 from tqdm import tqdm
 import random
 
+import time
+
 random.seed(42)
 torch.manual_seed(42)
 torch.cuda.manual_seed(42)
@@ -78,6 +80,11 @@ if checkpoint_path != "no":
 
 recog_set = get_recog_set(args["dataset"])
 dev_set = recog_set[0]
+recog_batch = int(recog_args["batch"])
+
+for_train = True
+if (for_train):
+    recog_set = ['train']
 
 best_am = 0.0
 best_ctc = 0.0
@@ -85,6 +92,8 @@ best_lm = 0.0
 best_rescore = 0.0
 
 for task in recog_set:
+    total_time = 0.0
+    data_num = 0
     recog_path = f"../../data/{args['dataset']}/data/{setting}/{task}/data.json"
     with open(recog_path) as f:
         recog_json = json.load(f)
@@ -105,27 +114,33 @@ for task in recog_set:
             recog_json,
             args["dataset"],
             tokenizer,
+            topk = args["nbest"],
             sort_by_len=True,
             maskEmbedding=train_args["fuseType"] == "query",
             concatMask=train_args["concatMaskAfter"]
             if "concatMaskAfter" in train_args.keys()
             else False,
+            get_num = -1
         )
         recog_sampler = NBestSampler(recog_dataset)
-        recog_batch_sampler = BatchSampler(recog_sampler, recog_args["batch"])
+        recog_batch_sampler = BatchSampler(recog_sampler, recog_batch)
         recog_loader = DataLoader(
             dataset=recog_dataset,
             batch_sampler=recog_batch_sampler,
             collate_fn=crossNBestBatch,
             num_workers=16,
         )
+        name_set = set()
         with torch.no_grad():
             for data in tqdm(recog_loader, ncols=100):
                 for key in data.keys():
                     if key not in ["name", "indexes"]:
                         data[key] = data[key].to(device)
+                data_num += 1
+                torch.cuda.synchronize()
+                t0 = time.time()
 
-                output = model(
+                output = model.recognize(
                     input_ids=data["input_ids"],
                     attention_mask=data["attention_mask"],
                     batch_attention_matrix=data["crossAttentionMask"],
@@ -134,11 +149,28 @@ for task in recog_set:
                     labels=None,
                     N_best_index=None,
                 )["score"]
-
+                torch.cuda.synchronize()
+                t1 = time.time()
+                total_time += (t1 - t0)
                 for n, (name, index, score) in enumerate(
                     zip(data["name"], data["indexes"], output)
                 ):
                     rescores[index_dict[name]][index] += score.item()
+                name_set.add(name)
+        
+        save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}/{args['nbest']}best/PBert_LSTM")
+        save_path.mkdir(exist_ok=True, parents=True)
+
+        rescore_data = []
+        for name in name_set:
+            rescore_data.append(
+                {
+                    "name": name,
+                    "rescore": rescores[index_dict[name]].tolist()
+                }
+            )
+        with open(f"{save_path}/data.json", 'w') as f:
+            json.dump(rescore_data, f, ensure_ascii=False, indent=1)
 
         if task == dev_set:
             best_am, best_ctc, best_lm, best_rescore, min_cer = calculate_cer(
@@ -158,28 +190,32 @@ for task in recog_set:
                 f"am_weight:{best_am}\n ctc_weight:{best_ctc}\n lm_weight:{best_lm}\n rescore_weight:{best_rescore}\n CER:{min_cer}"
             )
 
-        cer, result_dict = get_result(
-            inverse_dict,
-            am_scores,
-            ctc_scores,
-            lm_scores,
-            rescores,
-            wers,
-            hyps,
-            refs,
-            am_weight=best_am,
-            ctc_weight=best_ctc,
-            lm_weight=best_lm,
-            rescore_weight=best_rescore,
-        )
+        if (not for_train):
+            cer, result_dict = get_result(
+                inverse_dict,
+                am_scores,
+                ctc_scores,
+                lm_scores,
+                rescores,
+                wers,
+                hyps,
+                refs,
+                am_weight=best_am,
+                ctc_weight=best_ctc,
+                lm_weight=best_lm,
+                rescore_weight=best_rescore,
+            )
 
-        print(f"Dataset:{args['dataset']}")
-        print(f"setting:{setting}")
-        print(f"task:{task}")
-        print(f"CER : {cer}")
+            print(f"Dataset:{args['dataset']}")
+            print(f"setting:{setting}")
+            print(f"task:{task}")
+            print(f"CER : {cer}")
+            save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}/{args['nbest']}best/PBert_LSTM")
+            save_path.mkdir(exist_ok=True, parents=True)            
+            with open(f"{save_path}/analysis.json", "w") as f:
+                json.dump(result_dict, f, ensure_ascii=False, indent=1)
 
-        save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}")
-        save_path.mkdir(exist_ok=True, parents=True)
+        print(f'avg_time:{total_time / data_num}')
 
-        with open(f"{save_path}/NBestCrossBert_{mode}_result.json", "w") as f:
-            json.dump(result_dict, f, ensure_ascii=False, indent=1)
+
+

@@ -27,6 +27,7 @@ from utils.DataPara import BalancedDataParallel
 import gc
 
 from jiwer import wer
+import time
 
 checkpoint_path = sys.argv[1]
 mode = sys.argv[2] # best or last
@@ -95,6 +96,7 @@ best_rescore_weight = 0.0
 
 for task in recog_set:
     print(task)
+    total_time = 0.0
     json_file = f"../../data/{args['dataset']}/data/{setting}/{task}/data.json"
 
     with open(json_file) as f:
@@ -108,23 +110,27 @@ for task in recog_set:
         dataset,
         batch_size=batch_size,
         collate_fn=recogMLMBatch,
-        num_workers=4,
+        num_workers=16,
         pin_memory=True,
     )
 
     index_dict = dict()
     inverse_dict = dict()
+
     # if (args['dataset'] in ['aishell']):
     #     index_dict, scores, rescores, wers = prepare_score_dict_simp(data_json, nbest = args['nbest'])
     # else:
-    if (not for_train):
-        index_dict,inverse_dict, am_scores, ctc_scores, lm_scores, rescores, wers, hyps, refs = prepare_score_dict(
-            data_json, nbest = args['nbest']
-        )
-    else:
-        for i, data in tqdm(enumerate(data_json)):
-            index_dict[data['name']] = i
-            inverse_dict[i] = data['name']
+    # if (not for_train):
+    index_dict,inverse_dict, am_scores, ctc_scores, lm_scores, rescores, wers, hyps, refs = prepare_score_dict(
+        data_json, nbest = args['nbest']
+    )
+    # else:
+    #     for i, data in tqdm(enumerate(data_json)):
+    #         index_dict[data['name']] = i
+    #         inverse_dict[i] = data['name']
+        
+    data_len = 0
+    name_set = set()
     
     # set score dictionary
     # score_dict = dict()
@@ -134,7 +140,8 @@ for task in recog_set:
             topk = len(data['hyps'])
         else:
             topk = args['nbest']
-        
+
+        data_len += topk
         data_json[index_dict[data['name']]]['rescore'] = [0.0 for _ in range(topk)]
 
     with torch.no_grad():
@@ -143,11 +150,16 @@ for task in recog_set:
             input_ids = data['input_ids'].to(device)
             attention_mask = data['attention_mask'].to(device)
 
+            torch.cuda.synchronize()
+            t0 = time.time()
             score = model(
                 input_ids = input_ids,
                 attention_mask = attention_mask,
                 return_dict = True
             ).logits
+            torch.cuda.synchronize()
+            t1 = time.time()
+            total_time += (t1-t0)
 
             score = log_softmax(score, dim = -1)
 
@@ -158,17 +170,28 @@ for task in recog_set:
             ):
                 if (seq_index == -1): # empty string
                     data_json[index_dict[name]]["rescore"][nbest_index] = np.Ninf
-                    if (task != 'train'  and "train" not in task):
-                        rescores[index_dict[name]][nbest_index] = np.Ninf
+                    # if (task != 'train'  and "train" not in task):
+                    rescores[index_dict[name]][nbest_index] = np.Ninf
                     
                 else:
                     data_json[index_dict[name]]["rescore"][nbest_index] += score[i][seq_index][masked_token].item() / (length if recog_args['length_norm'] else 1)
-                    if (task != 'train' and "train" not in task):
-                        rescores[index_dict[name]][nbest_index] += score[i][seq_index][masked_token].item() / (length if recog_args['length_norm'] else 1)
+                    # if (task != 'train' and "train" not in task):
+                    rescores[index_dict[name]][nbest_index] += score[i][seq_index][masked_token].item() / (length if recog_args['length_norm'] else 1)
+                
+                name_set.add(name)
 
-    
-    rescoreBertTrainPath = Path(f"./data/{args['dataset']}/{setting}/50best/MLM/{task}")
-    resultSavePath = Path(f"../../data/result/{args['dataset']}/{setting}/{task}")
+    rescore_data = []
+    for name in name_set:
+        rescore_data.append(
+            {
+                "name": name,
+                # "hyps": hyps[index_dict[name]],
+                # "ref": refs[index_dict[name]],
+                "rescore": rescores[index_dict[name]].tolist()
+            }
+        )
+    rescoreBertTrainPath = Path(f"./data/{args['dataset']}/{setting}/{args['nbest']}best/MLM/{task}")
+    resultSavePath = Path(f"../../data/result/{args['dataset']}/{setting}/{task}/{args['nbest']}best/MLM")
 
     # if (for_train):
     #     save_path = Path(f"./data/{args['dataset']}/{setting}/50best/MLM/{task}")
@@ -178,9 +201,12 @@ for task in recog_set:
         
     resultSavePath.mkdir(parents = True, exist_ok = True)
     rescoreBertTrainPath.mkdir(parents = True, exist_ok = True)
-    
+    print(f'writing file:')
     with open(f"{rescoreBertTrainPath}/rescore_data.json", 'w') as f:
         json.dump(data_json, f, ensure_ascii = False, indent = 1)
+    print(f'writing file:')
+    with open(f"{resultSavePath}/data.json", 'w') as f:
+        json.dump(rescore_data, f, ensure_ascii = False, indent = 1)
 
     if (not for_train):
         if (task in ['dev', 'dev_trim', 'dev_ios', 'valid']):
@@ -238,8 +264,9 @@ for task in recog_set:
         print(f'setting:{setting}')
         print(f"length_norm:{recog_args['length_norm']}")
         print(f'CER : {cer}')
+        print(f"averge time:{total_time / data_len}")
 
-        with open(f"{resultSavePath}/{mode}_MLM_rerank_result.json", 'w') as f:
+        with open(f"{resultSavePath}/{mode}_analysis.json", 'w') as f:
             json.dump(result_dict, f, ensure_ascii=False, indent=1)
 
 

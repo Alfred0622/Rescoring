@@ -1,14 +1,15 @@
 args:
-  nbest: 50 # max: 50
+  nbest: 10 # max: 50
   withLM: False
-  dataset: aishell2
+  dataset: tedlium2
 train:
   epoch: 10
   train_batch: 128
   accumgrad: 2
   print_loss: 5000
   lr: 1e-6
+  reduction: mean
 
 recog:
-  recog_batch: 64
+  recog_batch: 256
   find_weight: True 
