@@ -19,3 +19,15 @@ class ensembleDataset(Dataset):
         
         for name in data_dict.keys():
             pass
+
+def prepare_emsemble_dataset(data_json, data_dict):
+    for data in data_json:
+        if (not data['name'] in data_dict.keys()):
+            data_dict[data['name']] = []
+        
+        for key in data.keys():
+            if (key in ['name']):
+                continue
+            data_dict[data['name']].append(data['rescores'])
+        
+    return data_dict

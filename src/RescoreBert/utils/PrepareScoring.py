@@ -81,6 +81,13 @@ def prepare_score_dict(data_json, nbest):
             index_dict[data["name"]] = i
             inverse_index[i] = data["name"]
 
+            # print(f"{type(data)}")
+            # if (data is None):
+            #     print(f"{data['name']}")
+            # print(f"{type(data['am_score'])}")
+            # if (data['am_score'] is None):
+            #     print(f"{data['name']}")
+
             am_scores.append(data["am_score"][:nbest])
 
             legal_length = (
@@ -116,9 +123,10 @@ def prepare_score_dict(data_json, nbest):
             wer_rescores.append([0.0 for _ in range(legal_length)])
 
             utt_wer = [[value for value in wer.values()] for wer in data["err"][:nbest]]
+
             wers.append(np.array(utt_wer))
 
-            hyps.append(data["hyps"][:nbest])
+            hyps.append(data["hyps"][:nbest]) 
 
             refs.append(data["ref"])
 
@@ -177,7 +185,7 @@ def prepare_score_dict(data_json, nbest):
             )
 
             utt_wer = [
-                [value for value in wer.values()] for wer in data_json[key]["err"]
+                [value for value in wer.values()] for wer in data_json[key]["err"][:nbest]
             ]
 
             wers.append(np.array(utt_wer))
@@ -327,8 +335,9 @@ def get_result(
 
         hyp_wers = [num[0] for num in wers[utt]]
 
+
         min_index = np.argmin(hyp_wers)
-        # print(f'hyp_wers:{hyp_wers}')
+
         index_before_min = None
         hyp_before_min = None
         score_before_min = None

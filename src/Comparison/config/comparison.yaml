@@ -2,15 +2,15 @@ args:
   stage: 0
   stop_stage: 0
   nbest: 10 # max: 50
-  withLM: False
+  withLM: True
   model_name: sem
   dataset: aishell
 
 train:
   epoch: 3
-  train_batch: 64
-  valid_batch: 64
-  accumgrad: 4
+  train_batch: 32
+  valid_batch: 32
+  accumgrad: 8
   print_loss: 5000
   lr: 1e-6
 

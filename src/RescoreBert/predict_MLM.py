@@ -70,7 +70,7 @@ for_train = args["for_train"]
 
 if (for_train):
     if (args['dataset'] in ['librispeech', 'aishell2', 'csj']):
-        recog_set = [f"train_5"]
+        recog_set = [f"train"]
     else:
         recog_set = ['train']
 
@@ -140,9 +140,15 @@ for task in recog_set:
             topk = len(data['hyps'])
         else:
             topk = args['nbest']
+        for key in data.keys():
+            if (key in ['ref', 'name'] or data[key] is None):
+                continue
+            data[key] = data[key][:topk]
 
         data_len += topk
         data_json[index_dict[data['name']]]['rescore'] = [0.0 for _ in range(topk)]
+    
+    print(f"data_len:{data_len}")
 
     with torch.no_grad():
         for data in tqdm(dataloader, ncols = 100):
@@ -263,7 +269,7 @@ for task in recog_set:
         print(f"Dataset:{args['dataset']}")
         print(f'setting:{setting}')
         print(f"length_norm:{recog_args['length_norm']}")
-        print(f'CER : {cer}')
+        print(f'{task} CER : {cer}')
         print(f"averge time:{total_time / data_len}")
 
         with open(f"{resultSavePath}/{mode}_analysis.json", 'w') as f:

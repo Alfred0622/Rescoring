@@ -112,9 +112,9 @@ if not os.path.exists(f"./log/RescoreBert/{args['dataset']}/{mode}/{setting}"):
 """
 
 with open(
-    f"./data/{args['dataset']}/{setting}/50best/MLM/train/rescore_data.json"
+    f"./data/{args['dataset']}/{setting}/{int(args['nbest'])}best/MLM/train/rescore_data.json"
 ) as f, open(
-    f"./data/{args['dataset']}/{setting}/50best/MLM/{dev_set}/rescore_data.json"
+    f"./data/{args['dataset']}/{setting}/{int(args['nbest'])}best/MLM/{dev_set}/rescore_data.json"
 ) as dev:
     train_json = json.load(f)
     valid_json = json.load(dev)
@@ -237,11 +237,12 @@ wandb.watch(model, log_freq=int(train_args["print_loss"]))
 step = 0
 min_val_loss = 1e8
 min_val_cer = 1e6
+logging_loss = torch.tensor([0.0], device=device)
 for e in range(start_epoch, train_args["epoch"]):
     model.train()
 
     print(f"score_weight:{score_weight}")
-    logging_loss = torch.tensor([0.0], device=device)
+
     for i, data in enumerate(tqdm(train_loader, ncols=100)):
         # print(f"name:{data['name']}")
         data["input_ids"] = data["input_ids"].to(device)
@@ -333,6 +334,9 @@ for e in range(start_epoch, train_args["epoch"]):
             # print(f"combined_score:{combined_score}")
             # print(f"wer:{wer}")
 
+            combined_score_before = combined_score.clone()
+            wer_before = wer.clone()
+
             for nbest in data["nbest"]:
                 combined_score[index : index + nbest] = torch.softmax(
                     combined_score[index : index + nbest].clone(), dim=-1
@@ -352,7 +356,7 @@ for e in range(start_epoch, train_args["epoch"]):
 
             assert not (
                 torch.isnan(loss) or torch.isnan(loss_MWED)
-            ), f"name:{data['name']}, \nloss:{loss}, \nloss_MWED:{loss_MWED}, \nT:{T}, score:{combined_score}, wer:{wer}"
+            ), f"name:{data['name']}, \nloss:{loss}, \nloss_MWED:{loss_MWED}, \nT:{T}, score:{combined_score}, wer:{wer}\n combined_score before softmax:{combined_score_before}\n wers before softmax:{wer_before}"
 
             loss = loss_MWED + 1e-4 * loss
 

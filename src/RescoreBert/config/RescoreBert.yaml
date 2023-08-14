@@ -11,5 +11,7 @@ train:
   reduction: mean
 
 recog:
-  recog_batch: 256
+  recog_batch: 1
+  for_train: False
+  test_speed: True
   find_weight: True 

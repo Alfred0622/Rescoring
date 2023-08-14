@@ -85,14 +85,14 @@ best_ctc = 0.0
 best_lm = 0.0
 best_rescore = 0.0
 
-for_train = True
+for_train = recog_args['for_train']
 if (for_train):
-    recog_set = ['train']
+    recog_set += ['train']
 
 for task in recog_set:
     # get score_dict
     total_time = 0.0
-    recog_path = f"./data/{args['dataset']}/{setting}/50best/MLM/{task}/rescore_data.json"
+    recog_path = f"./data/{args['dataset']}/{setting}/{args['nbest']}best/MLM/{task}/rescore_data.json"
 
     with open(recog_path) as f:
         recog_json = json.load(f)
@@ -106,11 +106,14 @@ for task in recog_set:
     print(f'complex')
     index_dict, inverse_dict,am_scores, ctc_scores, lm_scores, rescores, wers, hyps, refs = prepare_score_dict(recog_json, nbest = args['nbest'])
     
-    recog_dataset = getRecogDataset(recog_json, args['dataset'], tokenizer, topk = 10)
+    recog_dataset = getRecogDataset(recog_json, args['dataset'], tokenizer, topk = args['nbest'])
+    recog_batch = 1 if (recog_args['test_speed'] and task == 'train') else recog_args['recog_batch']
+
+    print(f'recog_batch size:{recog_batch}')
 
     recog_loader = DataLoader(
         recog_dataset,
-        batch_size = recog_args['recog_batch'],
+        batch_size = recog_batch,
         collate_fn=RescoreBertRecogBatch,
     )
     name_set = set()
@@ -132,6 +135,8 @@ for task in recog_set:
             name_set.add(name)
         
         total_time += (t1-t0)
+    
+    print(f'data_len:{data_len}')
     
     rescore_data = []
     for name in name_set:
@@ -188,7 +193,8 @@ for task in recog_set:
     #     )
 
     # else:
-    if (not for_train):
+    if (task != 'train'):
+        # print(f'wers:{len(wers[0])}')
         cer, result_dict = get_result(
             inverse_dict,
             am_scores,

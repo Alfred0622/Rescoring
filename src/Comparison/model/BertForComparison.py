@@ -179,7 +179,7 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
             hidden_size = hidden_size,
             num_layers = 1,
             batch_first = True,
-            # dropout = 0.3,
+            dropout = 0.3,
             bidirectional = True,
             proj_size = output_size
         ).to(device) # output: 64 * 2(bidirectional)
@@ -255,16 +255,35 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
         input_ids,
         token_type_ids, 
         attention_mask,
-        am_scores,
-        ctc_scores,
-        lm_scores
+        am_score,
+        ctc_score,
+        lm_score
     ):
-        return self.forward(
+        last_hidden_states = self.bert(
             input_ids = input_ids,
             token_type_ids = token_type_ids,
             attention_mask = attention_mask,
-            am_score = am_scores,
-            ctc_score = ctc_scores,
-            lm_score = lm_scores
-        ).logits
+            return_dict = True
+        ).last_hidden_state # [B, L, 768]
+
+        LSTM_state, (h, c) = self.rnn(last_hidden_states) # (B, L, 128)
+
+        avg_state = self.avg_pool(input_ids, LSTM_state, attention_mask)
+        max_state = self.max_pool(input_ids, LSTM_state, attention_mask)
+
+        concat_state = torch.cat([avg_state, avg_state], dim = -1) # (B, 128 + 128)
+        concat_state = concat_state.squeeze(1)
+        concat_state = self.dropout(concat_state)
+        # print(f'concat_state:{concat_state.shape}')
+        concat_state = self.fc1(concat_state) # (B, 256) -> (B, 128)
+        concat_state = self.dropout(concat_state)
+
+        am_score = (1 - self.ctc_weight) * am_score + self.ctc_weight * ctc_score
+
+        concat_state = torch.cat([concat_state, am_score], dim = -1) #(B, 128) -> (B, 130)
+        concat_state = torch.cat([concat_state, lm_score], dim = -1) #(B, 130) -> (B, 132)
+
+        logits = self.fc2(concat_state).squeeze(-1) #(B, 132) -> (B, 1) ->"squeeze" (B)
+
+        return logits
 

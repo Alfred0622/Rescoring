@@ -10,7 +10,7 @@ from transformers import BertTokenizer
 random.seed(42)
 nbest = 10
 
-name = 'aishell'
+name = 'librispeech'
 setting = ['noLM', 'withLM']
 
 if (name in ['tedlium2', 'librispeech']):
@@ -20,7 +20,7 @@ elif (name in ['aishell', 'aishell2']):
 elif (name in ['csj']):
     pass
 
-concat_train = True
+concat_train = False
 concat_test = True
 
 # train & valid
@@ -183,26 +183,32 @@ if (concat_train):
                     )
 
 if (concat_test):
-    if (name in ['tedlium2']):
-        recog_set = ['dev', 'dev_trim', 'test']
-    elif (name in ["aishell2"]):
-        recog_set = ['dev_ios', 'test_ios', 'test_mic', 'test_android']
-    elif (name in ['librispeech']):
-        recog_set = ['dev_clean', 'dev_other', 'test_clean', 'test_other']
-    elif (name in ['csj']):
-        recog_set = ['dev', 'eval1', 'eval2', 'eval3']
-    else:
-        recog_set = ['dev', 'test']
+    recog_set = ['train']
+    # if (name in ['tedlium2']):
+    #     recog_set = ['dev', 'dev_trim', 'test']
+    # elif (name in ["aishell2"]):
+    #     recog_set = ['dev_ios', 'test_ios', 'test_mic', 'test_android']
+    # elif (name in ['librispeech']):
+    #     recog_set = ['dev_clean', 'dev_other', 'test_clean', 'test_other']
+    # elif (name in ['csj']):
+    #     recog_set = ['dev', 'eval1', 'eval2', 'eval3']
+    # else:
+    #     recog_set = ['dev', 'test']
     # recog_set = ['dev', 'test']
     # dev & test
     for s in setting:
         for task in recog_set:
+            print(f'concat data for recog')
             print(f"file: ../../../data/{name}/data/{s}/{task}/data.json")
             with open(
                 f"../../../data/{name}/data/{s}/{task}/data.json"
             ) as f:
                 load_data = json.load(f)
                 save_list = list()
+                if (task == 'train'):
+                    save_task = 'train_recog'
+                else:
+                    save_task = task
                 for n, data in enumerate(load_data):
                     temp_dict = dict()
                     temp_dict['name'] = data['name']
@@ -262,7 +268,7 @@ if (concat_test):
                     save_list.append(temp_dict)
             print(f'total_data_num : {len(save_list)}')
 
-            save_path = Path(f"../data/{name}/{task}/{s}/{nbest}best")
+            save_path = Path(f"../data/{name}/{save_task}/{s}/{nbest}best")
             save_path.mkdir(parents = True, exist_ok = True)
         
             with open(

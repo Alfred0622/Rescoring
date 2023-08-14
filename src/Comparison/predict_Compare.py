@@ -84,6 +84,7 @@ for task in recog_set:
             data_num += len(hyps)
 
         hyps_dict = prepare_hyps_dict(data_json, nbest = args['nbest'])
+        print(f'data_num:{data_num}')
 
         dataloader = DataLoader(
             dataset = dataset,

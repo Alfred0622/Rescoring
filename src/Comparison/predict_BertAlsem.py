@@ -12,6 +12,7 @@ from utils.CollateFunc import recogBatch, recogAlsemBatch
 from utils.PrepareModel import prepare_model
 from utils.FindWeight import find_weight, find_weight_complex
 from utils.PrepareScoring import calculate_cer, prepare_score_dict, prepare_hyps_dict, get_result
+import time
 
 config_path = "./config/Bert_alsem.yaml"
 args, train_args, recog_args = load_config(config_path)
@@ -58,11 +59,17 @@ for task in recog_set:
     with open(file_name ,'r') as f, open(hyp_file, 'r') as hyp_f:
         print(f"File name:{file_name}")
         data_json = json.load(f)
+        total_time = 0.0
+        data_num = 0
 
         index_dict, inverse_dict, am_scores, ctc_scores, lm_scores, rescores, wers = prepare_score_dict(data_json, nbest = args['nBest'])
         dataset = get_BertAlsemrecogDataset(data_json, args['dataset'] ,tokenizer)
 
         data_json = json.load(hyp_f)
+        for data in  data_json:
+            hyps = data['hyps'][:int(args['nbest'])]
+            data_num += len(hyps)
+        print(f'data_num: {data_num}')
         name_set = set()
         hyps_dict = prepare_hyps_dict(data_json, nbest = args['nBest'])
 
@@ -84,15 +91,20 @@ for task in recog_set:
             lm_score = data['lm_score'].to(device)
 
             with torch.no_grad():
+                torch.cuda.synchronize()
+                t0 = time.time()
                 output = model.recognize(
                     input_ids = input_ids,
                     token_type_ids = token_type_ids,
                     attention_mask = attention_mask,
-                    am_scores = am_score,
-                    ctc_scores = ctc_score,
-                    lm_scores = lm_score
+                    am_score = am_score,
+                    ctc_score = ctc_score,
+                    lm_score = lm_score
                 )
+                torch.cuda.synchronize()
+                t1 = time.time()
 
+                total_time += (t1 - t0)
             for i, (name, pair) in enumerate(zip(data['name'], data['pair'])):
                 # print(f'pair:{pair}')
                 first, second = pair
@@ -116,9 +128,8 @@ for task in recog_set:
         save_path.mkdir(exist_ok = True, parents = True)
 
         with open(f"{save_path}/data.json", 'w') as f:
-            json.dump(result_dict, f, ensure_ascii = False, indent = 1)
+            json.dump(rescore_data, f, ensure_ascii = False, indent = 1)
 
-        
         if (task in ['dev', 'dev_ios','valid']): # find Best Weight
             print(f'find_best_weight')
 
@@ -156,3 +167,4 @@ for task in recog_set:
                 json.dump(result_dict, f, ensure_ascii = False, indent = 1)
         
         print(f"Dataset:{args['dataset']} {setting} {task} -- CER = {cer}")
+        print(f"average time:{total_time / data_num}")
