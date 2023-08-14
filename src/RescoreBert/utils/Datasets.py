@@ -794,7 +794,7 @@ def prepareListwiseDataset(
 
             ref = data_json[key]["ref"]
             ref_process = tokenizer(preprocess_string(ref, dataset))
-            # print(f"wer:{nbest}")
+            print(f'avg_err:{avg_errs}')
             data_list.append(
                 {
                     "name": key,

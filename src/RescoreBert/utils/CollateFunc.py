@@ -440,6 +440,7 @@ def PBertBatchWithHardLabel(batch, use_Margin):
     wers_rank = []
     ref_ids = []
     ref_mask = []
+    avg_wers = []
 
     avg_wers = []
 

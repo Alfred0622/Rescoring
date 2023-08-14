@@ -998,6 +998,8 @@ class pBert(torch.nn.Module):
                     loss = loss + discriminative_loss
     
                 elif (self.MWER == 'MWER'):
+                    print(f'wers:{wers.shape}')
+                    print(f'avg_wers:{avg_wers.shape}')
                     sub_wers = wers - avg_wers
                     softmax_wers = self.activation_fn(wers, nBestIndex)
                     discriminative_loss = scores * sub_wers
@@ -1125,8 +1127,8 @@ class nBestfuseBert(torch.nn.Module):
         ).last_hidden_state.squeeze(0)
 
         nBestFuseCLS = nBestFuseCLS + cls
-
-        # print(f'nBestFuseCLS:{nBestFuseCLS.shape}')
+        
+        nBestFuseCLS = nBestFuseCLS.squeeze(0)
 
         # am_score = am_score.view(batch_size, -1, 1)
         # ctc_score = ctc_score.view(batch_size, -1, 1)
@@ -1141,7 +1143,7 @@ class nBestfuseBert(torch.nn.Module):
 
         if labels is not None:
             loss = labels * torch.log(nBestProb)
-            loss = torch.neg(torch.sum(loss))
+            loss = torch.neg(torch.mean(loss))
 
         # print(f"label:{labels}")
         # print(f"loss:{loss}")
