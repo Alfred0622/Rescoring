@@ -50,7 +50,10 @@ def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_t
     data_type: str. can be "single" or "concat"
     """
     assert(isinstance(topk, int))
-
+    if (sep_token == '[PAD]'):
+        sep_token = tokenizer.pad_token
+    elif (sep_token == '[SEP]'):
+        sep_token = tokenizer.sep_token if (tokenizer.sep_token is not None) else tokenizer.eos_token
     print(f'sep_token:{sep_token}')
 
     if (topk < 1):
@@ -151,6 +154,14 @@ def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_t
             
             bos_token_id = tokenizer.bos_token_id if tokenizer.bos_token_id is not None else tokenizer.cls_token_id
             eos_token_id = tokenizer.sep_token_id if tokenizer.sep_token_id is not None else tokenizer.eos_token_id
+
+            if (sep_token == '[PAD]'):
+                sep_token = tokenizer.pad_token
+            elif (sep_token == '[SEP]'):
+                sep_token = tokenizer.sep_token if tokenizer.sep_token is not None else tokenizer.eos_token
+            elif (sep_token == '[UNK]'):
+                sep_token = tokenizer.unk_token
+            
             for i, data in enumerate(tqdm(data_json, ncols = 80)):
                 input_ids = []
                 hyps_text = []

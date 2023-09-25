@@ -23,6 +23,7 @@ from models.nBestAligner.nBestAlign import align, alignNbest
 import sys
 sys.path.append("../")
 from src_utils.getPretrainName import getBartPretrainName
+import time
 
 class nBestAlignBart(nn.Module):
     def __init__(
@@ -44,7 +45,7 @@ class nBestAlignBart(nn.Module):
         self.extra_embedding = train_args['extra_embedding']
         if (train_args['extra_embedding']):
             assert (tokenizer is not None), f"tokenizer need to be given"
-            self.pad = tokenizer.convert_tokens_to_ids("[PAD]")
+            self.pad = tokenizer.pad_token_id
             self.embedding = nn.Embedding(
                 num_embeddings = self.model.config.vocab_size, 
                 embedding_dim = self.embeddding_dim, 
@@ -96,32 +97,48 @@ class nBestAlignBart(nn.Module):
 
     def recognize(self, input_ids, attention_mask,num_beams = 5 ,max_lens = 150):
         batch_size = input_ids.shape[0]
-        
-        if (self.extra_embedding):
-            aligned_embedding = self.embedding(input_ids)
-
-            aligned_embedding = aligned_embedding.flatten(start_dim=2)
-        
-        else:
-            aligned_embedding = self.model.model.shared(input_ids)  # (L, N, 768)
-            aligned_embedding = torch.flatten(aligned_embedding, start_dim = 2)# (L, 768 * N)
-
-        proj_embedding = self.alignLinear(
-            aligned_embedding
-        )  # (L, 768 * N) -> (L, 768)
-
-        # print(f'proj_embedding:{proj_embedding.shape}')
-
         decoder_ids = torch.tensor(
             [self.model.config.decoder_start_token_id for _ in range(batch_size)], 
             dtype = torch.int64
         ).unsqueeze(-1).to(input_ids.device)
+        elapsed_time = 0.0
+        
+        if (self.extra_embedding):
+            torch.cuda.synchronize()
+            t0 = time.time()
+            aligned_embedding = self.embedding(input_ids)
+            aligned_embedding = aligned_embedding.flatten(start_dim=2)
+            torch.cuda.synchronize()
+            t1 = time.time()
+        
+        else:
+            torch.cuda.synchronize()
+            t0 = time.time()
+            aligned_embedding = self.model.model.shared(input_ids)  # (L, N, 768)
+            aligned_embedding = torch.flatten(aligned_embedding, start_dim = 2)# (L, 768 * N)
+            torch.cuda.synchronize()
+            t1 = time.time()
+
+        elapsed_time += (t1 - t0)
+        torch.cuda.synchronize()
+        t0 = time.time()
+        proj_embedding = self.alignLinear(
+            aligned_embedding
+        )  # (L, 768 * N) -> (L, 768)
+        torch.cuda.synchronize()
+        t1 = time.time()
+        elapsed_time += (t1 - t0)
+
+        # print(f'proj_embedding:{proj_embedding.shape}')
+
+
 
         # decoder_ids = torch.tensor( 
         #     [[] for _ in range(batch_size)], 
         #     dtype = torch.int64
         # ).to(input_ids.device)
-
+        torch.cuda.synchronize()
+        t0 = time.time()
         output = self.model.generate(
             inputs_embeds=proj_embedding,
             attention_mask=attention_mask,
@@ -130,8 +147,11 @@ class nBestAlignBart(nn.Module):
             max_length=max_lens,
             # early_stopping = True
         )
+        torch.cuda.synchronize()
+        t1 = time.time()
+        elapsed_time += (t1 - t0)
 
-        return output
+        return output, elapsed_time
 
     def parameters(self):
         return list(self.model.parameters()) + list(self.alignLinear.parameters())
@@ -156,7 +176,7 @@ class nBestAlignBart(nn.Module):
         self.model.load_state_dict(checkpoint['model'])
         self.alignLinear.load_state_dict(checkpoint['alignLinear'])
         if (self.extra_embedding):
-            self.embedding.load_state_dict(checkpoint['embedding'])
+            self.embedding.load_state_dict(checkpoint['embedding'].state_dict())
 
 
 class nBestTransformer(nn.Module):

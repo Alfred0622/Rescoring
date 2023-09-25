@@ -48,6 +48,8 @@ elif args["dataset"] in ["tedlium2"]:
     recog_set = ["dev", "test"]
 elif args["dataset"] in ["csj"]:
     recog_set = ["dev", "eval1", "eval2", "eval3"]
+elif args["dataset"] in ["librispeech"]:
+    recog_set = ["dev_clean", "dev_other", "test_clean", "test_other"]
 
 model.eval()
 for task in recog_set:
@@ -76,17 +78,20 @@ for task in recog_set:
     )
 
     result_dict = list()
+    total_time = 0.0
     with torch.no_grad():
         for data in tqdm(dataloader, ncols=80):
             token = data["input_ids"].to(device)
             mask = data["attention_mask"].to(device)
 
-            output = model.recognize(
+            output, elapsed_time = model.recognize(
                 input_ids = token,
                 attention_mask = mask,
                 max_lens = 150,
                 num_beams = 5
             )
+
+            total_time += elapsed_time
 
             # print(f"output:{output}")
             hyp_tokens = tokenizer.batch_decode(output, skip_special_tokens=True)
@@ -113,6 +118,7 @@ for task in recog_set:
             #     refs.append(ref)
             #     names.append(name)
 
+    print(f'average decode time : {total_time / len(data_json)}')
     for name, hyp, top_hyp, ref_token in zip(names, hyps, top_hyps, refs):
         corrupt_flag = "Missed"  # Missed only for debug purpose, to detect if there is any data accidentally ignored
         if top_hyp == ref_token:

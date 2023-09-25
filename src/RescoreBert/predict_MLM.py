@@ -73,6 +73,7 @@ if (for_train):
         recog_set = [f"train"]
     else:
         recog_set = ['train']
+    batch_size = 256
 
 elif (args['dataset'] in ['aishell', 'tedlium2_conformer']):
     recog_set = ['dev', 'test']
@@ -101,8 +102,7 @@ for task in recog_set:
 
     with open(json_file) as f:
         data_json = json.load(f)
-    
-    
+
     print(f"{args['dataset']} {task} : {len(data_json)}")
     dataset = get_mlm_dataset(data_json, tokenizer, dataset = args['dataset'], topk = args['nbest'])
 
@@ -270,10 +270,11 @@ for task in recog_set:
         print(f'setting:{setting}')
         print(f"length_norm:{recog_args['length_norm']}")
         print(f'{task} CER : {cer}')
-        print(f"averge time:{total_time / data_len}")
+
 
         with open(f"{resultSavePath}/{mode}_analysis.json", 'w') as f:
             json.dump(result_dict, f, ensure_ascii=False, indent=1)
+    print(f"averge time:{total_time / data_len}")
 
 
 

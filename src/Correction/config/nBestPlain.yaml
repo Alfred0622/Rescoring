@@ -12,10 +12,10 @@ train:
   valid_batch: 32
   accumgrad: 8
   print_loss: 2000
-  lr: 1e-6
+  lr: 1e-5
   data_type: concat
   sep_token: '#'
   from_pretrain: True
 
 recog:
-  batch: 16
+  batch: 1

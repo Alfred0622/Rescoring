@@ -82,7 +82,7 @@ recog_set = get_recog_set(args["dataset"])
 dev_set = recog_set[0]
 recog_batch = int(recog_args["batch"])
 
-for_train = True
+for_train = False
 if (for_train):
     recog_set = ['train']
 
@@ -97,6 +97,7 @@ for task in recog_set:
     recog_path = f"../../data/{args['dataset']}/data/{setting}/{task}/data.json"
     with open(recog_path) as f:
         recog_json = json.load(f)
+        print(f'data_len:{len(recog_json)}')
 
         (
             index_dict,
@@ -130,6 +131,7 @@ for task in recog_set:
             collate_fn=crossNBestBatch,
             num_workers=16,
         )
+        print(f'dataset_len:{len(recog_batch_sampler)}')
         name_set = set()
         with torch.no_grad():
             for data in tqdm(recog_loader, ncols=100):
@@ -156,7 +158,7 @@ for task in recog_set:
                     zip(data["name"], data["indexes"], output)
                 ):
                     rescores[index_dict[name]][index] += score.item()
-                name_set.add(name)
+                    name_set.add(name)
         
         save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}/{args['nbest']}best/PBert_LSTM")
         save_path.mkdir(exist_ok=True, parents=True)
@@ -169,6 +171,7 @@ for task in recog_set:
                     "rescore": rescores[index_dict[name]].tolist()
                 }
             )
+        print(f'rescore_data_len:{len(rescore_data)}')
         with open(f"{save_path}/data.json", 'w') as f:
             json.dump(rescore_data, f, ensure_ascii=False, indent=1)
 
@@ -216,6 +219,3 @@ for task in recog_set:
                 json.dump(result_dict, f, ensure_ascii=False, indent=1)
 
         print(f'avg_time:{total_time / data_num}')
-
-
-

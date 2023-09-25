@@ -46,9 +46,14 @@ logging.basicConfig(
     format=FORMAT,
 )
 
+if (train_args['sep_token'] == '[PAD]'):
+    sep_token = tokenizer.pad_token
+else:   
+    sep_token = train_args['sep_token']
 print(
-    f"sep token:{train_args['sep_token']} = {tokenizer.convert_tokens_to_ids(train_args['sep_token'])}"
+    f"sep token:{sep_token} = {tokenizer.convert_tokens_to_ids(sep_token)}"
 )
+
 
 if args["dataset"] in ["aishell", "tedlium2", "csj"]:
     valid = "dev"
@@ -77,7 +82,7 @@ if __name__ == "__main__":
         tokenizer=tokenizer,
         data_type="align",
         topk=int(args["nbest"]),
-        sep_token=train_args["sep_token"],
+        sep_token=sep_token,
         fetch_num=fetch_num,
     )
     dev_set = get_dataset(
@@ -86,7 +91,7 @@ if __name__ == "__main__":
         tokenizer=tokenizer,
         data_type="align",
         topk=int(args["nbest"]),
-        sep_token=train_args["sep_token"],
+        sep_token=sep_token,
         fetch_num=fetch_num,
     )
 
@@ -121,7 +126,7 @@ if __name__ == "__main__":
         optimizer,
         epochs=int(train_args["epoch"]),
         steps_per_epoch=len(train_loader) // int(train_args['accumgrad']) + 1,
-        pct_start=0.3,
+        pct_start=0.02,
         anneal_strategy="linear",
         max_lr=float(train_args["lr"]),
     )
@@ -139,7 +144,7 @@ if __name__ == "__main__":
         "optimizer": optimizer,
     }
 
-    sep_token = train_args['sep_token'].replace('[' , '').replace(']', '')
+    # sep_token = tokenizer.replace('[' , '').replace(']', '')
 
     run_name = f"{args['dataset']}, {setting}, lr = {train_args['lr']}, sep = {sep_token} : {args['nbest']}-Align{train_args['align_layer']}"
     if (train_args['extra_embedding']):
@@ -219,7 +224,7 @@ if __name__ == "__main__":
             with torch.no_grad():
                 loss = model(token, mask, label)
 
-                output = model.recognize(token, mask)
+                output, _ = model.recognize(token, mask)
                 output = tokenizer.batch_decode(output, skip_special_tokens=True)
                 hyps += output
                 refs += data["ref_text"]

@@ -79,6 +79,8 @@ if (args['dataset'] == 'old_aishell'):
     setting = ""
 
 sep_token = train_args['sep_token'] if ('sep_token' in train_args.keys() and train_args['sep_token'] is not None )else tokenizer.eos_token
+if (sep_token == '[PAD]'):
+    sep_token = tokenizer.pad_token
 print(f'sep_token:{sep_token}')
 
 if (args['dataset'] in ['aishell2']):
@@ -94,8 +96,10 @@ else:
     pretrain_name = "noPretrain"
 
 if (task_name == 'plain'):
-    if (sep_token == '[SEP]'):
+    if (sep_token == tokenizer.sep_token or sep_token == tokenizer.eos_token):
         sep_token_name = 'sep'
+    elif (sep_token == tokenizer.pad_token):
+        sep_token_name = 'pad'
     else:
         sep_token_name = sep_token
     
@@ -212,3 +216,11 @@ metric = trainer.evaluate()
 print(f"\n {metric}")
 
 torch.save(model.state_dict(), f"./checkpoint/{args['dataset']}/{args['nbest']}_{task_name}/{setting}/result/checkpoint_CERBest.pt")
+
+settings = {
+    "args":args,
+    "train_args": train_args,
+    "recog_args": recog_args
+}
+with open(f"./checkpoint/{args['dataset']}/{args['nbest']}_{task_name}/{setting}/result/setting.json", 'w') as f:
+    json.dump(settings, f, ensure_ascii = False, indent = 1)

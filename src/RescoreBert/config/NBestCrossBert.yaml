@@ -1,17 +1,17 @@
 args:
   nbest: 10 # max: 50
-  withLM: True
-  dataset: aishell
+  withLM: False
+  dataset: csj
   seed: 42
 
 train:
   epoch: 10
   AttLayer: 
-  batch_size: 256
+  batch_size: 128
   valid_batch: 1
-  accumgrad: 1
+  accumgrad: 2
   print_loss: 5000
-  lr: 1e-6
+  lr: 1e-5
   freeze_epoch: -1
   fuseType: lstm # lstm , attn or None
   lstm_embedding: 1024
@@ -23,8 +23,8 @@ train:
   dropout: 0.3
   noCLS: False
   noSEP: False
-  warmup_ratio: 0.1
+  warmup_ratio: 0.01
 
 recog:
-  batch: 128
+  batch: 1
   find_weight: True

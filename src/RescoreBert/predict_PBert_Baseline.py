@@ -50,7 +50,7 @@ model.load_state_dict(checkpoint["model"])
 recog_set = get_recog_set(args["dataset"])
 dev_set = recog_set[0]
 
-for_train = True
+for_train = False
 if (for_train):
     recog_set = ['train']
 
@@ -103,6 +103,7 @@ for task in recog_set:
                 scores = data['asr_score'].to(device)
                 am_score = data['am_score'].to(device)
                 ctc_score = data['ctc_score'].to(device)
+                lm_score = data['lm_score'].to(device)
                 data_num += 1
 
                 if decode_mode == "PBERT_ENTROPY":
@@ -118,6 +119,7 @@ for task in recog_set:
                         attention_mask=attention_mask,
                         am_score=am_score,
                         ctc_score=ctc_score,
+                        lm_score=lm_score,
                         scores = scores,
                     )["score"]
                     torch.cuda.synchronize()

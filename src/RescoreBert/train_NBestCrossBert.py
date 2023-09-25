@@ -143,16 +143,17 @@ optimizer = AdamW(model.parameters(), lr=float(train_args["lr"]))
 
 with open(f"../../data/{args['dataset']}/data/{setting}/train/data.json") as f, open(
     f"../../data/{args['dataset']}/data/{setting}/{valid_set}/data.json"
-) as dev, open(f"../../data/{args['dataset']}/data/{setting}/test/data.json") as test:
+) as dev :
     train_json = json.load(f)
     valid_json = json.load(dev)
-    test_json = json.load(test)
+
+start_epoch = 0
+get_num = -1
 
 """
 Load checkpoint
 """
-start_epoch = 0
-get_num = -1
+
 if "WANDB_MODE" in os.environ.keys():
     if os.environ["WANDB_MODE"] == "disabled":
         get_num = 100
@@ -178,20 +179,12 @@ valid_dataset = prepareListwiseDataset(
     maskEmbedding=train_args["fuseType"] == "query",
 )
 
-test_dataset = prepareListwiseDataset(
-    data_json=test_json,
-    dataset=args["dataset"],
-    tokenizer=tokenizer,
-    topk = int(args['nbest']),
-    sort_by_len=train_args["sortByLen"],
-    get_num=get_num,
-    maskEmbedding=train_args["fuseType"] == "query",
-)
+
 
 print(f"Prepare Sampler")
 train_sampler = NBestSampler(train_dataset)
 valid_sampler = NBestSampler(valid_dataset)
-test_sampler = NBestSampler(test_dataset)
+
 
 print(f"len of sampler:{len(train_sampler)}")
 
@@ -202,12 +195,6 @@ train_batch_sampler = BatchSampler(
 )
 valid_batch_sampler = BatchSampler(
     valid_sampler,
-    train_args["valid_batch"],
-    batch_by_len=(train_args["fuseType"] in ["attn", "lstm"]),
-)
-
-test_batch_sampler = BatchSampler(
-    test_sampler,
     train_args["valid_batch"],
     batch_by_len=(train_args["fuseType"] in ["attn", "lstm"]),
 )
@@ -230,13 +217,43 @@ valid_loader = DataLoader(
     pin_memory=True,
 )
 
-test_loader = DataLoader(
-    dataset=test_dataset,
-    batch_sampler=test_batch_sampler,
-    collate_fn=partial(crossNBestBatch, hard_label=train_args["hardLabel"]),
-    num_workers=16,
-    pin_memory=True,
-)
+if (args['dataset'] not in ['librispeech', 'aishell2', 'csj']):
+    with open(f"../../data/{args['dataset']}/data/{setting}/test/data.json") as test:
+        test_json = json.load(test)
+        test_dataset = prepareListwiseDataset(
+            data_json=test_json,
+            dataset=args["dataset"],
+            tokenizer=tokenizer,
+            topk = int(args['nbest']),
+            sort_by_len=train_args["sortByLen"],
+            get_num=get_num,
+            maskEmbedding=train_args["fuseType"] == "query",
+        )
+        test_sampler = NBestSampler(test_dataset)
+        test_batch_sampler = BatchSampler(
+            test_sampler,
+            train_args["valid_batch"],
+            batch_by_len=(train_args["fuseType"] in ["attn", "lstm"]),
+        )
+        test_loader = DataLoader(
+            dataset=test_dataset,
+            batch_sampler=test_batch_sampler,
+            collate_fn=partial(crossNBestBatch, hard_label=train_args["hardLabel"]),
+            num_workers=16,
+            pin_memory=True,
+        )
+        (
+            test_index_dict,
+            test_inverse_dict,
+            test_am_scores,
+            test_ctc_scores,
+            test_lm_scores,
+            test_rescores,
+            test_wers,
+            test_hyps,
+            test_refs,
+        ) = prepare_score_dict(test_json, nbest=args["nbest"])
+        test_rescores_flush = test_rescores.copy()
 
 lr_scheduler = OneCycleLR(
     optimizer,
@@ -258,20 +275,7 @@ lr_scheduler = OneCycleLR(
     refs,
 ) = prepare_score_dict(valid_json, nbest=args["nbest"])
 
-(
-    test_index_dict,
-    test_inverse_dict,
-    test_am_scores,
-    test_ctc_scores,
-    test_lm_scores,
-    test_rescores,
-    test_wers,
-    test_hyps,
-    test_refs,
-) = prepare_score_dict(test_json, nbest=args["nbest"])
-
 rescores_flush = rescores.copy()
-test_rescores_flush = test_rescores.copy()
 
 """
 Initialize wandb
@@ -490,22 +494,38 @@ for e in range(start_epoch, train_args["epoch"]):
         """
         Calculate Score
         """
-        print(f"Test by epoch")
-        for i, data in enumerate(tqdm(test_loader, ncols=100)):
-            for key in data.keys():
-                if key not in ["name", "indexes"]:
-                    data[key] = data[key].to(device)
-            output = model.forward(
-                **data,
-                use_cls_loss=get_cls_loss,
-                use_mask_loss=get_mask_loss,
+        if (args['dataset'] not in ['librispeech', 'aishell2', 'csj']):
+            print(f"Test by epoch")
+            for i, data in enumerate(tqdm(test_loader, ncols=100)):
+                for key in data.keys():
+                    if key not in ["name", "indexes"]:
+                        data[key] = data[key].to(device)
+                output = model.forward(
+                    **data,
+                    use_cls_loss=get_cls_loss,
+                    use_mask_loss=get_mask_loss,
+                )
+
+                scores = output["score"]
+                for n, (name, index, score) in enumerate(
+                    zip(data["name"], data["indexes"], scores)
+                ):
+                    test_rescores[test_index_dict[name]][index] += score.item()
+            test_cer, _ = get_result(
+                test_index_dict,
+                test_am_scores,
+                test_ctc_scores,
+                test_lm_scores,
+                test_rescores,
+                test_wers,
+                test_hyps,
+                test_refs,
+                best_am,
+                best_ctc,
+                best_lm,
+                best_rescore,
             )
 
-            scores = output["score"]
-            for n, (name, index, score) in enumerate(
-                zip(data["name"], data["indexes"], scores)
-            ):
-                test_rescores[test_index_dict[name]][index] += score.item()
 
         print(f"Validation: Calcuating CER")
         # if not train_args["sepTask"] or not train_args["scoreByRank"]:
@@ -526,26 +546,12 @@ for e in range(start_epoch, train_args["epoch"]):
             f"epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}"
         )
 
-        test_cer, _ = get_result(
-            test_index_dict,
-            test_am_scores,
-            test_ctc_scores,
-            test_lm_scores,
-            test_rescores,
-            test_wers,
-            test_hyps,
-            test_refs,
-            best_am,
-            best_ctc,
-            best_lm,
-            best_rescore,
-        )
 
         # else:
         #     min_cer = calculate_cerOnRank(
         #         am_scores, ctc_scores, lm_scores, rescores, wers, withLM=args["withLM"]
         # )
-        print(f"epoch:{e + 1},Validation CER:{min_cer}, Testing CER: {test_cer}")
+        print(f"epoch:{e + 1},Validation CER:{min_cer}")
         print(f"epoch:{e + 1},Validation loss:{eval_loss}")
 
         if "cls_loss" in output.keys():
@@ -579,7 +585,7 @@ for e in range(start_epoch, train_args["epoch"]):
         logging.warning(f"epoch:{e + 1},validation loss:{eval_loss}")
 
         rescores = rescores_flush.copy()
-        test_rescores = test_rescores.copy()
+        # test_rescores = test_rescores.copy()
 
         if eval_loss < min_val_loss:
             torch.save(checkpoint, f"{checkpoint_path}/checkpoint_train_best.pt")

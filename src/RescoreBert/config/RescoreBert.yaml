@@ -1,17 +1,17 @@
 args:
   nbest: 10 # max: 50
-  withLM: False
-  dataset: tedlium2
+  withLM: True
+  dataset: csj
 train:
   epoch: 10
   train_batch: 128
   accumgrad: 2
   print_loss: 5000
-  lr: 1e-6
-  reduction: mean
+  lr: 1e-5
+  reduction: sum
 
 recog:
   recog_batch: 1
   for_train: False
   test_speed: True
-  find_weight: True 
+  find_weight: True

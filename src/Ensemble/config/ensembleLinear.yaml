@@ -1,0 +1,26 @@
+args:
+  nbest: 5 # max: 50
+  withLM: False
+  dataset: aishell
+train:
+  epoch: 10
+  train_batch: 1024
+  accumgrad: 1
+  print_loss: 1000
+  use_rank: False
+  lr: 1e-6
+  reduction: sum
+  BCE: True
+  optim: sgd
+  use_WER: False
+  use_Norm: True
+  # svm related
+  svm: False
+  C: 2.0
+  margin: 0.0
+
+recog:
+  batch: 256
+  for_train: False
+  test_speed: True
+  find_weight: True 

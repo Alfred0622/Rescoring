@@ -36,7 +36,7 @@ def get_dataset(data_json, dataset ,tokenizer, is_token = False):
                 }
             )
         
-        data_list = sorted(data_list, key = lambda x : len(x['input_ids']))
+        data_list = sorted(data_list, key = lambda x : len(x['input_ids']), reverse=True)
         return concatTrainerDataset(data_list), data_list
 
 def get_alsemDataset(data_json, dataset,tokenizer, for_train = True):
@@ -60,8 +60,10 @@ def get_alsemDataset(data_json, dataset,tokenizer, for_train = True):
                 "lm_score": lm_score
             }
         )
+        # if (i > 10000):
+        #     break
 
-    data_list = sorted(data_list, key = lambda x : len(x['input_ids']))
+    data_list = sorted(data_list, key = lambda x : len(x['input_ids']), reverse=True)
     return concatTrainerDataset(data_list)
 
 def get_recogDataset(data_json, dataset,tokenizer):

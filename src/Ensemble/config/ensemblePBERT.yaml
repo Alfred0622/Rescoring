@@ -1,0 +1,23 @@
+args:
+  nbest: 10 # max: 50
+  withLM: False
+  dataset: aishell
+train:
+  epoch: 10
+  train_batch: 256
+  accumgrad: 1
+  print_loss: 1000
+  lr: 1e-6
+  reduction: sum
+  loss_type: Entropy
+  optim: adam
+  use_WER: False
+  use_Norm: True
+  use_rank: False
+  hard_label: True
+
+recog:
+  batch: 256
+  for_train: False
+  test_speed: True
+  find_weight: True 

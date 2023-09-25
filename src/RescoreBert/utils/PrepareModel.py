@@ -80,6 +80,7 @@ def prepare_GPT2(dataset, device):
     if dataset in ["tedlium2", "librispeech", "tedlium2_conformer"]:
         model = AutoModelForCausalLM.from_pretrained("gpt2").to(device)
         tokenizer = AutoTokenizer.from_pretrained("gpt2")
+        tokenizer.pad_token_id = tokenizer.eos_token_id
     if dataset in ["csj"]:
         model = AutoModelForCausalLM.from_pretrained(
             "ClassCat/gpt2-base-japanese-v2"

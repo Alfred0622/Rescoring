@@ -70,6 +70,9 @@ else:
 if (train_args['combineScore']):
     run_name = run_name + f"_combineScore"
     log_path = log_path + "/combineScore"
+elif (train_args['addLMScore']):
+    run_name = run_name + f"_addLMScore"
+    log_path = log_path + "_addLMScore"
 
 log_path = Path(f"./log/RescoreBERT/{args['dataset']}/{setting}/{mode}")
 log_path.mkdir(parents=True, exist_ok=True)
@@ -245,6 +248,7 @@ for e in range(start_epoch, train_args["epoch"]):
         scores = data['asr_score'].to(device)
         am_score = data['am_score'].to(device)
         ctc_score = data['ctc_score'].to(device)
+        lm_score = data['lm_score'].to(device)
         labels = data['labels'].to(device)
 
         # print(f"nBestindex:{data['nBestIndex']}")
@@ -255,6 +259,7 @@ for e in range(start_epoch, train_args["epoch"]):
             nBestIndex = nBestIndex,
             am_score = am_score,
             ctc_score = ctc_score,
+            lm_score = lm_score,
             scores = scores,
             labels = labels
         )
@@ -331,6 +336,7 @@ for e in range(start_epoch, train_args["epoch"]):
             nBestIndex = data['nBestIndex'].to(device)
             am_score = data['am_score'].to(device)
             ctc_score = data['ctc_score'].to(device)
+            lm_score = data['lm_score'].to(device)
             scores = data['asr_score'].to(device)
             labels = data['labels'].to(device)
 
@@ -340,6 +346,7 @@ for e in range(start_epoch, train_args["epoch"]):
                 nBestIndex = nBestIndex,
                 am_score = am_score,
                 ctc_score = ctc_score,
+                lm_score = lm_score,
                 scores = scores,
                 labels = labels
             )

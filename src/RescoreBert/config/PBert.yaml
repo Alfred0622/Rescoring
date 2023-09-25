@@ -1,12 +1,12 @@
 args:
   nbest: 10 # max: 50
   withLM: False
-  dataset: aishell
+  dataset: csj
 
 train:
   epoch: 10
-  batch_size: 32
-  accumgrad: 1
+  batch_size: 128
+  accumgrad: 2
   print_loss: 5000
   lr: 1e-6
   freeze_epoch: -1
@@ -15,12 +15,13 @@ train:
   weightByWER: none # positive, inverse, square, none
   warmup_ratio: 0.1
   layer_op: # extra, lastInit_n or none
-  MWER: MWER # MWER, MWED
+  MWER: # MWER, MWED
   reduction: mean
   combineScore: False
+  addLMScore: False
   noCLS: False
   noSEP: False
 
 recog:
-  batch: 256
+  batch: 1
   find_weight: True 

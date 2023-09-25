@@ -19,6 +19,7 @@ from utils.CollateFunc import recogBatch
 from src_utils.LoadConfig import load_config
 from utils.PrepareModel import prepare_model
 from jiwer import visualize_alignment, process_characters
+import time
 
 from pathlib import Path
 
@@ -39,6 +40,7 @@ def predict(model, dataset, tokenizer, loader):
     model.eval()
 
     print('predict')
+    total_time = 0.0
 
     loop = tqdm(loader, total = len(loader), ncols=100)
     for k, batch in enumerate(loop):
@@ -52,6 +54,8 @@ def predict(model, dataset, tokenizer, loader):
         # print(f'attention_mask:{attention_mask}')
 
         with torch.no_grad():
+            torch.cuda.synchronize()
+            t0 = time.time()
             # output = model.predict()
             output = model.generate(
                 input_ids = input_ids,
@@ -60,6 +64,9 @@ def predict(model, dataset, tokenizer, loader):
                 num_beams = 5,
                 # early_stopping = True
             )
+            torch.cuda.synchronize()
+            t1 = time.time()
+            total_time += (t1 - t0)
 
             output = tokenizer.batch_decode(output, skip_special_tokens = True)
             ref_list = batch['ref_text']
@@ -74,8 +81,8 @@ def predict(model, dataset, tokenizer, loader):
             for single_name, pred, ref, top_hyp in zip(name, output, ref_list, top_hyps):
                 if (single_name not in result.keys()):
                     result[single_name] = dict()
-                ref = " ".join([t for t in "".join(ref.split())])
-                top_hyp = " ".join([t for t in "".join(top_hyp.split())])
+                # ref = " ".join([t for t in "".join(ref.split())])
+                # top_hyp = " ".join([t for t in "".join(top_hyp.split())])
                 result[single_name]["hyp"] = pred.strip()
                 result[single_name]["ref"] = ref.strip()
                 result[single_name]["top_hyp"] = top_hyp.strip()
@@ -88,7 +95,7 @@ def predict(model, dataset, tokenizer, loader):
         
         # if (k > 52):
         #     exit()
-    return result
+    return result, total_time
 
 # Predict
 if __name__ == '__main__':
@@ -130,8 +137,7 @@ if __name__ == '__main__':
     model.load_state_dict(checkpoint)
     model.eval()
     model = model.to(device)
-    
-    
+
     for data_name in scoring_set:
         json_path = f"../../data/{args['dataset']}/data/{setting}/{data_name}/data.json"
         if (args['dataset'] == 'csj'):
@@ -149,7 +155,9 @@ if __name__ == '__main__':
             num_workers = 16
         )
 
-        output = predict(model, args['dataset'],tokenizer, dataloader)
+        output, total_time = predict(model, args['dataset'],tokenizer, dataloader)
+
+        print(f'average decode time:{total_time / len(data_json)}')
 
         if (not os.path.exists(f"./data/{args['dataset']}/{setting}/{data_name}/{args['nbest']}{task_name}/")):
             os.makedirs(f"./data/{args['dataset']}/{setting}/{data_name}/{args['nbest']}{task_name}/")
@@ -170,6 +178,11 @@ if __name__ == '__main__':
 
             # print(f"\n Ref:{output[data['name']]['ref']} \n Hyp:{output[data['name']]['hyp']}")
             # exit(0)
+            if (args['dataset'] in ['csj']):
+                output[data['name']]['hyp'] = " ".join(output[data['name']]['hyp'].replace(" ", ""))
+                output[data['name']]['top_hyp'] = " ".join(output[data['name']]['top_hyp'].replace(" ", ""))
+                output[data['name']]['ref'] = " ".join(output[data['name']]['ref'].replace(" ", ""))
+
             ref.append(output[data['name']]['ref'])
             hyp.append(output[data['name']]['hyp'])
             top_1_hyp.append(output[data['name']]['top_hyp'])
@@ -195,10 +208,16 @@ if __name__ == '__main__':
                     else:
                         corrupt_flag = "Partial_Improve"
 
-            out = process_characters(
-                ["".join(output[data['name']]['ref'].split(' '))],
-                ["".join(output[data['name']]['hyp'].split(' '))]
-            )
+            if (args['dataset'] in ['aishell', 'aishell2','csj']):
+                out = process_characters(
+                    ["".join(output[data['name']]['ref'].split(' '))],
+                    ["".join(output[data['name']]['hyp'].split(' '))]
+                )
+            else:
+                out = process_characters(
+                    [output[data['name']]['ref']],
+                    [output[data['name']]['hyp']]
+                )
 
             align_result = visualize_alignment(out, show_measures=False, skip_correct=False).split('\n')
             align_ref = align_result[1][5:]
@@ -224,5 +243,8 @@ if __name__ == '__main__':
         with open(f"{save_path}/{args['nbest']}_{task_name}_{save_name}_Correct_result.json", 'w') as f:
             json.dump(result_dict, f, ensure_ascii = False, indent = 1)
         
+        print(f'HYP:{result_dict[-1]["hyp"]}')
+        print(f'ORG:{result_dict[-1]["org"]}')
+        print(f'REF:{result_dict[-1]["ref"]}')
         print(f'org_wer:{wer(ref, top_1_hyp)}')
         print(f'Correction wer:{wer(ref, hyp)}')

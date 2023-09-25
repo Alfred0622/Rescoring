@@ -28,6 +28,7 @@ from RescoreBert.utils.PrepareScoring import (
 )
 import torch
 import time
+from functools import partial
 
 checkpoint_path = sys.argv[1]
 
@@ -43,7 +44,7 @@ model, tokenizer = prepare_GPT2(args['dataset'], device)
 
 # if (tokenizer.pad_token is None):
 #     tokenizer.pad_token = tokenizer.eos_token
-for_train = True
+for_train = False
 
 if (for_train):
     recog_set = ["train"]
@@ -61,11 +62,11 @@ else:
 print('get token id')
 bos = tokenizer.cls_token_id if (tokenizer.cls_token is not None) else tokenizer.bos_token_id
 eos = tokenizer.sep_token_id if (tokenizer.sep_token is not None) else tokenizer.eos_token_id
-pad = tokenizer.pad_token_id if (tokenizer.pad_token is not None) else 0
+pad = tokenizer.pad_token_id if (tokenizer.pad_token is not None) else tokenizer.eos_token_id
 
 print(f'bos:{bos}, eos:{eos}, pad:{pad}')
 
-checkpoint = torch.load(checkpoint_path)
+checkpoint = torch.load(checkpoint_path, map_location=device)
 model.load_state_dict(checkpoint)
 model = model.to(device)
 
@@ -91,7 +92,7 @@ for task in recog_set:
     dataloader = DataLoader(
         dataset,
         batch_size=recog_args['batch'],
-        collate_fn=recogBatch,
+        collate_fn=partial(recogBatch,pad_id = pad),
         num_workers=4
     )
 

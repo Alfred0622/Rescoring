@@ -111,9 +111,8 @@ def prepare_score_dict(data_json, nbest):
                 [0.0 for _ in range(len(am_scores[-1]))]
             )
 
-            utt_wer = [[value for value in wer.values()] for wer in data['err']]
+            utt_wer = [[value for value in wer.values()] for wer in data['err'][:len(am_scores[-1])]]
             wers.append(np.array(utt_wer))
-        
 
     elif (isinstance(data_json, dict)):
         """
@@ -146,7 +145,7 @@ def prepare_score_dict(data_json, nbest):
                [0.0 for _ in range(len(am_scores[-1]))]
             )
 
-            utt_wer = [[value for value in wer.values()] for wer in data_json[key]['err']]
+            utt_wer = [[value for value in wer.values()] for wer in data_json[key]['err'][:len(am_scores[-1])]]
             wers.append(np.array(utt_wer))
 
     am_scores = np.array(list(zip_longest(*am_scores, fillvalue=-np.Inf)), dtype = np.float32)
@@ -447,6 +446,7 @@ def get_result(
         rescore_weight * rescores
     )
 
+    total_score[np.isnan(total_score)] = -np.Inf
     max_index = np.argmax(total_score, axis = -1)
 
     for utt, index in enumerate(max_index):

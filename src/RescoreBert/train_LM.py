@@ -130,7 +130,7 @@ training_args = TrainingArguments(
     dataloader_num_workers=1,
     greater_is_better=False,
     gradient_accumulation_steps=int(train_args["accumgrad"]),
-    run_name=f"{args['dataset']}/{lm_name}",
+    run_name=f"{args['dataset']}/{lm_name}_lr{train_args['lr']}_batch{train_args['train_batch']}",
     load_best_model_at_end = True
 )
 

@@ -20,4 +20,4 @@ def getBartPretrainName(dataset):
     elif (dataset in ['tedlium2', 'librispeech']):
         return 'facebook/bart-base'
     elif (dataset in ['csj']):
-        pass
+        return 'ku-nlp/bart-base-japanese'

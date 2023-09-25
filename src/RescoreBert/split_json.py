@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 
-split_num = 16
+split_num = 32
 
 dataset = ['aishell2', 'csj', 'librispeech']
 

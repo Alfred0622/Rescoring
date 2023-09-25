@@ -260,7 +260,7 @@ for e in range(start_epoch, train_args["epoch"]):
 
         # MWER
         if mode == "MWER":
-            data["wer"] = data["wer"].to(device, non_blocking=True)
+            data["wer"] = data["wer"].to(device)
             first_score = data["score"].to(device)
 
             combined_score = first_score + score_weight * output["score"].clone()

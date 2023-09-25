@@ -87,7 +87,7 @@ best_rescore = 0.0
 
 for_train = recog_args['for_train']
 if (for_train):
-    recog_set += ['train']
+    recog_set = ['train']
 
 for task in recog_set:
     # get score_dict
@@ -143,6 +143,7 @@ for task in recog_set:
         rescore_data.append(
             {
                 'name': name,
+                'hyp': hyps[index_dict[name]],
                 'rescore': rescores[index_dict[name]].tolist()
             }
         )
@@ -152,7 +153,7 @@ for task in recog_set:
     with open(f'{save_path}/data.json', 'w') as f:
         json.dump(rescore_data, f, ensure_ascii=False, indent=1) 
 
-    if task in ['dev', 'dev_ios', 'dev_clean', 'valid']:
+    if task in ['dev', 'dev_ios', 'valid']:
         print(f'find weight')
 
         # if (args['dataset'] in ['aishell']):

@@ -31,8 +31,7 @@ config = f"./config/Bert_alsem.yaml"
 args, train_args, recog_args = load_config(config)
 dataset = args["dataset"]
 setting = "withLM" if args["withLM"] else "noLM"
-topk = args["nBest"]
-
+topk = args["nbest"]
 
 log_path = Path(f"./log/{args['dataset']}/{setting}/Bert_alsem")
 log_path.mkdir(exist_ok=True, parents=True)
@@ -50,12 +49,38 @@ logging.basicConfig(
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = torch.device('cpu')
 
-with open(f"./data/{dataset}/train/{setting}/{args['nBest']}best/data.json") as f:
+model, tokenizer = prepare_model(args, train_args, device)
+
+start_epoch = 0
+if (len(sys.argv) == 2):
+    checkpoint = sys.argv[1]
+
+    start_epoch = int(checkpoint.split(".")[0][-1])
+
+    load_checkpoint = torch.load(checkpoint)
+
+    print(f"load checkpoint from: {checkpoint}")
+
+    model.bert.load_state_dict(load_checkpoint['bert'])
+    model.rnn.load_state_dict(load_checkpoint['rnn'])
+    model.fc1.load_state_dict(load_checkpoint['fc1'])
+    model.fc2.load_state_dict(load_checkpoint['fc2'])
+    model.optimizer.load_state_dict(load_checkpoint['optimizer'])
+
+    start_epoch = load_checkpoint['epoch']
+
+wandb_config = wandb.config
+wandb_config = (
+    model.bert.config if (torch.cuda.device_count() == 1) else model.module.bert.config
+)
+wandb_config.learning_rate = float(train_args["lr"])
+wandb_config.batch_size = train_args["train_batch"]
+cal_batch = int(train_args["train_batch"]) * train_args["accum_grads"]
+
+with open(f"./data/{dataset}/train/{setting}/{args['nbest']}best/data.json") as f:
     train_json = json.load(f)
 with open(f"./data/{dataset}/valid/{setting}/5best/data.json") as v:
     valid_json = json.load(v)
-
-model, tokenizer = prepare_model(args, train_args, device)
 
 train_dataset = get_alsemDataset(train_json, args["dataset"], tokenizer)
 valid_dataset = get_alsemDataset(valid_json, args["dataset"], tokenizer)
@@ -78,14 +103,7 @@ min_val = 1e8
 
 del train_json
 del valid_json
-
-wandb_config = wandb.config
-wandb_config = (
-    model.bert.config if (torch.cuda.device_count() == 1) else model.module.bert.config
-)
-wandb_config.learning_rate = float(train_args["lr"])
-wandb_config.batch_size = train_args["train_batch"]
-cal_batch = int(train_args["train_batch"]) * train_args["accum_grads"]
+gc.collect()
 
 scheduler = OneCycleLR(
     model.optimizer,
@@ -101,10 +119,10 @@ wandb.init(
     config=wandb_config,
     name=f"Alsem_{setting}_batch{train_args['train_batch']}_accum{train_args['accum_grads']}_lr{train_args['lr']}",
 )
-model.optimizer.zero_grad(set_to_none=True)
 
+model.optimizer.zero_grad(set_to_none=True)
 step = 0
-for e in range(train_args["epoch"]):
+for e in range(start_epoch , train_args["epoch"]):
     model.train()
     train_loss = 0.0
     accum_loss = 0.0
@@ -162,7 +180,7 @@ for e in range(train_args["epoch"]):
     }
 
     savePath = Path(
-        f"./checkpoint/{args['dataset']}/{setting}/{args['nBest']}Best/Bert_alsem_batch{train_args['train_batch']}_lr{train_args['lr']}/"
+        f"./checkpoint/{args['dataset']}/{setting}/{args['nbest']}Best/Bert_alsem_batch{train_args['train_batch']}_lr{train_args['lr']}/"
     )
     savePath.mkdir(parents=True, exist_ok=True)
 
