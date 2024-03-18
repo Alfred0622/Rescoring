@@ -2,9 +2,9 @@ args:
   stage: 0
   stop_stage: 0
   nbest: 10 # max: 50
-  withLM: True
+  withLM: False
   model_name: sem
-  dataset: aishell2
+  dataset: aishell
 
 train:
   epoch: 3
@@ -15,5 +15,5 @@ train:
   lr: 1e-6
 
 recog:
-  batch: 64
-  find_weight: True
+  batch: 1
+  find_weight: False

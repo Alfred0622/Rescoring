@@ -71,6 +71,10 @@ if __name__ == "__main__":
     train_path = f"../../data/{args['dataset']}/data/{setting}/train/data.json"
     dev_path = f"../../data/{args['dataset']}/data/{setting}/{valid}/data.json"
 
+    if (args['dataset'] in ['csj']):
+        train_path = f"./data/csj/{setting}/train/data.json"
+        dev_path = f"./data/csj/{setting}/dev/data.json"
+
     print(f"Prepare data")
     with open(train_path) as f, open(dev_path) as d:
         train_json = json.load(f)
@@ -85,6 +89,7 @@ if __name__ == "__main__":
         sep_token=sep_token,
         fetch_num=fetch_num,
     )
+
     dev_set = get_dataset(
         dev_json,
         dataset=args["dataset"],
@@ -226,6 +231,18 @@ if __name__ == "__main__":
 
                 output, _ = model.recognize(token, mask)
                 output = tokenizer.batch_decode(output, skip_special_tokens=True)
+                if (args['dataset'] in ['csj']):
+                    fix_hyps = []
+                    for hyp in output:
+                        whole_hyp = [t for t in "".join(hyp.split())]
+                        fix_hyps.append(" ".join(whole_hyp))
+                    output = fix_hyps
+
+                    fix_refs = []
+                    for ref in data["ref_text"]:
+                        whole_ref = [t for t in "".join(ref.split())]
+                        fix_refs.append(" ".join(whole_ref))
+                    data["ref_text"] = fix_refs
                 hyps += output
                 refs += data["ref_text"]
                 val_loss += loss

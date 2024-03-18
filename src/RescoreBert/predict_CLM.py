@@ -38,7 +38,6 @@ setting = 'withLM' if args['withLM'] else 'noLM'
 print(f'setting:{setting}')
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# device = torch.device("cpu")
 
 model, tokenizer = prepare_GPT2(args['dataset'], device)
 
@@ -69,6 +68,9 @@ print(f'bos:{bos}, eos:{eos}, pad:{pad}')
 checkpoint = torch.load(checkpoint_path, map_location=device)
 model.load_state_dict(checkpoint)
 model = model.to(device)
+
+print(sum(p.numel() for p in model.parameters()))
+# exit()
 
 random.seed(42)
 torch.manual_seed(42)
@@ -108,19 +110,23 @@ for task in recog_set:
             data_len += 1
             
             torch.cuda.synchronize()
-            t0 = time.time()
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+
+            start.record()
             output = model(
                 input_ids = input_ids,
                 attention_mask = attention_mask,
             ).logits
+            end.record()
             torch.cuda.synchronize()
-            t1 = time.time()
+            elapsed_time = start.elapsed_time(end)
+            total_time += (elapsed_time)
 
             output_scores = log_softmax(output, dim = -1) #(B, L, V)
 
             score = get_sentence_score(output_scores, input_ids, bos, eos, pad)
 
-            total_time += (t1-t0)
             for i, (name, index) in enumerate(zip(names, indexs)):
                 rescores[index_dict[name]][index] = score[i].item()
                 name_set.add(name)
@@ -131,11 +137,6 @@ for task in recog_set:
     # best_rescore_weight = 0
     if (task in ['dev', 'dev_trim', 'dev_ios', 'valid']):
         print(f'Find Weight')
-        # if (args['dataset'] in ['aishell']):
-        #     print(f'simp')
-        #     best_alpha, best_beta, min_cer = calculate_cer_simp(scores, rescores, wers, alpha_range = [0, 1], beta_range = [0, 1])
-        #     print(f'best weight: {best_alpha}, {best_beta}, {min_cer}')
-        # else:
         print('complex')
         best_am_weight, best_ctc_weight, best_lm_weight, best_rescore_weight, cer = calculate_cer(
             am_scores,

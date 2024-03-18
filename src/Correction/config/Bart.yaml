@@ -2,8 +2,8 @@ args:
   stage: 0 
   stop_stage: 1
   nbest: 10
-  withLM: True
-  dataset: csj
+  withLM: False
+  dataset: aishell
 
 train:
   start_epoch: 0

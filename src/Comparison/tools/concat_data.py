@@ -10,7 +10,7 @@ from transformers import BertTokenizer
 random.seed(42)
 nbest = 10
 
-name = 'librispeech'
+name = 'csj'
 setting = ['noLM', 'withLM']
 
 if (name in ['tedlium2', 'librispeech']):
@@ -182,6 +182,8 @@ if (concat_train):
                         concat_dict, fw, ensure_ascii = False, indent = 4
                     )
 
+
+
 if (concat_test):
     recog_set = ['train']
     # if (name in ['tedlium2']):
@@ -196,7 +198,12 @@ if (concat_test):
     #     recog_set = ['dev', 'test']
     # recog_set = ['dev', 'test']
     # dev & test
+    
+    split_num = -1
+    
     for s in setting:
+        save_elements = 0
+        saving_num = 1
         for task in recog_set:
             print(f'concat data for recog')
             print(f"file: ../../../data/{name}/data/{s}/{task}/data.json")
@@ -207,8 +214,14 @@ if (concat_test):
                 save_list = list()
                 if (task == 'train'):
                     save_task = 'train_recog'
+                    split_num = 32
+                    save_elements = len(load_data) //split_num
+
+                    print(f'save_elements = {save_elements}')
                 else:
                     save_task = task
+                
+                data_count = 0
                 for n, data in enumerate(load_data):
                     temp_dict = dict()
                     temp_dict['name'] = data['name']
@@ -265,16 +278,38 @@ if (concat_test):
                             }
                             temp_dict['hyps'].append(pair_dict)
 
-                    save_list.append(temp_dict)
-            print(f'total_data_num : {len(save_list)}')
 
-            save_path = Path(f"../data/{name}/{save_task}/{s}/{nbest}best")
-            save_path.mkdir(parents = True, exist_ok = True)
-        
-            with open(
-                f'{save_path}/data.json', 'w'
-            ) as fw:
-                json.dump(save_list, fw, ensure_ascii = False, indent = 4)
+                    save_list.append(temp_dict)
+                    data_count += 1
+
+                    if (data_count % save_elements == 0):
+                        print(f'save_list:{len(save_list)}')
+                        if (name in ['aishell2', 'csj'] and save_task == 'train_recog' and saving_num < split_num ):
+                            save_path = Path(f"../data/{name}/{save_task}/{s}/{nbest}best/split_32/train_{saving_num}")
+                            save_path.mkdir(parents = True, exist_ok = True)
+                            with open(f"{save_path}/data.json", 'w') as f:
+                                json.dump(save_list, f, ensure_ascii=False, indent = 1)
+                            
+                            saving_num += 1
+                            data_count = 0
+                            save_list = []
+            if (name in ['aishell2', 'csj'] and save_task == 'train_recog'):
+                print(f'last save_list:{len(save_list)}')
+                save_path = Path(f"../data/{name}/{save_task}/{s}/{nbest}best/split_32/train_{saving_num}")
+                save_path.mkdir(parents = True, exist_ok = True)
+                with open(f"{save_path}/data.json", 'w') as f:
+                    json.dump(save_list, f, ensure_ascii=False, indent = 1)
+            
+            else:
+                print(f'total_data_num : {len(save_list)}')
+
+                save_path = Path(f"../data/{name}/{save_task}/{s}/{nbest}best")
+                save_path.mkdir(parents = True, exist_ok = True)
+                with open(
+                    f'{save_path}/data.json', 'w'
+                ) as fw:
+                    json.dump(save_list, fw, ensure_ascii = False, indent = 1)
+            
     
         if (name == 'librispeech'):
             print(f'concat')

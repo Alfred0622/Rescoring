@@ -1,7 +1,7 @@
 args:
   nbest: 10 # max: 50
   withLM: False
-  dataset: csj
+  dataset: aishell
 
 train:
   epoch: 10
@@ -23,5 +23,5 @@ train:
   noSEP: False
 
 recog:
-  batch: 1
+  batch: 256
   find_weight: True 

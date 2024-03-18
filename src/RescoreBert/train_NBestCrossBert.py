@@ -179,8 +179,6 @@ valid_dataset = prepareListwiseDataset(
     maskEmbedding=train_args["fuseType"] == "query",
 )
 
-
-
 print(f"Prepare Sampler")
 train_sampler = NBestSampler(train_dataset)
 valid_sampler = NBestSampler(valid_dataset)
@@ -494,6 +492,34 @@ for e in range(start_epoch, train_args["epoch"]):
         """
         Calculate Score
         """
+
+        print(f"Validation: Calcuating CER")
+        # if not train_args["sepTask"] or not train_args["scoreByRank"]:
+        best_am, best_ctc, best_lm, best_rescore, min_cer = calculate_cer(
+            am_scores,
+            ctc_scores,
+            lm_scores,
+            rescores,
+            wers,
+            am_range=[0, 1],
+            ctc_range=[0, 1],
+            lm_range=[0, 1],
+            rescore_range=[0, 1],
+            search_step=0.2,
+            recog_mode=False,
+        )
+        print(
+            f"epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}"
+        )
+
+
+        # else:
+        #     min_cer = calculate_cerOnRank(
+        #         am_scores, ctc_scores, lm_scores, rescores, wers, withLM=args["withLM"]
+        # )
+        print(f"epoch:{e + 1},Validation CER:{min_cer}")
+        print(f"epoch:{e + 1},Validation loss:{eval_loss}")
+
         if (args['dataset'] not in ['librispeech', 'aishell2', 'csj']):
             print(f"Test by epoch")
             for i, data in enumerate(tqdm(test_loader, ncols=100)):
@@ -525,34 +551,6 @@ for e in range(start_epoch, train_args["epoch"]):
                 best_lm,
                 best_rescore,
             )
-
-
-        print(f"Validation: Calcuating CER")
-        # if not train_args["sepTask"] or not train_args["scoreByRank"]:
-        best_am, best_ctc, best_lm, best_rescore, min_cer = calculate_cer(
-            am_scores,
-            ctc_scores,
-            lm_scores,
-            rescores,
-            wers,
-            am_range=[0, 1],
-            ctc_range=[0, 1],
-            lm_range=[0, 1],
-            rescore_range=[0, 1],
-            search_step=0.2,
-            recog_mode=False,
-        )
-        print(
-            f"epoch:{e + 1},Validation CER:{min_cer}, weight = {[best_am, best_ctc, best_lm, best_rescore]}"
-        )
-
-
-        # else:
-        #     min_cer = calculate_cerOnRank(
-        #         am_scores, ctc_scores, lm_scores, rescores, wers, withLM=args["withLM"]
-        # )
-        print(f"epoch:{e + 1},Validation CER:{min_cer}")
-        print(f"epoch:{e + 1},Validation loss:{eval_loss}")
 
         if "cls_loss" in output.keys():
             wandb.log(

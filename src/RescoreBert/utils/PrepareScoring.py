@@ -403,7 +403,11 @@ def calculate_cer(
     best_rescore=0.0,
     first_flag=True,
     recog_mode=True,
+    no_search = True
 ):
+    if (no_search):
+        print("Warning: No Weight searching")
+        return 0.25, 0.25, 0.25, 0.25, 200.0
 
     if first_flag:
         am_lower, am_upper = am_range

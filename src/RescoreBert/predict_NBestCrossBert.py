@@ -65,6 +65,9 @@ model, tokenizer = prepareNBestCrossBert(
 model = model.to(device)
 model.eval()
 
+model.show_param()
+exit()
+
 # for key in checkpoint['model'].keys():
 #     print(f"ok {key}, {checkpoint['model'][key].value.shape}")
 # print(f"checkpoint:{checkpoint['model'].keys()}")

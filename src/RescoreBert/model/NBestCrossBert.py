@@ -636,6 +636,9 @@ class nBestCrossBert(torch.nn.Module):
             parameter += list(self.finalExLinear.parameters())
 
         return parameter
+    
+    def show_param(self):
+        print(sum(p.numel() for p in self.parameters()))
 
     def state_dict(self):
         fuseAttend = None
@@ -749,7 +752,6 @@ class pBertSimp(torch.nn.Module):
 
         self.reduction = train_args['reduction']
 
-
         print(f"output_attention:{self.output_attention}")
         print(f"weightByWER:{self.weightByWER}")
 
@@ -831,10 +833,8 @@ class pBertSimp(torch.nn.Module):
             "score": scores
         }
 
-
     def parameters(self):
         parameters = list(self.bert.parameters()) + list(self.linear.parameters())
-
         return parameters
 
     def state_dict(self):
@@ -845,6 +845,10 @@ class pBertSimp(torch.nn.Module):
     def load_state_dict(self, checkpoint):
         self.bert.load_state_dict(checkpoint['bert'])
         self.linear.load_state_dict(checkpoint['linear'])
+    
+    def show_param(self):
+        # print(f'parameters:{self.parameters()}')
+        print(sum(p.numel() for p in self.parameters()))
 
 class pBert(torch.nn.Module):
     def __init__(
@@ -895,7 +899,7 @@ class pBert(torch.nn.Module):
                 input_size=768,
                 hidden_size=1024,
                 batch_first=True,
-                num_layers=2,
+                num_layers=1,
                 dropout=0.1,
                 bidirectional=True,
                 proj_size=768,
@@ -1087,6 +1091,9 @@ class pBert(torch.nn.Module):
 
         return state_dict
 
+    def show_param(self):
+        print(sum(p.numel() for p in self.parameters()))
+
     # def load_state_dict(self, state_dict):
     # self.bert.load_state_dict(state_dict["bert"])
     # self.linear.load_state_dict(state_dict["linear"])
@@ -1170,6 +1177,8 @@ class nBestfuseBert(torch.nn.Module):
             + list(self.fuse_model.parameters())
             + list(self.finalLinear.parameters())
         )
+    def show_param(self):
+        print(sum(p.numel() for p in self.paramters()))
 
     def state_dict(self):
         return {

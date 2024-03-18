@@ -32,7 +32,7 @@ setting = "withLM" if args['withLM'] else "noLM"
 if (args['dataset'] == 'csj'):
     recog_set = ['dev','eval1','eval2', 'eval3']
 elif (args['dataset'] == 'aishell2'):
-    recog_set = ['dev_ios', 'test_ios', 'test_android', 'test_mic']
+    recog_set = ['dev', 'test_ios', 'test_android', 'test_mic']
 elif (args['dataset'] == 'librispeech'):
     recog_set = ['valid', 'dev_clean', 'dev_other', 'test_clean', 'test_other']
 else:
@@ -41,7 +41,7 @@ else:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 checkpoint_path = sys.argv[1]
-search_all_epoch = True
+search_all_epoch = False
 
 if (search_all_epoch):
     path_index = checkpoint_path.rindex("/")
@@ -64,6 +64,8 @@ for checkpoint_path in checkpoint_paths:
 
     model.bert.load_state_dict(checkpoint['state_dict'])
     model.linear.load_state_dict(checkpoint['fc_checkpoint'])
+
+    model.show_param()
 
     best_am = 0.0
     best_ctc = 0.0
@@ -118,16 +120,19 @@ for checkpoint_path in checkpoint_paths:
                 attention_mask = data['attention_mask'].to(device)
 
                 torch.cuda.synchronize()
-                t0 = time.time()
+                start = torch.cuda.Event(enable_timing=True)
+                end = torch.cuda.Event(enable_timing=True)
+                start.record()
                 output = model.recognize(
                     input_ids = input_ids,
                     token_type_ids = token_type_ids,
                     attention_mask = attention_mask
                 ).squeeze(-1)
                 # print(f'output:{type(output)}')
+                end.record()
                 torch.cuda.synchronize()
-                t1 = time.time()
-                total_time += (t1-t0)
+                elapsed_time = start.elapsed_time(end)
+                total_time += (elapsed_time)
         
                 for i, (name, pair) in enumerate(zip(data['name'], data['pair'])):
                     first, second = pair
@@ -138,6 +143,7 @@ for checkpoint_path in checkpoint_paths:
                         rescores[index_dict[name]][first] += output[i].item()
                         rescores[index_dict[name]][second] += (1 - output[i].item())
 
+            print(f'avg decode time:{total_time / data_num}')
             if (not search_all_epoch):
                 rescore_data = []
                 for name in index_dict.keys():
@@ -193,7 +199,7 @@ for checkpoint_path in checkpoint_paths:
                     json.dump(result_dict, f, ensure_ascii = False, indent = 1) 
             
                 print(f"Dataset:{args['dataset']} {setting} {task} -- CER = {cer}")
-                print(f'avg decode time:{total_time / data_num}')
+
                 # print(f'result_dict:{result_dict}')
         result_cer_dict[task] = cer
     

@@ -102,32 +102,44 @@ class nBestAlignBart(nn.Module):
             dtype = torch.int64
         ).unsqueeze(-1).to(input_ids.device)
         elapsed_time = 0.0
+        torch.cuda.synchronize()
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
         
         if (self.extra_embedding):
-            torch.cuda.synchronize()
-            t0 = time.time()
+            
+            # t0 = time.time()
+            start.record()
             aligned_embedding = self.embedding(input_ids)
             aligned_embedding = aligned_embedding.flatten(start_dim=2)
+            end.record()
             torch.cuda.synchronize()
-            t1 = time.time()
+            # torch.cuda.synchronize()
+            # t1 = time.time()
+
         
         else:
-            torch.cuda.synchronize()
-            t0 = time.time()
+            # torch.cuda.synchronize()
+            # t0 = time.time()
+            start.record()
             aligned_embedding = self.model.model.shared(input_ids)  # (L, N, 768)
             aligned_embedding = torch.flatten(aligned_embedding, start_dim = 2)# (L, 768 * N)
+            end.record()
             torch.cuda.synchronize()
-            t1 = time.time()
+            # t1 = time.time()
 
-        elapsed_time += (t1 - t0)
-        torch.cuda.synchronize()
-        t0 = time.time()
+        elapsed_time += start.elapsed_time(end)
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        # torch.cuda.synchronize()
+        # t0 = time.time()
+        start.record()
         proj_embedding = self.alignLinear(
             aligned_embedding
         )  # (L, 768 * N) -> (L, 768)
+        end.record()
         torch.cuda.synchronize()
-        t1 = time.time()
-        elapsed_time += (t1 - t0)
+        elapsed_time += start.elapsed_time(end)
 
         # print(f'proj_embedding:{proj_embedding.shape}')
 
@@ -137,8 +149,12 @@ class nBestAlignBart(nn.Module):
         #     [[] for _ in range(batch_size)], 
         #     dtype = torch.int64
         # ).to(input_ids.device)
-        torch.cuda.synchronize()
-        t0 = time.time()
+        # torch.cuda.synchronize()
+        # t0 = time.time()
+        elapsed_time += start.elapsed_time(end)
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        start.record()
         output = self.model.generate(
             inputs_embeds=proj_embedding,
             attention_mask=attention_mask,
@@ -147,9 +163,9 @@ class nBestAlignBart(nn.Module):
             max_length=max_lens,
             # early_stopping = True
         )
+        end.record()
         torch.cuda.synchronize()
-        t1 = time.time()
-        elapsed_time += (t1 - t0)
+        elapsed_time += start.elapsed_time(end)
 
         return output, elapsed_time
 
@@ -177,6 +193,9 @@ class nBestAlignBart(nn.Module):
         self.alignLinear.load_state_dict(checkpoint['alignLinear'])
         if (self.extra_embedding):
             self.embedding.load_state_dict(checkpoint['embedding'].state_dict())
+    
+    def show_param(self):
+        print(sum(p.numel() for p in self.parameters()))
 
 
 class nBestTransformer(nn.Module):

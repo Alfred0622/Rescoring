@@ -147,6 +147,16 @@ def get_Dataset(
         return LM_Dataset(data_list)
 
     else:
+        bos_token = (
+            tokenizer.cls_token
+            if tokenizer.bos_token is None
+            else tokenizer.bos_token
+        )
+        eos_token = (
+            tokenizer.sep_token
+            if tokenizer.eos_token is None
+            else tokenizer.eos_token
+        )
         for k, data in enumerate(tqdm(data_json, ncols=100)):
             if topk > len(data["hyps"]):
                 nbest = len(data["hyps"])
@@ -157,29 +167,26 @@ def get_Dataset(
             for i, hyp in enumerate(data["hyps"][:nbest]):
                 hyp = preprocess_string(hyp, dataset)
 
-                if lm in ["CLM", "CLM_char"] and dataset in [
-                    "tedlium2",
-                    "tedlium2_conformer",
-                    "librispeech",
-                ]:
-                    bos_token = (
-                        tokenizer.cls_token
-                        if tokenizer.bos_token is None
-                        else tokenizer.bos_token
-                    )
-                    eos_token = (
-                        tokenizer.sep_token
-                        if tokenizer.eos_token is None
-                        else tokenizer.eos_token
-                    )
-                    hyp = hyp + "."
-                    hyp = f"{bos_token} {hyp} {eos_token}"
+                if lm in ["CLM", "CLM_char"]:
+                    if dataset in [
+                        "tedlium2",
+                        "tedlium2_conformer",
+                        "librispeech",
+                    ]:
+                        hyp = hyp + "."
+                    elif dataset in ['csj']:
+                        hyp = f"{bos_token} {hyp} {eos_token}"
 
                 output = tokenizer(hyp)
                 if "token_type_ids" in output.keys():
                     input_ids, _, attention_mask = output.values()
                 else:
                     input_ids, attention_mask = output.values()
+                
+                # print(f'input_ids:{input_ids}')
+                # break
+                if (len(input_ids) == 0):
+                    print(f'name:{data["name"]} {i}  hyp:{hyp} input_ids:{input_ids}')
 
                 data_list.append(
                     {
@@ -266,6 +273,83 @@ def get_mlm_dataset(data_json, tokenizer, dataset, topk=50, jp_split=True):
                         "seq_index": j,
                         "masked_token": masked_token,
                         "length": len(input_ids) - 2,
+                    }
+                )
+        # if (k > 100):
+        #     break
+
+    return LM_Dataset(data_list)
+
+def get_CLM_AR_Dataset(data_json, tokenizer, dataset, topk=50, jp_split=True):
+    bos_id = (
+        tokenizer.cls_token_id
+        if tokenizer.bos_token_id is None
+        else tokenizer.bos_token_id
+    )
+    eos_id = (
+        tokenizer.sep_token_id
+        if tokenizer.eos_token_id is None
+        else tokenizer.eos_token_id
+    )
+    mask_id = tokenizer.mask_token_id
+    data_list = list()
+
+    assert (
+        bos_id is not None and eos_id is not None and mask_id is not None
+    ), f"{bos_id}, {eos_id}, {mask_id}"
+
+    for k, data in enumerate(tqdm(data_json, ncols=100)):
+        if topk > len(data["hyps"]):
+            nbest = len(data["hyps"])
+        else:
+            nbest = topk
+        name = data["name"]
+
+        for i, hyp in enumerate(data["hyps"][:nbest]):
+            hyp = preprocess_string(hyp, dataset)
+
+            output = tokenizer(hyp)
+            if "token_type_ids" in output.keys():
+                input_ids, _, attention_mask = output.values()
+            else:
+                input_ids, attention_mask = output.values()
+
+            # if len(input_ids) == 2:
+            #     for j, ids in enumerate(input_ids):
+            #         temp_ids = output["input_ids"].copy()
+            #         masked_token = temp_ids[j]
+            #         temp_ids[j] = tokenizer.mask_token_id
+            #         data_list.append(
+            #             {
+            #                 "name": name,
+            #                 "input_ids": torch.tensor(input_ids, dtype=torch.int32),
+            #                 "attention_mask": torch.tensor(
+            #                     attention_mask, dtype=torch.int32
+            #                 ),
+            #                 "index": i,
+            #                 "seq_index": j,
+            #                 "masked_token": masked_token,
+            #                 "length": 2,
+            #             }
+            #         )
+
+            for j, ids in enumerate(input_ids):
+                if (j == 0): continue
+                temp_ids = output["input_ids"][:j].copy()
+                temp_mask = output['attention_mask'][:j].copy()
+                target = output["input_ids"][j]
+
+                data_list.append(
+                    {
+                        "name": name,
+                        "input_ids": torch.tensor(temp_ids, dtype=torch.int32),
+                        "attention_mask": torch.tensor(
+                            temp_mask, dtype=torch.int32
+                        ),
+                        "index": i,
+                        "seq_index": j-1,
+                        "target": target,
+                        "length": len(input_ids),
                     }
                 )
         # if (k > 100):

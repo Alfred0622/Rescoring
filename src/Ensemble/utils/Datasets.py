@@ -28,7 +28,7 @@ def load_scoreData(data_json, data_dict, nbest, retrieve_num, wer_weight = 1.0, 
 
     if (retrieve_num < 0):
         for data in data_json:
-            scores = np.asarray(data['rescore'][:nbest]) if 'rescore' in data.keys() else np.asarray(data['rescores'])
+            scores = np.asarray(data['rescore'][:nbest]) if 'rescore' in data.keys() else np.asarray(data['rescores'][:nbest])
             if (use_Norm):
                 if  (scores.min() == scores.max()):
                     print(f"same:{data['name']} \n Score: {scores}")

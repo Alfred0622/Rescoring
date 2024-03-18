@@ -1,18 +1,19 @@
 args:
   nbest: 10 # max: 50
   withLM: False
-  dataset: aishell
+  dataset: csj
+
 train:
   epoch: 10
-  train_batch: 256
-  accumgrad: 1
+  train_batch: 128
+  accumgrad: 2
   print_loss: 1000
   lr: 1e-6
   reduction: sum
   loss_type: Entropy
-  optim: adam
+  optim: adamW
   use_WER: False
-  use_Norm: True
+  use_Norm: False
   use_rank: False
   hard_label: True
 

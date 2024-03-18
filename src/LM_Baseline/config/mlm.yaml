@@ -3,7 +3,7 @@ args:
   stop_stage: 100
   nbest: 10
   withLM: False
-  dataset: aishell
+  dataset: csj
   MLM: True
   jp_split: False # if True, training data will be split by char
   for_train: False

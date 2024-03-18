@@ -47,6 +47,9 @@ datasets = {
 }
 
 dataset = ["train", "dev"]
+# if (args['dataset'] in ['aishell2']):
+#    dataset = ["train", "dev_ios"]
+
 weight_list = []
 if (train_args['use_WER']):
     weight_list.append(10 - wer_weight['ASR'])
@@ -115,7 +118,7 @@ for k, (task, score_dict) in enumerate(zip(dataset, score_dicts)):
 
 
     print(f'{task}:load rescore data')
-    data_path = Path(f"/mnt/disk6/Alfred/Rescoring/data/result/aishell/noLM/{task}/10best")
+    data_path = Path(f"/mnt/disk6/Alfred/Rescoring/data/result/{args['dataset']}/{setting}/{task}/10best")
     for method, weight in zip(methods, weights[1:]):
         print(f'{task}: {method} loading')
         ensemble_path = f"{data_path}/{method}/data.json"

@@ -52,6 +52,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 model, tokenizer = prepare_MLM(args['dataset'], device)
 
+
+
 bos = tokenizer.cls_token
 eos = tokenizer.sep_token
 pad = tokenizer.pad_token
@@ -64,6 +66,8 @@ if (torch.cuda.device_count() > 1):
     model = torch.nn.DataParallel(model)
 model.eval()
 
+print(sum(p.numel() for p in model.parameters()))
+# exit()
 batch_size = recog_args['batch_size']
 
 for_train = args["for_train"]
@@ -157,15 +161,19 @@ for task in recog_set:
             attention_mask = data['attention_mask'].to(device)
 
             torch.cuda.synchronize()
-            t0 = time.time()
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+
+            start.record()
             score = model(
                 input_ids = input_ids,
                 attention_mask = attention_mask,
                 return_dict = True
             ).logits
+            end.record()
             torch.cuda.synchronize()
-            t1 = time.time()
-            total_time += (t1-t0)
+            elapsed_time = start.elapsed_time(end)
+            total_time += (elapsed_time)
 
             score = log_softmax(score, dim = -1)
 

@@ -78,7 +78,7 @@ wandb_config.batch_size = train_args["train_batch"]
 cal_batch = int(train_args["train_batch"]) * train_args["accum_grads"]
 
 with open(f"./data/{dataset}/train/{setting}/{args['nbest']}best/data.json") as f:
-    train_json = json.load(f)
+    train_json = json.load(f)[:1000]
 with open(f"./data/{dataset}/valid/{setting}/5best/data.json") as v:
     valid_json = json.load(v)
 

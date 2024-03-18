@@ -4,14 +4,14 @@ args:
   dataset: csj
 train:
   epoch: 10
-  train_batch: 128
-  accumgrad: 2
+  train_batch: 256
+  accumgrad: 1
   print_loss: 5000
   lr: 1e-5
   reduction: sum
 
 recog:
-  recog_batch: 1
-  for_train: False
+  recog_batch: 128
+  for_train: True
   test_speed: True
   find_weight: True

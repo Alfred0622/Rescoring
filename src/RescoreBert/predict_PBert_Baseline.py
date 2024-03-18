@@ -39,16 +39,20 @@ setting = "withLM" if (args["withLM"]) else "noLM"
 print(f"{args['dataset']} : {setting}")
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f'device:{device}')
 model, tokenizer = preparePBertSimp(args, train_args, device = device)
 model = model.to(device)
 model.eval()
-checkpoint = torch.load(checkpoint_path)
+checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
 print(f"checkpoint:{checkpoint.keys()}")
 print(f"checkpoint[model]: {checkpoint['model'].keys()}")
 model.load_state_dict(checkpoint["model"])
 
 recog_set = get_recog_set(args["dataset"])
 dev_set = recog_set[0]
+
+model.show_param()
+exit()
 
 for_train = False
 if (for_train):

@@ -3,7 +3,7 @@ args:
   stop_stage: 1
   nbest: 4
   withLM: False
-  dataset: csj
+  dataset: aishell
 
 train:
   start_epoch: 0
@@ -12,7 +12,7 @@ train:
   valid_batch: 32
   accumgrad: 8
   print_loss: 2000
-  lr: 1e-5
+  lr: 1e-6
   data_type: align
   sep_token: '-'
   from_pretrain: True

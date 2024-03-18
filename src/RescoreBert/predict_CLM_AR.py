@@ -10,11 +10,11 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 from torch.nn.functional import log_softmax
 from utils.Datasets import get_Dataset
-from utils.CollateFunc import recogMLMBatch
+from utils.CollateFunc import recog_CLM_AR_Batch
 from utils.PrepareModel import prepare_GPT2, prepare_MLM
-from utils.LoadConfig import load_config
+from src_utils.LoadConfig import load_config
 from utils.FindWeight import find_weight, find_weight_simp
-from utils.Datasets import get_mlm_dataset
+from utils.Datasets import get_CLM_AR_Dataset
 from utils.PrepareScoring import (
     prepare_score_dict_simp,
     prepare_score_dict,
@@ -23,6 +23,7 @@ from utils.PrepareScoring import (
     get_result_simp,
     get_result
 )
+from utils.DataPara import BalancedDataParallel
 import gc
 
 from jiwer import wer
@@ -49,7 +50,7 @@ elif (args['dataset'] in ['aishell']):
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-model, tokenizer = prepare_MLM(args['dataset'], device)
+model, tokenizer = prepare_GPT2(args['dataset'], device)
 
 bos = tokenizer.cls_token
 eos = tokenizer.sep_token
@@ -59,14 +60,12 @@ checkpoint = torch.load(checkpoint_path)
 print(f'loading state_dict')
 model.load_state_dict(checkpoint)
 model = model.to(device)
-print(sum(p.numel() for p in model.parameters()))
-exit()
 if (torch.cuda.device_count() > 1):
     model = torch.nn.DataParallel(model)
 model.eval()
 
-
-
+print(sum(p.numel() for p in model.parameters()))
+# exit()
 batch_size = recog_args['batch_size']
 
 for_train = args["for_train"]
@@ -101,18 +100,18 @@ best_rescore_weight = 0.0
 for task in recog_set:
     print(task)
     total_time = 0.0
-    json_file = f"./data/HypR/{args['dataset']}/data/{setting}/{task}/data.json"
+    json_file = f"../../data/{args['dataset']}/data/{setting}/{task}/data.json"
 
     with open(json_file) as f:
         data_json = json.load(f)
 
     print(f"{args['dataset']} {task} : {len(data_json)}")
-    dataset = get_mlm_dataset(data_json, tokenizer, dataset = args['dataset'], topk = args['nbest'])
+    dataset = get_CLM_AR_Dataset(data_json, tokenizer, dataset = args['dataset'], topk = args['nbest'])
 
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
-        collate_fn=recogMLMBatch,
+        collate_fn=recog_CLM_AR_Batch,
         num_workers=16,
         pin_memory=True,
     )
@@ -120,15 +119,25 @@ for task in recog_set:
     index_dict = dict()
     inverse_dict = dict()
 
+    # if (args['dataset'] in ['aishell']):
+    #     index_dict, scores, rescores, wers = prepare_score_dict_simp(data_json, nbest = args['nbest'])
+    # else:
+    # if (not for_train):
     index_dict,inverse_dict, am_scores, ctc_scores, lm_scores, rescores, wers, hyps, refs = prepare_score_dict(
         data_json, nbest = args['nbest']
     )
+    # else:
+    #     for i, data in tqdm(enumerate(data_json)):
+    #         index_dict[data['name']] = i
+    #         inverse_dict[i] = data['name']
         
     data_len = 0
     name_set = set()
     
     # set score dictionary
+    # score_dict = dict()
     for data in data_json:
+        # if (data['name'] not in score_dict.keys()):
         if (args['nbest'] > len(data['hyps'])):
             topk = len(data['hyps'])
         else:
@@ -145,21 +154,26 @@ for task in recog_set:
 
     with torch.no_grad():
         for data in tqdm(dataloader, ncols = 100):
+            # print(data['input_ids'].shape)
             input_ids = data['input_ids'].to(device)
             attention_mask = data['attention_mask'].to(device)
 
             torch.cuda.synchronize()
-            t0 = time.time()
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
             score = model(
                 input_ids = input_ids,
                 attention_mask = attention_mask,
                 return_dict = True
             ).logits
+            end.record()
             torch.cuda.synchronize()
-            t1 = time.time()
-            total_time += (t1-t0)
+            elapsed_time = start.elapsed_time(end)
+            total_time += elapsed_time
 
             score = log_softmax(score, dim = -1)
+
 
             for i, (name, seq_index, masked_token ,nbest_index, length) in enumerate(
                 zip(
@@ -168,10 +182,12 @@ for task in recog_set:
             ):
                 if (seq_index == -1): # empty string
                     data_json[index_dict[name]]["rescore"][nbest_index] = np.Ninf
+                    # if (task != 'train'  and "train" not in task):
                     rescores[index_dict[name]][nbest_index] = np.Ninf
                     
                 else:
                     data_json[index_dict[name]]["rescore"][nbest_index] += score[i][seq_index][masked_token].item() / (length if recog_args['length_norm'] else 1)
+                    # if (task != 'train' and "train" not in task):
                     rescores[index_dict[name]][nbest_index] += score[i][seq_index][masked_token].item() / (length if recog_args['length_norm'] else 1)
                 
                 name_set.add(name)
@@ -181,11 +197,19 @@ for task in recog_set:
         rescore_data.append(
             {
                 "name": name,
+                # "hyps": hyps[index_dict[name]],
+                # "ref": refs[index_dict[name]],
                 "rescore": rescores[index_dict[name]].tolist()
             }
         )
     rescoreBertTrainPath = Path(f"./data/{args['dataset']}/{setting}/{args['nbest']}best/MLM/{task}")
     resultSavePath = Path(f"../../data/result/{args['dataset']}/{setting}/{task}/{args['nbest']}best/MLM")
+
+    # if (for_train):
+    #     save_path = Path(f"./data/{args['dataset']}/{setting}/50best/MLM/{task}")
+        
+    # else:
+    #      save_path = Path(f"../../data/result/{args['dataset']}/{setting}/{task}")
         
     resultSavePath.mkdir(parents = True, exist_ok = True)
     rescoreBertTrainPath.mkdir(parents = True, exist_ok = True)
@@ -199,6 +223,17 @@ for task in recog_set:
     if (not for_train):
         if (task in ['dev', 'dev_trim', 'dev_ios', 'valid']):
             print(f'Find Weight')
+
+            # if (args['dataset'] in ['aishell']):
+            #     print('simp')
+            #     best_alpha, best_beta, cer = calculate_cer_simp(
+            #         scores,
+            #         rescores, 
+            #         wers, 
+            #         alpha_range = [0, 1], 
+            #         beta_range = [0, 1]
+            #     )
+            # else:
             print(f'complex')
             best_am_weight, best_ctc_weight, best_lm_weight, best_rescore_weight,cer = calculate_cer(
                 am_scores,
@@ -211,7 +246,17 @@ for task in recog_set:
                 lm_range = [0, 1],
                 rescore_range = [0, 1]
             )
-
+    
+        
+        # if (args['dataset'] in ['aishell']):
+        #     cer = get_result_simp(
+        #         scores, 
+        #         rescores, 
+        #         wers, 
+        #         alpha = best_alpha, 
+        #         beta = best_beta
+        #     )
+        # else:
         cer, result_dict = get_result(
             index_dict = inverse_dict,
             am_scores = am_scores,

@@ -40,10 +40,13 @@ checkpoint = torch.load(checkpoint)
 model.load_state_dict(checkpoint['checkpoint'])
 model = model.to(device)
 
+model.show_param()
+# exit()
+
 if args["dataset"] in ["aishell", "aishell_nbest"]:
     recog_set = ["dev", "test"]
 elif args["dataset"] in ["aishell2"]:
-    recog_set = ["dev_ios", "test_android", "test_ios", "test_mic"]
+    recog_set = ["dev", "test_android", "test_ios", "test_mic"]
 elif args["dataset"] in ["tedlium2"]:
     recog_set = ["dev", "test"]
 elif args["dataset"] in ["csj"]:
@@ -93,7 +96,6 @@ for task in recog_set:
 
             total_time += elapsed_time
 
-            # print(f"output:{output}")
             hyp_tokens = tokenizer.batch_decode(output, skip_special_tokens=True)
 
             # print('\n')

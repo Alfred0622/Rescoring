@@ -40,10 +40,13 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model, tokenizer = preparePBert(args, train_args, device = device)
 model = model.to(device)
 model.eval()
-checkpoint = torch.load(checkpoint_path)
+checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
 print(f"checkpoint:{checkpoint.keys()}")
 print(f"checkpoint[model]: {checkpoint['model'].keys()}")
 model.load_state_dict(checkpoint["model"])
+
+model.show_param()
+exit()
 
 
 recog_set = get_recog_set(args["dataset"])

@@ -858,6 +858,59 @@ def recogMLMBatch(batch):
         "length": lengths,
     }
 
+def recog_CLM_AR_Batch(batch):
+    names = []
+    input_ids = []
+    attention_mask = []
+    targets = []
+    nBest_index = []
+    seq_index = []
+    lengths = []
+
+    for sample in batch:
+        names.append(sample["name"])
+        input_ids.append(sample["input_ids"])
+        attention_mask.append(sample["attention_mask"])
+
+        targets.append(sample["target"])
+        nBest_index.append(sample["index"])
+        seq_index.append(sample["seq_index"])
+
+        lengths.append(sample["length"])
+
+    data_num = len(names)
+
+    assert (
+        len(input_ids) == data_num
+    ), f"data_num: {data_num} != len(input_ids): {len(input_ids)}"
+    assert (
+        len(attention_mask) == data_num
+    ), f"data_num: {data_num} != len(input_ids): {len(attention_mask)}"
+    assert (
+        len(seq_index) == data_num
+    ), f"data_num: {data_num} != len(input_ids): {len(seq_index)}"
+    assert (
+        len(targets) == data_num
+    ), f"data_num: {data_num} != len(input_ids): {len(targets)}"
+    assert (
+        len(nBest_index) == data_num
+    ), f"data_num: {data_num} != len(input_ids): {len(nBest_index)}"
+
+    # assert(len(input_ids) > 0), f'{input_ids}'
+
+    input_ids = pad_sequence(input_ids, batch_first=True)
+    attention_mask = pad_sequence(attention_mask, batch_first=True)
+
+    return {
+        "name": names,
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "seq_index": seq_index,
+        "masked_token": targets,
+        "nBest_index": nBest_index,
+        "length": lengths,
+    }
+
 
 def adaptionBatch(sample):
     tokens = [torch.tensor(s) for s in sample]

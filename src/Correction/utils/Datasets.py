@@ -162,17 +162,15 @@ def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_t
             elif (sep_token == '[UNK]'):
                 sep_token = tokenizer.unk_token
             
+            
             for i, data in enumerate(tqdm(data_json, ncols = 80)):
                 input_ids = []
                 hyps_text = []
                 for hyp in data['hyps'][:topk]:
-                    # print(f'hyp:{hyp}')
                     hyp = preprocess_string(hyp, dataset)
                     hyps_text.append(hyp)
                     token_ids = tokenizer(hyp)['input_ids'][:-1]
-                    # print(f'token_ids:{token_ids}')
                     input_ids.append(token_ids)
-                # print(f'input_ids:{input_ids}')
                 align_hyp_ids = align(input_ids, nBest = topk, placeholder = tokenizer.convert_tokens_to_ids(sep_token))
 
                 if (len(align_hyp_ids) < topk - 1):
@@ -181,18 +179,16 @@ def get_dataset(data_json, dataset ,tokenizer, topk, sep_token = '[SEP]', data_t
                     print(f'input_ids:{input_ids}')
                 
                 input_ids = alignNbest(align_hyp_ids, placeholder = tokenizer.convert_tokens_to_ids(sep_token))
-                # print(f'align_hyp_ids:{input_ids}')
  
                 input_ids.append([eos_token_id for _ in range(topk)])
 
-                # for ids in input_ids:
-                #     x = tokenizer.batch_decode(ids)
-                #     if ('-' in x):
-                #         print(f'{x}')
+                # print(f'input_ids:{input_ids}')
+                
+
                 ref = preprocess_string(data['ref'], dataset)
-                # print(f'ref:{ref}\n')
                 label = tokenizer(ref)["input_ids"]
                 top_hyp = preprocess_string(data['hyps'][0], dataset)
+                # print(f'label:{label}')
                 data_list.append(
                     {
                         "name": data['name'],

@@ -5,7 +5,7 @@ from pathlib import Path
 
 split_num = 32
 
-dataset = [ 'librispeech'] # 'aishell2', 'csj',
+dataset = ['aishell2'] # 'aishell2', 'csj',
 
 setting = ['noLM', 'withLM']
 for d in dataset:
@@ -42,3 +42,4 @@ for d in dataset:
                             json.dump(temp_dict, g, ensure_ascii = False, indent = 2)
                             print(f"len_{counter}:{len(temp_dict)}")
                             temp_dict = list()
+                del json_data[i]

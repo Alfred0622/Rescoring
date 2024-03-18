@@ -14,7 +14,7 @@ from utils.FindWeight import find_weight, find_weight_complex
 from utils.PrepareScoring import calculate_cer, prepare_score_dict, prepare_hyps_dict, get_result
 import time
 
-config_path = "./config/Bert_alsem.yaml"
+config_path = f"./config/Bert_alsem.yaml"
 args, train_args, recog_args = load_config(config_path)
 setting = "withLM" if args['withLM'] else "noLM"
 
@@ -26,7 +26,7 @@ if (args['dataset'] == 'csj'):
 elif (args['dataset'] in ['aishell', 'tedlium2']):
     recog_set = ['dev', 'test']
 elif (args['dataset'] in ['aishell2']):
-    recog_set = ['dev_ios', 'test_ios', 'test_android', 'test_mic']
+    recog_set = ['dev', 'test_ios', 'test_android', 'test_mic']
 elif (args['dataset'] in ['librispeech']):
     recog_set = ['valid', 'dev_clean', 'dev_other', 'test_clean', 'test_other']
 
@@ -43,7 +43,7 @@ best_rescore = 0.0
 model.eval()
 
 for_train = False
-search_all_epoch = True
+search_all_epoch = False
 if (for_train):
     recog_set = ['train_recog']
 
@@ -51,8 +51,7 @@ if (search_all_epoch):
     path_index = checkpoint_path.rindex("/")
     checkpoint_path = checkpoint_path[:path_index]
     file_path = [
-        f"{checkpoint_path}/checkpoint_train_{i}.pt" 
-        for i in range(1,train_args['epoch'] + 1)
+        f"{checkpoint_path}/checkpoint_train_{i}.pt"  for i in range(1,train_args['epoch'] + 1)
     ]
     file_path.append(f"{checkpoint_path}/chechpoint_train_best.pt" )
 else:
@@ -73,6 +72,8 @@ for checkpoint_path in file_path:
     model.fc1.load_state_dict(checkpoint['fc1'])
     model.fc2.load_state_dict(checkpoint['fc2'])
     cer_dict = dict()
+
+    model.show_param()
 
     for task in recog_set:
         print(f'task:{task}')
@@ -119,7 +120,9 @@ for checkpoint_path in file_path:
 
                 with torch.no_grad():
                     torch.cuda.synchronize()
-                    t0 = time.time()
+                    start = torch.cuda.Event(enable_timing=True)
+                    end = torch.cuda.Event(enable_timing=True)
+                    start.record()
                     output = model.recognize(
                         input_ids = input_ids,
                         token_type_ids = token_type_ids,
@@ -128,10 +131,11 @@ for checkpoint_path in file_path:
                         ctc_score = ctc_score,
                         lm_score = lm_score
                     )
+                    end.record()
                     torch.cuda.synchronize()
-                    t1 = time.time()
+                    elapsed_time = start.elapsed_time(end)
+                    total_time += (elapsed_time)
 
-                    total_time += (t1 - t0)
                 for i, (name, pair) in enumerate(zip(data['name'], data['pair'])):
                     # print(f'pair:{pair}')
                     first, second = pair
@@ -141,6 +145,8 @@ for checkpoint_path in file_path:
                     rescores[index_dict[name]][second] += (1 - output[i].item())
 
                     name_set.add(name)
+
+            print(f"average time:{total_time / data_num}")
             if (not search_all_epoch):
                 rescore_data = []
                 for name in name_set:

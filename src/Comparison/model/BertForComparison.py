@@ -137,6 +137,9 @@ class Bert_Sem(torch.nn.Module): # Bert_sem
 
     def parameters(self):
         return list(self.bert.parameters()) + list(self.linear.parameters())
+    
+    def show_param(self):
+        print(sum(p.numel() for p in self.parameters() ))
 
 class Bert_Alsem(torch.nn.Module): # Bert Alsem
     def __init__(
@@ -191,6 +194,7 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
 
         self.fc2 = torch.nn.Sequential(
             Linear(132, 1),
+            # Linear(64,1),
             Sigmoid()
         ).to(device)
 
@@ -286,4 +290,6 @@ class Bert_Alsem(torch.nn.Module): # Bert Alsem
         logits = self.fc2(concat_state).squeeze(-1) #(B, 132) -> (B, 1) ->"squeeze" (B)
 
         return logits
+    def show_param(self):
+        print(sum(p.numel() for p in self.parameters() ))
 

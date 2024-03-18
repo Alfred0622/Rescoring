@@ -51,11 +51,13 @@ def predict(model, dataset, tokenizer, loader):
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
 
-        # print(f'attention_mask:{attention_mask}')
-
         with torch.no_grad():
+            # torch.cuda.synchronize()
+            # t0 = time.time()
             torch.cuda.synchronize()
-            t0 = time.time()
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
             # output = model.predict()
             output = model.generate(
                 input_ids = input_ids,
@@ -64,9 +66,10 @@ def predict(model, dataset, tokenizer, loader):
                 num_beams = 5,
                 # early_stopping = True
             )
+            end.record()
             torch.cuda.synchronize()
-            t1 = time.time()
-            total_time += (t1 - t0)
+            # t1 = time.time()
+            total_time += start.elapsed_time(end)
 
             output = tokenizer.batch_decode(output, skip_special_tokens = True)
             ref_list = batch['ref_text']
@@ -125,7 +128,7 @@ if __name__ == '__main__':
     elif (args['dataset'] in ["csj"]):
         scoring_set = ['dev', 'eval1', 'eval2', 'eval3']
     elif (args['dataset'] in ["aishell2"]):
-        scoring_set = ["dev_ios", 'test_ios', 'test_mic', 'test_android']
+        scoring_set = ["dev", 'test_ios', 'test_mic', 'test_android']
     elif (args['dataset'] in ['librispeech']):
         scoring_set = ['dev_clean', 'dev_other', 'test_clean', 'test_other']
     else:
@@ -138,6 +141,8 @@ if __name__ == '__main__':
     model.eval()
     model = model.to(device)
 
+    print(f'param num: {sum(p.numel() for p in model.parameters())}')
+
     for data_name in scoring_set:
         json_path = f"../../data/{args['dataset']}/data/{setting}/{data_name}/data.json"
         if (args['dataset'] == 'csj'):
@@ -145,6 +150,9 @@ if __name__ == '__main__':
         print(f"recognizing:{data_name}")
         with open(json_path) as f:
             data_json = json.load(f)
+        
+        print(f'data_len:{len(data_json)}')
+        # exit(0)
 
         dataset = get_dataset(data_json,args['dataset'] , tokenizer, data_type = train_args['data_type'], sep_token=train_args['sep_token'] ,topk = topk, for_train = False)
 
